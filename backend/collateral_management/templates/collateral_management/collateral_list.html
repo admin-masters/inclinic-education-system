@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Collaterals{% endblock %}
+
+{% block content %}
+<h2 class="text-xl font-semibold mb-4">All Collaterals</h2>
+
+<a class="text-blue-600 underline" href="{% url 'collateral_create' %}">
+  Upload New Collateral
+</a>
+
+<ul class="list-disc ml-6 mt-4">
+  {% for item in collaterals %}
+    <li class="mb-1">
+      <a class="text-blue-700" href="{% url 'collateral_detail' item.id %}">
+        {{ item.title }} ({{ item.get_type_display }})
+      </a>
+      —
+      <a class="text-sm text-indigo-600"
+         href="{% url 'collateral_update' item.id %}">edit</a> |
+      <a class="text-sm text-red-600"
+         href="{% url 'collateral_delete' item.id %}">delete</a>
+    </li>
+  {% empty %}
+    <li>No collateral found.</li>
+  {% endfor %}
+</ul>
+{% endblock %}
+
+{% block extrajs %}
+<script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}"></script>
+{% endblock %}

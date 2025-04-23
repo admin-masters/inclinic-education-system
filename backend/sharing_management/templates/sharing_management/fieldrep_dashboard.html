@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load static %}
+{% block content %}
+<h2>My Campaigns</h2>
+
+<input id="searchBox" placeholder="Search…" style="margin-bottom:10px;padding:4px;width:200px">
+
+<table id="campTable" border="1" cellpadding="6">
+<thead>
+<tr>
+  <th>Campaign</th><th>Shares</th><th>PDF Views</th><th>Video Views</th><th></th>
+</tr></thead>
+<tbody>
+{% for s in stats %}
+<tr>
+  <td class="camp">{{ s.campaign.name }}</td>
+  <td>{{ s.shares }}</td>
+  <td>{{ s.pdfs }}</td>
+  <td>{{ s.videos }}</td>
+  <td><a href="{% url 'fieldrep_campaign_detail' s.campaign.id %}">Details</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+
+<script src="{% static 'sharing_management/dashboard.js' %}"></script>
+{% endblock %}

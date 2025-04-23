@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<h2>All Campaigns</h2>
+<a href="{% url 'campaign_create' %}">Create New Campaign</a>
+<ul>
+  {% for campaign in campaigns %}
+    <li>
+      <a href="{% url 'campaign_detail' campaign.id %}">{{ campaign.name }}</a> -
+      Status: {{ campaign.status }}
+    </li>
+  {% endfor %}
+</ul>
+{% endblock %}
+
+{% block extrajs %}
+<script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}"></script>
+{% endblock %}

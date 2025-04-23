@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Short Link Detail</h2>
+<p>Short Code: {{ shortlink.short_code }}</p>
+<p>Resource Type: {{ shortlink.resource_type }}</p>
+<p>Resource ID: {{ shortlink.resource_id }}</p>
+<p>Is Active: {{ shortlink.is_active }}</p>
+<p>Created By: {{ shortlink.created_by }}</p>
+<a href="{% url 'shortlink_delete' shortlink.id %}">Delete</a>
+<a href="{% url 'shortlink_list' %}">Back to List</a>
+{% endblock %}

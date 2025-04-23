@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+
+{% block content %}
+<h2>Campaign Detail</h2>
+<p><strong>Name:</strong> {{ campaign.name }}</p>
+<p><strong>Brand:</strong> {{ campaign.brand_name }}</p>
+<p><strong>Description:</strong> {{ campaign.description }}</p>
+<p><strong>Start:</strong> {{ campaign.start_date }}</p>
+<p><strong>End:</strong> {{ campaign.end_date }}</p>
+<p><strong>Status:</strong> {{ campaign.status }}</p>
+
+<a href="{% url 'campaign_update' campaign.id %}">Edit</a> |
+<a href="{% url 'campaign_delete' campaign.id %}">Delete</a> |
+<a href="{% url 'assign_field_reps' campaign.id %}">Assign Field Reps</a>
+
+{% endblock %}

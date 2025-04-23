@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Delete Campaign</h2>
+<p>Are you sure you want to delete "{{ object.name }}"?</p>
+<form method="post">
+  {% csrf_token %}
+  <button type="submit">Yes, delete</button>
+</form>
+{% endblock %}
+{% block extrajs %}
+<script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}"></script>
+{% endblock %}

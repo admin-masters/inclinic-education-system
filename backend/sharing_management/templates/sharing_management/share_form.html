@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Share Collateral</h2>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit">Share</button>
+</form>
+{% endblock %}

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Update Campaign</h2>
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit">Update</button>
+</form>
+{% endblock %}
+
+{% block extrajs %}
+<script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}"></script>
+{% endblock %}

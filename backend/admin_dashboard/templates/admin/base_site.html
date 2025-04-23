@@ -1,0 +1,18 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block title %}Django Admin | Inditech{% endblock %}
+
+{% block branding %}
+<h1 id="site-name"><a href="{% url 'admin:index' %}">Inditech Admin</a></h1>
+{% endblock %}
+
+{% block nav-global %}
+{% if request.user.is_staff %}
+  <div class="admin-dashboard-link" style="margin: 1em 0;">
+    <a href="{% url 'admin_dashboard:dashboard' %}" style="font-weight: bold;">📊 Dashboard</a>
+  </div>
+{% endif %}
+{% endblock %}
+
+

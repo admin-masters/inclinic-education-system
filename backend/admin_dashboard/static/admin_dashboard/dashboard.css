@@ -1,0 +1,11 @@
+.admin-dashboard {
+  border-collapse: collapse;
+  width: 100%;
+}
+.admin-dashboard th, .admin-dashboard td {
+  border: 1px solid #ccc;
+  padding: 6px 10px;
+}
+.admin-dashboard th {
+  background: #f4f4f4;
+}

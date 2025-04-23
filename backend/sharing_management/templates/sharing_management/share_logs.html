@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>My Share History</h2>
+<ul>
+{% for log in logs %}
+  <li>
+    Shared <strong>{{ log.short_link.short_code }}</strong> to
+    <strong>{{ log.doctor_identifier }}</strong> via {{ log.share_channel }}
+    on {{ log.share_timestamp }}
+  </li>
+{% empty %}
+  <li>No shares found.</li>
+{% endfor %}
+</ul>
+{% endblock %}

@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>All Short Links</h2>
+<a href="{% url 'shortlink_create' %}">Create New Short Link</a>
+<ul>
+  {% for sl in shortlinks %}
+    <li>
+      <a href="{% url 'shortlink_detail' sl.id %}">{{ sl.short_code }}</a>
+       -> resource_id: {{ sl.resource_id }}
+       {% if sl.is_active %} [Active] {% else %} [Inactive] {% endif %}
+    </li>
+  {% endfor %}
+</ul>
+{% endblock %}

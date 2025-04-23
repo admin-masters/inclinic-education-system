@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Assign Field Reps to {{ campaign.name }}</h2>
+<form method="post" style="margin-bottom: 2rem;">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit">Assign</button>
+</form>
+
+<h3>Current Assignments</h3>
+<ul>
+  {% for assignment in assignments %}
+    <li>
+      {{ assignment.field_rep.username }} ({{ assignment.field_rep.email }})
+      <a href="{% url 'remove_field_rep' campaign.id assignment.id %}">Unassign</a>
+    </li>
+  {% empty %}
+    <li>No field reps assigned yet.</li>
+  {% endfor %}
+</ul>
+
+<a href="{% url 'campaign_detail' campaign.id %}">Back to Campaign Detail</a>
+{% endblock %}
+
+{% block extrajs %}
+<script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}"></script>
+{% endblock %}

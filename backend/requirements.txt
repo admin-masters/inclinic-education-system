@@ -1,0 +1,22 @@
+# ───────────────────────── Core Framework ─────────────────────────
+Django==4.2.11                # current LTS
+djangorestframework==3.14.0   # REST API
+django-cors-headers==4.3.1    # CORS (Issue #2)
+
+# ───────────────────────── Auth / OAuth ───────────────────────────
+social-auth-app-django==5.3.0 # Google OAuth & pipeline helpers
+
+# ───────────────────────── Database Driver ────────────────────────
+mysqlclient==2.2.4            # MySQL/MariaDB connector for Django
+
+# ───────────────────────── Async Tasks / ETL ──────────────────────
+celery==5.3.6                 # optional: run_etl via Celery Beat
+redis==5.0.3                  # broker/back‑end if you use Redis
+
+# ───────────────────────── Utility / Parsing ──────────────────────
+python-dotenv==1.0.1          # load .env into settings (if you like)
+django-environ==0.11.2        # alternative env loader
+
+# ───────────────────────── Development ────────────────────────────
+ipython==8.23.0               # nicer shell_plus
+Werkzeug==3.0.2               # runserver_plus (optional)

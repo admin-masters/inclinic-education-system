@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block content %}
+<h2>Campaign Collaterals</h2>
+<table border="1" cellpadding="6">
+<thead><tr><th>Title</th><th>Type</th><th>Shares</th><th>PDF Views</th><th>Video Views</th></tr></thead>
+<tbody>
+{% for r in rows %}
+<tr>
+  <td>{{ r.collateral.title }}</td>
+  <td>{{ r.collateral.type }}</td>
+  <td>{{ r.shares }}</td>
+  <td>{{ r.pdfs }}</td>
+  <td>{{ r.videos }}</td>
+</tr>
+{% endfor %}
+</tbody></table>
+<a href="{% url 'fieldrep_dashboard' %}">← back to campaigns</a>
+{% endblock %}

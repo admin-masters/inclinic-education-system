@@ -1,0 +1,109 @@
+{% load static %}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Collateral Viewer</title>
+  <style>
+    body { margin:0; font-family:sans-serif }
+    #pdfContainer { width:100%; height:100vh; overflow:auto }
+    iframe { border:none; width:100%; height:100vh }
+  </style>
+</head>
+<body>
+
+<!-- Pass engagement_id safely to JS -->
+<script type="application/json" id="engagementId">
+  {{ engagement_id|json_script:"engagementId" }}
+</script>
+
+<!-- Declare engagement variable ONCE globally -->
+<script>
+  const engagement = JSON.parse(document.getElementById('engagementId').textContent);
+</script>
+
+{% if collateral.type == 'pdf' %}
+  <!-- PDF.js viewer -->
+  <div id="pdfContainer"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <script>
+    const url = "{{ collateral.file.url }}";
+    let pdfDoc = null, totalPages = 0, completed = false;
+
+    const container = document.getElementById('pdfContainer');
+
+    pdfjsLib.getDocument(url).promise.then(doc => {
+        pdfDoc = doc;
+        totalPages = doc.numPages;
+        for (let i = 1; i <= totalPages; i++) {
+            renderPage(i);
+        }
+    });
+
+    function renderPage(num) {
+      pdfDoc.getPage(num).then(page => {
+          const viewport = page.getViewport({scale: 1.2});
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          canvas.height = viewport.height;
+          canvas.width = viewport.width;
+          container.appendChild(canvas);
+          page.render({canvasContext: ctx, viewport: viewport});
+      });
+    }
+
+    container.addEventListener('scroll', () => {
+        const bottom = container.scrollTop + container.clientHeight >= container.scrollHeight - 10;
+        if (bottom && !completed) {
+            completed = true;
+            logEngagement({pdf_completed: true, last_page: totalPages});
+        }
+        const pct = container.scrollTop / (container.scrollHeight - container.clientHeight);
+        const approxPage = Math.ceil(pct * totalPages);
+        logEngagement({last_page: approxPage});
+    });
+
+    function logEngagement(payload) {
+        payload.engagement_id = engagement;
+        fetch("{% url 'doctor_view_log' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+    }
+  </script>
+
+{% else %}
+  <!-- Vimeo Video Viewer -->
+  {% with collateral.vimeo_url|cut:"https://vimeo.com/" as vid %}
+    <iframe id="vimeoPlayer"
+            src="https://player.vimeo.com/video/{{ vid }}?playsinline=1&title=0&byline=0&portrait=0"
+            allow="autoplay; fullscreen; picture-in-picture"
+            allowfullscreen></iframe>
+  {% endwith %}
+
+  <script src="https://player.vimeo.com/api/player.js"></script>
+  <script>
+    const player = new Vimeo.Player(document.getElementById('vimeoPlayer'));
+
+    player.on('timeupdate', function(data) {
+        const pct = Math.round((data.percent || 0) * 100);
+        logEngagement({video_pct: pct});
+        if (pct >= 90) {
+            logEngagement({video_pct: 100});
+        }
+    });
+
+    function logEngagement(payload) {
+        payload.engagement_id = engagement;
+        fetch("{% url 'doctor_view_log' %}", {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        });
+    }
+  </script>
+{% endif %}
+
+</body>
+</html>
