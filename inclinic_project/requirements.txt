@@ -1,8 +1,0 @@
-django==4.2
-mysqlclient==2.1.1
-social-auth-app-django==5.0.0
-django-recaptcha==3.0.0
-requests==2.31.0
-djangorestframework==3.14.0
-django-cors-headers==4.3.1
-
