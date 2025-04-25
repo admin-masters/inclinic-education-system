@@ -143,7 +143,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-for-dev')  # K
 
 DEBUG = True  # For development only
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['new.cpdinclinic.co.in']
 
 # ----------------------------------------------------------------------------
 # Apps
@@ -294,7 +294,7 @@ SOCIAL_AUTH_URL_NAMESPACE = 'social'
 # etc.
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = BASE_DIR / 'media'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 ADMIN_DASHBOARD_LINK = '/admin/dashboard/'
 
 REST_FRAMEWORK = {
