@@ -3,7 +3,6 @@ from django.conf import settings
 from django.http import HttpResponseForbidden
 
 VERIFY_URL = "https://www.google.com/recaptcha/api/siteverify"
-
 def verify_recaptcha(token: str, min_score: float = 0.5) -> bool:
     data = {
         'secret': settings.RECAPTCHA_SECRET_KEY,
@@ -13,6 +12,7 @@ def verify_recaptcha(token: str, min_score: float = 0.5) -> bool:
     if not r.ok:
         return False
     js = r.json()
+    print('Google response', js)
     return js.get('success') and js.get('score', 0) >= min_score
 
 

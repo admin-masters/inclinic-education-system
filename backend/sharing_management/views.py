@@ -70,8 +70,19 @@ def share_content(request):
                 encoded_msg = urllib.parse.quote(full_msg, safe='')
                 wa_link = f"{base_wa}{phone_number}?text={encoded_msg}"
 
-            # 4) Redirect to a success page that shows the "Open WhatsApp" link
-            return redirect('share_success', share_log_id=share_log.id, wa_link=wa_link)
+            # # 4) Redirect to a success page that shows the "Open WhatsApp" link
+            # return redirect('share_success', share_log_id=share_log.id, wa_link=wa_link)
+            if wa_link:
+               return redirect(
+    'share_success_with_link',
+    share_log_id=share_log.id,
+    wa_link=wa_link
+)
+
+
+
+            else:
+                return redirect('share_success', share_log_id=share_log.id)
 
     else:
         form = ShareForm()
@@ -108,15 +119,10 @@ def find_or_create_short_link(collateral, user):
 
 @field_rep_required
 def share_success(request, share_log_id, wa_link=None):
-    """
-    Shows a success page with a link to open WhatsApp (if applicable).
-    """
     share_log = get_object_or_404(ShareLog, id=share_log_id, field_rep=request.user)
-    context = {
-        'share_log': share_log,
-        'wa_link': wa_link
-    }
-    return render(request, 'sharing_management/share_success.html', context)
+    return render(request, 'sharing_management/share_success.html',
+                  {'share_log': share_log, 'wa_link': wa_link})
+
 
 @field_rep_required
 def list_share_logs(request):

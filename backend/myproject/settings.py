@@ -141,7 +141,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-for-dev')  # Keep secret in production
 
-DEBUG = True  # For development only
+DEBUG = True # For development only
 
 ALLOWED_HOSTS = ['new.cpdinclinic.co.in']
 
@@ -157,6 +157,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # 'user_management',
     'rest_framework',
+    'admin_dashboard',  
     'campaign_management',
     'collateral_management',
     'shortlink_management.apps.ShortlinkManagementConfig',
@@ -169,7 +170,7 @@ INSTALLED_APPS = [
     'django_celery_beat',
     # Our custom app
     'user_management.apps.UserManagementConfig',
-    'admin_dashboard.apps.AdminDashboardConfig',
+    # 'admin_dashboard.apps.AdminDashboardConfig',
     'reporting_etl.apps.ReportingEtlConfig',
 ]
 
@@ -200,6 +201,7 @@ TEMPLATES = [
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
+                'utils.context_processors.recaptcha_site_key',
                 'django.template.context_processors.debug',
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
@@ -282,6 +284,8 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET',
 
 RECAPTCHA_SITE_KEY = os.environ.get("RECAPTCHA_SITE_KEY")
 RECAPTCHA_SECRET_KEY = os.environ.get("RECAPTCHA_SECRET_KEY")
+
+
 # Where to redirect after successful login/logout
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
@@ -289,7 +293,7 @@ LOGOUT_REDIRECT_URL = '/'
 SOCIAL_AUTH_URL_NAMESPACE = 'social'
 
 # In production, also set:
-# CSRF_TRUSTED_ORIGINS = ['yourdomain.com']
+# CSRF_TRUSTED_ORIGINS = ['new.cpdinclinic.co.in']
 # SESSION_COOKIE_SECURE = True
 # etc.
 
@@ -310,3 +314,4 @@ CORS_ALLOW_ALL_ORIGINS = True
 #     "http://localhost:3000",              # React/Vite dev server
 #     "https://admin.inditech.com",         # your deployed frontend
 # ]
+

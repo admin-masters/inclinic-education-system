@@ -1,9 +1,41 @@
 {% extends "base.html" %}
+
 {% block content %}
-<h2>Share Collateral</h2>
-<form method="post">
+<h2 class="text-xl font-semibold mb-4">Share Collateral</h2>
+
+<form method="post" id="shareForm" class="space-y-4">
   {% csrf_token %}
   {{ form.as_p }}
-  <button type="submit">Share</button>
+  <!-- token specific to this form -->
+  <input type="hidden"
+         name="g-recaptcha-token"
+         id="shareRecaptchaToken">
+  <button type="submit"
+          class="px-4 py-2 bg-blue-600 text-white rounded">
+    Share
+  </button>
 </form>
+{% endblock %}
+
+{% block bottomjs %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  const siteKey = "{{ RECAPTCHA_SITE_KEY }}";
+  const form    = document.getElementById('shareForm');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();                                 // pause POST
+
+    grecaptcha.ready(function () {
+      grecaptcha.execute(siteKey, {action: 'share'})
+        .then(function (token) {
+          // write token into THIS form only
+          form.querySelector('#shareRecaptchaToken').value = token;
+          form.submit();                                // resume POST
+        })
+        .catch(err => alert('reCAPTCHA error: ' + err));
+    });
+  });
+});
+</script>
 {% endblock %}

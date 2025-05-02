@@ -6,7 +6,14 @@ from .views import (
 
 urlpatterns = [
     path('share/', share_content, name='share_content'),
-    path('share/success/<int:share_log_id>/<path:wa_link>/', share_success, name='share_success'),
+    
+    # For WhatsApp (with wa_link)
+    path('share/success/<int:share_log_id>/<path:wa_link>/',
+         share_success, name='share_success_with_link'),
+    
+    # For SMS/Email (without wa_link)
+    path('share/success/<int:share_log_id>/', share_success, name='share_success'),
+    
     path('logs/', list_share_logs, name='share_logs'),
     
     # Field Rep Dashboard
