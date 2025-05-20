@@ -1,19 +1,20 @@
-"""
-myproject/settings.py
-"""
-import os
 from pathlib import Path
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# Load environment variables from the custom .env file path
+load_dotenv("/var/www/secrets/.env")  # ① load the file
+
+import os
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-for-dev')  # Keep secret in production
 
-DEBUG = True # For development only
+DEBUG = True  # For development only
 
-ALLOWED_HOSTS = ['new.cpdinclinic.co.in']
+ALLOWED_HOSTS = [
+    'new.cpdinclinic.co.in',
+]
 
 # ----------------------------------------------------------------------------
 # Apps
@@ -25,22 +26,17 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # 'user_management',
     'rest_framework',
-    'admin_dashboard',  
+    'admin_dashboard',
     'campaign_management',
     'collateral_management',
     'shortlink_management.apps.ShortlinkManagementConfig',
     'sharing_management',
     'doctor_viewer.apps.DoctorViewerConfig',
-    # 3rd-party apps
-    'social_django',           # for Google OAuth
-    # 'rest_framework',        # if using DRF
-    'corsheaders',           # if needed for cross-origin requests
+    'social_django',
+    'corsheaders',
     'django_celery_beat',
-    # Our custom app
     'user_management.apps.UserManagementConfig',
-    # 'admin_dashboard.apps.AdminDashboardConfig',
     'reporting_etl.apps.ReportingEtlConfig',
 ]
 
@@ -55,8 +51,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-
-    'corsheaders.middleware.CorsMiddleware', # if needed
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'social_django.middleware.SocialAuthExceptionMiddleware',
@@ -67,7 +62,7 @@ ROOT_URLCONF = 'myproject.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [ BASE_DIR / 'templates' ],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -76,8 +71,6 @@ TEMPLATES = [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
                 'django.contrib.messages.context_processors.messages',
-
-                # Needed for social auth
                 'social_django.context_processors.backends',
                 'social_django.context_processors.login_redirect',
             ],
@@ -88,7 +81,7 @@ TEMPLATES = [
 WSGI_APPLICATION = 'myproject.wsgi.application'
 
 # ----------------------------------------------------------------------------
-# Database: MySQL example
+# Database
 # ----------------------------------------------------------------------------
 DATABASES = {
     'default': {
@@ -115,7 +108,7 @@ DATABASES = {
 AUTH_USER_MODEL = 'user_management.User'
 
 # ----------------------------------------------------------------------------
-# Password validation
+# Password Validation
 # ----------------------------------------------------------------------------
 AUTH_PASSWORD_VALIDATORS = [
     {
@@ -124,7 +117,6 @@ AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
     },
-    # Add more if needed
 ]
 
 # ----------------------------------------------------------------------------
@@ -146,26 +138,18 @@ STATIC_URL = '/static/'
 # ----------------------------------------------------------------------------
 AUTHENTICATION_BACKENDS = (
     'social_core.backends.google.GoogleOAuth2',
-    'django.contrib.auth.backends.ModelBackend',  # default
+    'django.contrib.auth.backends.ModelBackend',
 )
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_KEY', '')
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET', '')
 
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")           
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")     
 
-RECAPTCHA_SITE_KEY = os.environ.get("RECAPTCHA_SITE_KEY")
-RECAPTCHA_SECRET_KEY = os.environ.get("RECAPTCHA_SECRET_KEY")
+RECAPTCHA_SITE_KEY = os.getenv("RECAPTCHA_SITE_KEY")                                  
+RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")                              
 
-
-# Where to redirect after successful login/logout
 LOGIN_REDIRECT_URL = '/'
 LOGOUT_REDIRECT_URL = '/'
-
 SOCIAL_AUTH_URL_NAMESPACE = 'social'
-
-# In production, also set:
-# CSRF_TRUSTED_ORIGINS = ['new.cpdinclinic.co.in']
-# SESSION_COOKIE_SECURE = True
-# etc.
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
@@ -173,15 +157,11 @@ ADMIN_DASHBOARD_LINK = '/admin/dashboard/'
 
 REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
-        'rest_framework.permissions.IsAuthenticated',  # Admin UI uses session auth
+        'rest_framework.permissions.IsAuthenticated',
     ],
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',
     ],
 }
-CORS_ALLOW_ALL_ORIGINS = True
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:3000",              # React/Vite dev server
-#     "https://admin.inditech.com",         # your deployed frontend
-# ]
 
+CORS_ALLOW_ALL_ORIGINS = True
