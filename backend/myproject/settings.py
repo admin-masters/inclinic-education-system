@@ -10,7 +10,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-for-dev')  # Keep secret in production
 
-DEBUG = True  # For development only
+DEBUG = False  # For development only
 
 ALLOWED_HOSTS = [
     'new.cpdinclinic.co.in',
