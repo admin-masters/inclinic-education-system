@@ -12,9 +12,7 @@ SECRET_KEY = os.getenv('SECRET_KEY', 'django-insecure-default-key-for-dev')  # K
 
 DEBUG = False 
 
-ALLOWED_HOSTS = [
-    'new.cpdinclinic.co.in',
-]
+ALLOWED_HOSTS = ['.cpdinclinic.co.in']
 
 # ----------------------------------------------------------------------------
 # Apps
