@@ -29,7 +29,7 @@ INSTALLED_APPS = [
     'campaign_management',
     'collateral_management',
     'shortlink_management.apps.ShortlinkManagementConfig',
-    'sharing_management',
+    'sharing_management.apps.SharingManagementConfig',
     'doctor_viewer.apps.DoctorViewerConfig',
     'social_django',
     'corsheaders',
