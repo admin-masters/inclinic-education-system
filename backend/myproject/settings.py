@@ -148,7 +148,7 @@ LOGOUT_REDIRECT_URL = '/'
 SOCIAL_AUTH_URL_NAMESPACE = 'social'
 
 MEDIA_URL = '/media/'
-MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+MEDIA_ROOT = os.path.join(BASE_DIR, 'backend', 'media')
 ADMIN_DASHBOARD_LINK = '/admin/dashboard/'
 
 REST_FRAMEWORK = {
