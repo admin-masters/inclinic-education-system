@@ -1,9 +1,8 @@
 """
 Django settings for Inclinic Education System
 ──────────────────────────────────────────────
-`BASE_DIR` now resolves to the real project root:
-    /var/www/inclinic-education-system
-regardless of where this file lives.
+All project code, templates, static files and media remain
+under:  /var/www/inclinic-education-system/backend
 """
 
 from pathlib import Path
@@ -11,37 +10,38 @@ from dotenv import load_dotenv
 import os
 
 # ──────────────────────────────────────────────────────────────
-# 0.  Environment file
+# 0   Environment variables
 # ──────────────────────────────────────────────────────────────
-load_dotenv("/var/www/secrets/.env")           # custom path with secrets
+load_dotenv("/var/www/secrets/.env")
 
 # ──────────────────────────────────────────────────────────────
-# 1.  Paths
+# 1   Paths
 # ──────────────────────────────────────────────────────────────
-# settings.py  → myproject  → backend  →  PROJECT ROOT
-BASE_DIR = Path(__file__).resolve().parents[2]  # absolute root folder
+BACKEND_DIR = Path(__file__).resolve().parent.parent          # …/backend
+PROJECT_DIR = BACKEND_DIR.parent                              # …/inclinic-education-system
 
-BACKEND_DIR = BASE_DIR / "backend"              # convenience
+# you may still use PROJECT_DIR elsewhere if needed
+BASE_DIR = BACKEND_DIR                                        # ← **key change**
 
 # ──────────────────────────────────────────────────────────────
-# 2.  Security
+# 2   Security
 # ──────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-default-key-for-dev")
 DEBUG = False
 ALLOWED_HOSTS = [
-  ".cpdinclinic.co.in",
-  "13.200.145.110",
-  "127.0.0.1",
-  "localhost",
-  ]
+    ".cpdinclinic.co.in",
+    "13.200.145.110",
+    "127.0.0.1",
+    "localhost",
+]
 
-CSRF_TRUSTED_ORIGINS = ["https://*.cpdinclinic.co.in"]
+CSRF_TRUSTED_ORIGINS   = ["https://*.cpdinclinic.co.in"]
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
-CSRF_COOKIE_SECURE = True
-SESSION_COOKIE_SECURE = True
+CSRF_COOKIE_SECURE      = True
+SESSION_COOKIE_SECURE   = True
 
 # ──────────────────────────────────────────────────────────────
-# 3.  Installed apps
+# 3   Installed apps
 # ──────────────────────────────────────────────────────────────
 INSTALLED_APPS = [
     "django.contrib.admin",
@@ -65,7 +65,7 @@ INSTALLED_APPS = [
 ]
 
 # ──────────────────────────────────────────────────────────────
-# 4.  Middleware
+# 4   Middleware
 # ──────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -80,14 +80,15 @@ MIDDLEWARE = [
 ]
 
 ROOT_URLCONF = "myproject.urls"
+WSGI_APPLICATION = "myproject.wsgi.application"
 
 # ──────────────────────────────────────────────────────────────
-# 5.  Templates
+# 5   Templates  (reads from backend/templates)
 # ──────────────────────────────────────────────────────────────
 TEMPLATES = [
     {
         "BACKEND": "django.template.backends.django.DjangoTemplates",
-        "DIRS": [BASE_DIR / "templates"],       # project-level templates
+        "DIRS": [BACKEND_DIR / "templates"],   # ← points to backend/templates
         "APP_DIRS": True,
         "OPTIONS": {
             "context_processors": [
@@ -103,10 +104,8 @@ TEMPLATES = [
     },
 ]
 
-WSGI_APPLICATION = "myproject.wsgi.application"
-
 # ──────────────────────────────────────────────────────────────
-# 6.  Database
+# 6   Database
 # ──────────────────────────────────────────────────────────────
 DATABASES = {
     "default": {
@@ -130,7 +129,7 @@ DATABASES = {
 AUTH_USER_MODEL = "user_management.User"
 
 # ──────────────────────────────────────────────────────────────
-# 7.  Password validation
+# 7   Password validation
 # ──────────────────────────────────────────────────────────────
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},
@@ -138,25 +137,24 @@ AUTH_PASSWORD_VALIDATORS = [
 ]
 
 # ──────────────────────────────────────────────────────────────
-# 8.  i18n / timezone
+# 8   i18n / timezone
 # ──────────────────────────────────────────────────────────────
 LANGUAGE_CODE = "en-us"
-TIME_ZONE = "UTC"
-USE_I18N = True
-USE_L10N = True
-USE_TZ = True
+TIME_ZONE     = "UTC"
+USE_I18N = USE_L10N = USE_TZ = True
 
 # ──────────────────────────────────────────────────────────────
-# 9.  Static / media
+# 9   Static & media  (stay under backend/)
 # ──────────────────────────────────────────────────────────────
-STATIC_URL = "/static/"
-STATIC_ROOT = BASE_DIR / "static"               # collectstatic target
+STATIC_URL  = "/static/"
+STATIC_ROOT = BACKEND_DIR / "staticfiles"          # collectstatic target
+STATICFILES_DIRS = [BACKEND_DIR / "static"]        # dev assets
 
-MEDIA_URL = "/media/"
-MEDIA_ROOT = BASE_DIR / "media"                 # now at project root
+MEDIA_URL   = "/media/"
+MEDIA_ROOT  = BACKEND_DIR / "media"
 
 # ──────────────────────────────────────────────────────────────
-# 10.  Social auth / reCAPTCHA
+# 10  Social auth / reCAPTCHA
 # ──────────────────────────────────────────────────────────────
 AUTHENTICATION_BACKENDS = (
     "social_core.backends.google.GoogleOAuth2",
@@ -176,7 +174,7 @@ SOCIAL_AUTH_URL_NAMESPACE = "social"
 ADMIN_DASHBOARD_LINK = "/admin/dashboard/"
 
 # ──────────────────────────────────────────────────────────────
-# 11.  Django REST framework
+# 11  Django REST framework
 # ──────────────────────────────────────────────────────────────
 REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": ["rest_framework.permissions.IsAuthenticated"],
@@ -184,18 +182,18 @@ REST_FRAMEWORK = {
 }
 
 # ──────────────────────────────────────────────────────────────
-# 12.  CORS
+# 12  CORS
 # ──────────────────────────────────────────────────────────────
 CORS_ALLOW_ALL_ORIGINS = True
 
 # ──────────────────────────────────────────────────────────────
-# 13.  Logging
+# 13  Logging (errors to file + stderr)
 # ──────────────────────────────────────────────────────────────
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "handlers": {
-        "stderr": {  # still goes to journalctl
+        "stderr": {
             "class": "logging.StreamHandler",
             "stream": "ext://sys.stderr",
         },
