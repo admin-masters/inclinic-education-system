@@ -28,7 +28,12 @@ BACKEND_DIR = BASE_DIR / "backend"              # convenience
 # ──────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-default-key-for-dev")
 DEBUG = False
-ALLOWED_HOSTS = [".cpdinclinic.co.in"]
+ALLOWED_HOSTS = [
+  ".cpdinclinic.co.in",
+  "13.200.145.110",
+  "127.0.0.1",
+  "localhost",
+  ]
 
 CSRF_TRUSTED_ORIGINS = ["https://*.cpdinclinic.co.in"]
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -182,3 +187,32 @@ REST_FRAMEWORK = {
 # 12.  CORS
 # ──────────────────────────────────────────────────────────────
 CORS_ALLOW_ALL_ORIGINS = True
+
+# ──────────────────────────────────────────────────────────────
+# 13.  Logging
+# ──────────────────────────────────────────────────────────────
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "stderr": {  # still goes to journalctl
+            "class": "logging.StreamHandler",
+            "stream": "ext://sys.stderr",
+        },
+        "file": {
+            "class": "logging.FileHandler",
+            "filename": "/var/log/inclinic/django-error.log",
+            "formatter": "verbose",
+        },
+    },
+    "formatters": {
+        "verbose": {
+            "format": "[%(asctime)s] %(levelname)s "
+                      "%(name)s:%(lineno)s %(message)s"
+        },
+    },
+    "root": {
+        "handlers": ["stderr", "file"],
+        "level": "ERROR",
+    },
+}
