@@ -12,6 +12,7 @@ import os
 # ──────────────────────────────────────────────────────────────
 # 0   Environment variables
 # ──────────────────────────────────────────────────────────────
+BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv("/var/www/secrets/.env")
 
 # ──────────────────────────────────────────────────────────────
@@ -21,7 +22,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent          # …/backend
 PROJECT_DIR = BACKEND_DIR.parent                              # …/inclinic-education-system
 
 # you may still use PROJECT_DIR elsewhere if needed
-BASE_DIR = BACKEND_DIR                                        # ← **key change**
+# BASE_DIR = BACKEND_DIR                                        # ← *key change*
 
 # ──────────────────────────────────────────────────────────────
 # 2   Security
