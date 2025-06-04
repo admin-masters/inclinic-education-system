@@ -70,6 +70,7 @@ INSTALLED_APPS = [
 # ──────────────────────────────────────────────────────────────
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
+    "whitenoise.middleware.WhiteNoiseMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -149,7 +150,9 @@ USE_I18N = USE_L10N = USE_TZ = True
 # ──────────────────────────────────────────────────────────────
 STATIC_URL  = "/static/"
 STATIC_ROOT = BACKEND_DIR / "staticfiles"          # collectstatic target
-STATICFILES_DIRS = [BACKEND_DIR / "static"]        # dev assets
+STATICFILES_STORAGE = ( #  ← NEW LINE Server
+    "whitenoise.storage.CompressedManifestStaticFilesStorage" #  ← NEW LINE Server
+) #  ← NEW LINE Server
 
 MEDIA_URL   = "/media/"
 MEDIA_ROOT  = BACKEND_DIR / "media"
