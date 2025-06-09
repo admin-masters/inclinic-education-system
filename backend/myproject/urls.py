@@ -35,6 +35,7 @@ urlpatterns = [
     # path('admin/dashboard/', include('admin_dashboard.urls', namespace='admin_dashboard')),
     path('admin-dashboard/', include(('admin_dashboard.urls', 'admin_dashboard'), namespace='admin-dashboard')),
     path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
+    path('shortlinks/', include('shortlink_management.urls')),
     
 ]
 
