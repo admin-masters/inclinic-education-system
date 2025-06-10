@@ -1,17 +1,16 @@
 # shortlink_management/views.py
 
 from django.shortcuts import render, redirect, get_object_or_404
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils.decorators import method_decorator
 from django.views.generic import ListView, DetailView, DeleteView
 from django.contrib import messages
+from django.utils import timezone
 
 from .models import ShortLink
 from .forms import ShortLinkForm
 from .decorators import admin_required
 from collateral_management.models import Collateral
-
-from django.utils import timezone
 
 
 # ----------------------------------------------------------------
@@ -74,24 +73,23 @@ class ShortLinkDeleteView(DeleteView):
 
 # ----------------------------------------------------------------
 # Resolve Short Link
-# This is what doctors/others might click in real usage:
-# e.g. /short/<short_code> -> redirect or display resource
 # ----------------------------------------------------------------
 def resolve_shortlink(request, code):
     """
-    1. Look up the short link by short_code.
-    2. If found & active, fetch the resource (Collateral).
-    3. (In a real app, you'd redirect or show a PDF/video viewer.)
+    Resolve the short code and redirect to the viewer page if both
+    the shortlink and its associated collateral are active.
+    Otherwise, render an info page with an error message.
     """
     shortlink = get_object_or_404(ShortLink, short_code=code, is_active=True)
     collateral = shortlink.get_collateral()
 
-    if not collateral:
-        messages.error(request, "Resource not found or invalid.")
-        return redirect('shortlink_list')
+    if collateral and collateral.is_active:
+        viewer_url = reverse("doctor_view", kwargs={"code": code})
+        return redirect(viewer_url)
 
-    # For demonstration, let's just display a simple page with collateral info
-    return render(request, 'shortlink_management/resolve_shortlink.html', {
-        'shortlink': shortlink,
-        'collateral': collateral,
-    })
+    messages.error(request, "Resource not found or inactive.")
+    return render(
+        request,
+        "shortlink_management/resolve_shortlink.html",
+        {"shortlink": shortlink, "collateral": collateral},
+    )
