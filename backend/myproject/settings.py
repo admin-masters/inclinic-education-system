@@ -155,7 +155,7 @@ STATICFILES_STORAGE = ( #  ← NEW LINE Server
 ) #  ← NEW LINE Server
 
 MEDIA_URL   = "/media/"
-MEDIA_ROOT  = BACKEND_DIR / "media"
+MEDIA_ROOT = Path("/var/www/inclinic-media") 
 
 # ──────────────────────────────────────────────────────────────
 # 10  Social auth / reCAPTCHA
