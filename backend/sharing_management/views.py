@@ -4,6 +4,9 @@ from django.utils import timezone
 from django.db.models import Count
 from urllib.parse import quote
 
+from django.core.mail import send_mail
+from django.conf import settings
+
 from .decorators import field_rep_required
 from .forms import ShareForm
 from .models import ShareLog
@@ -14,44 +17,75 @@ from campaign_management.models import CampaignAssignment
 from doctor_viewer.models import DoctorEngagement
 from utils.recaptcha import recaptcha_required
 
+# -------------------------------
+# EMAIL HELPER FUNCTION
+# -------------------------------
+def _send_email(to_addr: str, subject: str, body: str) -> None:
+    send_mail(
+        subject=subject,
+        message=body,
+        from_email=settings.EMAIL_HOST_USER,
+        recipient_list=[to_addr],
+        fail_silently=False,
+    )
 
+# -------------------------------
+# SHARE VIEW
+# -------------------------------
 @field_rep_required
 @recaptcha_required 
 def share_content(request):
-    """
-    Field rep chooses which collateral to share, enters doctor info,
-    and we create (or reuse) a short link, then log the share event.
-    Finally, we show them a "WhatsApp link" to send to the doctor.
-    """
     if request.method == 'POST':
         form = ShareForm(request.POST)
         if form.is_valid():
             collateral = form.cleaned_data['collateral']
-            doctor_identifier = form.cleaned_data['doctor_identifier']
+            doctor_contact = form.cleaned_data['doctor_contact'].strip()
             share_channel = form.cleaned_data['share_channel']
             message_text = form.cleaned_data['message_text']
 
             short_link = find_or_create_short_link(collateral, request.user)
 
+            short_url = request.build_absolute_uri(
+                f"/shortlinks/go/{short_link.short_code}/"
+            )
+            default_msg = f"Hello Doctor, please check this: {short_url}"
+            full_msg = f"{message_text} {short_url}".strip() or default_msg
+
+            try:
+                if share_channel == "WhatsApp":
+                    pass
+                elif share_channel == "Email":
+                    _send_email(
+                        to_addr=doctor_contact,
+                        subject="New material from your field-rep",
+                        body=full_msg,
+                    )
+                else:
+                    messages.error(request, "Unknown share channel")
+                    return redirect("share_content")
+
+            except Exception as exc:
+                messages.error(request, f"Could not send: {exc}")
+                return redirect("share_content")
+
             share_log = ShareLog.objects.create(
                 short_link=short_link,
                 field_rep=request.user,
-                doctor_identifier=doctor_identifier,
+                doctor_identifier=doctor_contact,
                 share_channel=share_channel,
                 share_timestamp=timezone.now(),
                 message_text=message_text
             )
 
-            messages.success(request, "Share logged successfully!")
-
             return redirect("share_success", share_log_id=share_log.id)
-
     else:
         form = ShareForm()
 
     return render(request, 'sharing_management/share_form.html', {'form': form})
 
-
+# -------------------------------
+# SHORTLINK HELPERS
+# -------------------------------
 def find_or_create_short_link(collateral, user):
     existing = ShortLink.objects.filter(
         resource_type='collateral',
@@ -72,9 +106,7 @@ def find_or_create_short_link(collateral, user):
     )
     return short_link
 
-
 def build_wa_link(share_log, request):
-    """return a fully-formed https://wa.me/<phone>?text=… link"""
     if share_log.share_channel != "WhatsApp":
         return ""
 
@@ -88,7 +120,9 @@ def build_wa_link(share_log, request):
     )
     return f"https://wa.me/{share_log.doctor_identifier}?text={quote(msg_text)}"
 
-
+# -------------------------------
+# SUCCESS + LOGS + DASHBOARD
+# -------------------------------
 @field_rep_required
 def share_success(request, share_log_id):
     share_log = get_object_or_404(
@@ -101,19 +135,15 @@ def share_success(request, share_log_id):
         {"share_log": share_log, "wa_link": wa_link},
     )
 
-
 @field_rep_required
 def list_share_logs(request):
     logs = ShareLog.objects.filter(field_rep=request.user).order_by('-share_timestamp')
     return render(request, 'sharing_management/share_logs.html', {'logs': logs})
 
-
 @field_rep_required
 def fieldrep_dashboard(request):
     rep = request.user
-    assigned = CampaignAssignment.objects.filter(field_rep=rep) \
-                .select_related('campaign')
-
+    assigned = CampaignAssignment.objects.filter(field_rep=rep).select_related('campaign')
     campaign_ids = [a.campaign_id for a in assigned]
 
     share_cnts = ShareLog.objects.filter(
@@ -122,9 +152,7 @@ def fieldrep_dashboard(request):
         short_link__resource_id__in=CampaignCollateral.objects.filter(
             campaign_id__in=campaign_ids
         ).values_list('collateral_id', flat=True)
-    ).values('short_link__resource_id') \
-     .annotate(cnt=Count('id'))
-
+    ).values('short_link__resource_id').annotate(cnt=Count('id'))
     share_map = {r['short_link__resource_id']: r['cnt'] for r in share_cnts}
 
     pdf_cnts = DoctorEngagement.objects.filter(
@@ -133,9 +161,7 @@ def fieldrep_dashboard(request):
         short_link__resource_id__in=CampaignCollateral.objects.filter(
             campaign_id__in=campaign_ids
         ).values_list('collateral_id', flat=True)
-    ).values('short_link__resource_id') \
-     .annotate(cnt=Count('id'))
-
+    ).values('short_link__resource_id').annotate(cnt=Count('id'))
     pdf_map = {r['short_link__resource_id']: r['cnt'] for r in pdf_cnts}
 
     vid_cnts = DoctorEngagement.objects.filter(
@@ -144,9 +170,7 @@ def fieldrep_dashboard(request):
         short_link__resource_id__in=CampaignCollateral.objects.filter(
             campaign_id__in=campaign_ids
         ).values_list('collateral_id', flat=True)
-    ).values('short_link__resource_id') \
-     .annotate(cnt=Count('id'))
-
+    ).values('short_link__resource_id').annotate(cnt=Count('id'))
     vid_map = {r['short_link__resource_id']: r['cnt'] for r in vid_cnts}
 
     stats = []
@@ -166,41 +190,31 @@ def fieldrep_dashboard(request):
             'videos': videos,
         })
 
-    return render(request, 'sharing_management/fieldrep_dashboard.html',
-                  {'stats': stats})
-
+    return render(request, 'sharing_management/fieldrep_dashboard.html', {'stats': stats})
 
 @field_rep_required
 def fieldrep_campaign_detail(request, campaign_id):
     rep = request.user
     get_object_or_404(CampaignAssignment, field_rep=rep, campaign_id=campaign_id)
 
-    ccols = CampaignCollateral.objects.filter(campaign_id=campaign_id) \
-             .select_related('collateral')
-
+    ccols = CampaignCollateral.objects.filter(campaign_id=campaign_id).select_related('collateral')
     col_ids = [cc.collateral_id for cc in ccols]
 
     shares = ShareLog.objects.filter(
         field_rep=rep,
         short_link__resource_type='collateral',
         short_link__resource_id__in=col_ids
-    ).values('short_link__resource_id') \
-     .annotate(cnt=Count('id'))
-
+    ).values('short_link__resource_id').annotate(cnt=Count('id'))
     share_map = {r['short_link__resource_id']: r['cnt'] for r in shares}
 
     eng = DoctorEngagement.objects.filter(
         short_link__resource_id__in=col_ids,
         short_link__resource_type='collateral')
 
-    pdf_map = eng.filter(pdf_completed=True) \
-            .values('short_link__resource_id') \
-            .annotate(cnt=Count('id'))
+    pdf_map = eng.filter(pdf_completed=True).values('short_link__resource_id').annotate(cnt=Count('id'))
     pdf_map = {r['short_link__resource_id']: r['cnt'] for r in pdf_map}
 
-    vid_map = eng.filter(video_watch_percentage__gte=90) \
-            .values('short_link__resource_id') \
-            .annotate(cnt=Count('id'))
+    vid_map = eng.filter(video_watch_percentage__gte=90).values('short_link__resource_id').annotate(cnt=Count('id'))
     vid_map = {r['short_link__resource_id']: r['cnt'] for r in vid_map}
 
     rows = []
@@ -209,10 +223,9 @@ def fieldrep_campaign_detail(request, campaign_id):
         cid = col.id
         rows.append({
             'collateral': col,
-            'shares': share_map.get(cid,0),
-            'pdfs': pdf_map.get(cid,0),
-            'videos': vid_map.get(cid,0),
+            'shares': share_map.get(cid, 0),
+            'pdfs': pdf_map.get(cid, 0),
+            'videos': vid_map.get(cid, 0),
         })
 
-    return render(request, 'sharing_management/fieldrep_campaign_detail.html',
-                  {'rows': rows})
+    return render(request, 'sharing_management/fieldrep_campaign_detail.html', {'rows': rows})

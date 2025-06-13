@@ -2,10 +2,19 @@
 
 {% block content %}
 <h2>Share Successful!</h2>
-<p>Collateral shared with {{ share_log.doctor_identifier }} at {{ share_log.share_timestamp }}.</p>
+
+<p>
+  Collateral shared with {{ share_log.doctor_identifier }} at {{ share_log.share_timestamp }}.
+</p>
 
 {% if share_log.share_channel == 'WhatsApp' and wa_link %}
-  <p><a href="{{ wa_link }}" target="_blank" class="text-blue-600">Open WhatsApp</a></p>
+  <p>
+    <a href="{{ wa_link }}" target="_blank" class="text-blue-600">
+      Open WhatsApp
+    </a>
+  </p>
+{% elif share_log.share_channel == 'Email' %}
+  <p>The e-mail has been sent successfully.</p>
 {% endif %}
 
 <a href="{% url 'share_logs' %}">View My Share Logs</a>
