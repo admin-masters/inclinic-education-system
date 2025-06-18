@@ -1,27 +1,221 @@
 {% extends "base.html" %}
 {% load static %}
+
+{% block extrastyle %}
+<style>
+    .dashboard-header {
+        margin-bottom: 2rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+
+    .dashboard-title {
+        color: #2c3e50;
+        font-weight: 600;
+        margin-bottom: 0;
+    }
+
+    .header-actions {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    .search-container {
+        margin-bottom: 0;
+    }
+
+    .search-input {
+        max-width: 300px;
+        border: 1px solid #dee2e6;
+        border-radius: 0.375rem;
+        padding: 0.5rem 1rem;
+        transition: all 0.3s ease;
+    }
+
+    .search-input:focus {
+        border-color: #80bdff;
+        box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25);
+        outline: none;
+    }
+
+    .admin-btn {
+        padding: 0.5rem 1rem;
+        background-color: #6c757d;
+        color: white;
+        border-radius: 0.375rem;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 500;
+    }
+
+    .admin-btn:hover {
+        background-color: #5a6268;
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    .admin-btn i {
+        font-size: 1rem;
+    }
+
+    .campaigns-table {
+        width: 100%;
+        background: white;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    }
+
+    .campaigns-table thead {
+        background-color: #f8f9fa;
+    }
+
+    .campaigns-table th {
+        padding: 1rem;
+        font-weight: 600;
+        color: #495057;
+        border-bottom: 2px solid #dee2e6;
+    }
+
+    .campaigns-table td {
+        padding: 1rem;
+        vertical-align: middle;
+        border-bottom: 1px solid #dee2e6;
+    }
+
+    .campaigns-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .campaigns-table tr:hover {
+        background-color: #f8f9fa;
+    }
+
+    .campaign-name {
+        color: #0d6efd;
+        font-weight: 500;
+    }
+
+    .stats-cell {
+        text-align: center;
+        font-weight: 500;
+    }
+
+    .details-btn {
+        padding: 0.375rem 0.75rem;
+        background-color: #0d6efd;
+        color: white;
+        border-radius: 0.375rem;
+        text-decoration: none;
+        transition: all 0.3s ease;
+        display: inline-block;
+    }
+
+    .details-btn:hover {
+        background-color: #0b5ed7;
+        color: white;
+        transform: translateY(-1px);
+    }
+
+    /* Responsive styles */
+    @media (max-width: 768px) {
+        .dashboard-header {
+            flex-direction: column;
+            align-items: stretch;
+        }
+
+        .header-actions {
+            flex-direction: column;
+            width: 100%;
+        }
+
+        .search-input {
+            max-width: 100%;
+        }
+
+        .admin-btn {
+            width: 100%;
+            justify-content: center;
+        }
+
+        .table-responsive {
+            border-radius: 0.5rem;
+            box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+        }
+
+        .campaigns-table th,
+        .campaigns-table td {
+            padding: 0.75rem;
+            font-size: 0.875rem;
+        }
+    }
+
+    @media (max-width: 576px) {
+        .dashboard-title {
+            font-size: 1.5rem;
+        }
+
+        .campaigns-table th,
+        .campaigns-table td {
+            padding: 0.5rem;
+            font-size: 0.8125rem;
+        }
+
+        .details-btn {
+            padding: 0.25rem 0.5rem;
+            font-size: 0.8125rem;
+        }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
-<h2>My Campaigns</h2>
+<div class="dashboard-header">
+    <h2 class="dashboard-title">My Campaigns</h2>
+    <div class="header-actions">
+        <div class="search-container">
+            <input type="text" id="searchBox" class="search-input" placeholder="Search campaigns...">
+        </div>
+        <a href="{% url 'admin:index' %}" class="admin-btn" target="_blank">
+            <i class="bi bi-gear-fill"></i>
+            Admin Panel
+        </a>
+    </div>
+</div>
 
-<input id="searchBox" placeholder="Search…" style="margin-bottom:10px;padding:4px;width:200px">
-
-<table id="campTable" border="1" cellpadding="6">
-<thead>
-<tr>
-  <th>Campaign</th><th>Shares</th><th>PDF Views</th><th>Video Views</th><th></th>
-</tr></thead>
-<tbody>
-{% for s in stats %}
-<tr>
-  <td class="camp">{{ s.campaign.name }}</td>
-  <td>{{ s.shares }}</td>
-  <td>{{ s.pdfs }}</td>
-  <td>{{ s.videos }}</td>
-  <td><a href="{% url 'fieldrep_campaign_detail' s.campaign.id %}">Details</a></td>
-</tr>
-{% endfor %}
-</tbody>
-</table>
+<div class="table-responsive">
+    <table id="campTable" class="campaigns-table">
+        <thead>
+            <tr>
+                <th>Campaign</th>
+                <th class="stats-cell">Shares</th>
+                <th class="stats-cell">PDF Views</th>
+                <th class="stats-cell">Video Views</th>
+                <th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for s in stats %}
+            <tr>
+                <td class="campaign-name">{{ s.campaign.name }}</td>
+                <td class="stats-cell">{{ s.shares }}</td>
+                <td class="stats-cell">{{ s.pdfs }}</td>
+                <td class="stats-cell">{{ s.videos }}</td>
+                <td class="text-center">
+                    <a href="{% url 'fieldrep_campaign_detail' s.campaign.id %}" class="details-btn">Details</a>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
 
 <script src="{% static 'sharing_management/dashboard.js' %}"></script>
 {% endblock %}

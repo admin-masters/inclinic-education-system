@@ -1,68 +1,68 @@
-{% extends "base.html" %}
-{% load static %}
-
-{% block content %}
+{% extends "base.html" %} {% load static %} {% block content %}
 <h2 class="text-xl font-semibold mb-4">Share Collateral</h2>
 
 <form method="post" id="shareForm" class="space-y-4">
-  {% csrf_token %}
-  {{ form.non_field_errors }}
+  {% csrf_token %} {{ form.non_field_errors }} {{ form.collateral.label_tag }}
+  {{ form.collateral }} <br />
 
-  {{ form.collateral.label_tag }}   {{ form.collateral }}   <br>
+  <label id="contactLabel" for="id_doctor_contact">Doctor phone</label><br />
+  {{ form.doctor_contact }} <br />
 
-  <label id="contactLabel" for="id_doctor_contact">Doctor phone</label><br>
-  {{ form.doctor_contact }}         <br>
+  {{ form.share_channel.label_tag }} {{ form.share_channel }} <br />
 
-  {{ form.share_channel.label_tag }} {{ form.share_channel }} <br>
-
-  {{ form.message_text.label_tag }}  {{ form.message_text }}  <br>
+  {{ form.message_text.label_tag }} {{ form.message_text }} <br />
 
   <!-- recaptcha -->
-  <input type="hidden" name="g-recaptcha-token" id="shareRecaptchaToken">
+  <input type="hidden" name="g-recaptcha-token" id="shareRecaptchaToken" />
 
-  <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded">
-      Share
+  <button
+    type="submit"
+    class="btn btn-success fw-semibold py-2 shadow-sm"
+    style="background-color: #28a745; border-color: #28a745; width: 160px"
+    onmouseover="this.style.backgroundColor='#218838'"
+    onmouseout="this.style.backgroundColor='#28a745'"
+  >
+    Share
   </button>
 </form>
-{% endblock %}
-
-{% block bottomjs %}
+{% endblock %} {% block bottomjs %}
 <script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}"></script>
 
 <script>
-(function () {
-  const chSel   = document.getElementById("id_share_channel");
-  const contact = document.getElementById("id_doctor_contact");
-  const label   = document.getElementById("contactLabel");
+  (function () {
+    const chSel = document.getElementById("id_share_channel");
+    const contact = document.getElementById("id_doctor_contact");
+    const label = document.getElementById("contactLabel");
 
-  function toggleField () {
+    function toggleField() {
       if (chSel.value === "Email") {
-          contact.type        = "email";
-          contact.placeholder = "doctor@example.com";
-          label.innerText     = "Doctor e-mail";
+        contact.type = "email";
+        contact.placeholder = "doctor@example.com";
+        label.innerText = "Doctor e-mail";
       } else {
-          contact.type        = "text";
-          contact.placeholder = "+91XXXXXXXXXX";
-          label.innerText     = "Doctor phone";
+        contact.type = "text";
+        contact.placeholder = "+91XXXXXXXXXX";
+        label.innerText = "Doctor phone";
       }
-  }
-  chSel.addEventListener("change", toggleField);
-  toggleField();                         // initial call
+    }
+    chSel.addEventListener("change", toggleField);
+    toggleField(); // initial call
 
-  /* --- keep your existing reCAPTCHA wrapper --- */
-  const siteKey = "{{ RECAPTCHA_SITE_KEY }}";
-  const form    = document.getElementById('shareForm');
-  form.addEventListener('submit', function (e) {
+    /* --- keep your existing reCAPTCHA wrapper --- */
+    const siteKey = "{{ RECAPTCHA_SITE_KEY }}";
+    const form = document.getElementById("shareForm");
+    form.addEventListener("submit", function (e) {
       e.preventDefault();
       grecaptcha.ready(() => {
-          grecaptcha.execute(siteKey, {action: 'share'})
-            .then(token => {
-                document.getElementById('shareRecaptchaToken').value = token;
-                form.submit();
-            })
-            .catch(err => alert('reCAPTCHA error: ' + err));
+        grecaptcha
+          .execute(siteKey, { action: "share" })
+          .then((token) => {
+            document.getElementById("shareRecaptchaToken").value = token;
+            form.submit();
+          })
+          .catch((err) => alert("reCAPTCHA error: " + err));
       });
-  });
-})();
+    });
+  })();
 </script>
 {% endblock %}

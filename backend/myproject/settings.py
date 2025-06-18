@@ -149,11 +149,14 @@ USE_I18N = USE_L10N = USE_TZ = True
 # 9   Static & media  (stay under backend/)
 # ──────────────────────────────────────────────────────────────
 STATIC_URL  = "/static/"
-STATIC_ROOT = BACKEND_DIR / "staticfiles"          # collectstatic target
-STATICFILES_STORAGE = ( #  ← NEW LINE Server
-    "whitenoise.storage.CompressedManifestStaticFilesStorage" #  ← NEW LINE Server
-) #  ← NEW LINE Server
 
+FRONTEND_DIST = BASE_DIR / "frontend" / "admin-console" / "dist"
+STATICFILES_DIRS = [FRONTEND_DIST] if FRONTEND_DIST.exists() else []
+
+STATIC_ROOT  = BACKEND_DIR / "staticfiles"
+STATICFILES_STORAGE = (
+    "whitenoise.storage.CompressedManifestStaticFilesStorage"
+)
 MEDIA_URL   = "/media/"
 MEDIA_ROOT = Path("/var/www/inclinic-media")
 

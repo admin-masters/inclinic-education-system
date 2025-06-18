@@ -1,15 +1,56 @@
 {% extends "base.html" %}
 {% block content %}
-<h2>My Share History</h2>
-<ul>
-{% for log in logs %}
-  <li>
-    Shared <strong>{{ log.short_link.short_code }}</strong> to
-    <strong>{{ log.doctor_identifier }}</strong> via {{ log.share_channel }}
-    on {{ log.share_timestamp }}
-  </li>
-{% empty %}
-  <li>No shares found.</li>
-{% endfor %}
-</ul>
+
+<div class="container mt-4">
+  <h2 class="mb-4 text-center fw-semibold">My Share History</h2>
+
+  <div class="list-group">
+    {% for log in logs %}
+      <div class="list-group-item list-group-item-action flex-column align-items-start">
+        <div class="d-flex w-100 justify-content-between">
+          <h5 class="mb-1">Shared to {{ log.doctor_identifier }}</h5>
+          <small>{{ log.share_timestamp|date:"d M Y, h:i A" }}</small>
+        </div>
+        <p class="mb-1">
+          Short Code: <strong>{{ log.short_link.short_code }}</strong><br>
+          Channel: <strong>{{ log.share_channel }}</strong>
+        </p>
+      </div>
+    {% empty %}
+      <p class="text-muted text-center">No shares found.</p>
+    {% endfor %}
+  </div>
+
+  <!-- Paginator -->
+  {% if logs.has_other_pages %}
+    <nav class="mt-4">
+      <ul class="pagination justify-content-center">
+        {% if logs.has_previous %}
+          <li class="page-item">
+            <a class="page-link" href="?page={{ logs.previous_page_number }}">&laquo; Prev</a>
+          </li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">&laquo; Prev</span></li>
+        {% endif %}
+
+        {% for num in logs.paginator.page_range %}
+          {% if logs.number == num %}
+            <li class="page-item active"><span class="page-link">{{ num }}</span></li>
+          {% else %}
+            <li class="page-item"><a class="page-link" href="?page={{ num }}">{{ num }}</a></li>
+          {% endif %}
+        {% endfor %}
+
+        {% if logs.has_next %}
+          <li class="page-item">
+            <a class="page-link" href="?page={{ logs.next_page_number }}">Next &raquo;</a>
+          </li>
+        {% else %}
+          <li class="page-item disabled"><span class="page-link">Next &raquo;</span></li>
+        {% endif %}
+      </ul>
+    </nav>
+  {% endif %}
+</div>
+
 {% endblock %}
