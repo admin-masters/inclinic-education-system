@@ -1,8 +1,8 @@
-import axios from 'axios';
-
-const baseURL = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000';
+import axios from "axios";
 
 export const api = axios.create({
-  baseURL: `${baseURL}/api/`,      // <—— root of the Django API
-  withCredentials: true,           // send session cookie
+  baseURL:
+    import.meta.env.VITE_BACKEND_URL        // ← already in your .env
+    || "https://new.cpdinclinic.co.in",     // 🡒 prod default
+  withCredentials: true,                    // keeps Django session-cookie
 });
