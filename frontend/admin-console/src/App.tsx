@@ -8,7 +8,7 @@ import FieldRepBulk from './pages/FieldRepBulk';
 
 export default function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/console">
       <Navbar/>
       <Routes>
         <Route path="/dashboard" element={<Dashboard/>}/>
