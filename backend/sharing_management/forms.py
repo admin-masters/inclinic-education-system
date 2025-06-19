@@ -1,9 +1,7 @@
-# ── ADD / REPLACE THIS WHOLE FILE ─────────────────────────────
 from django import forms
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
 from collateral_management.models import Collateral
-
 
 CHANNEL_CHOICES = (
     ("WhatsApp", "WhatsApp"),
@@ -11,30 +9,48 @@ CHANNEL_CHOICES = (
     ("Email",    "Email"),
 )
 
-
 class ShareForm(forms.Form):
-    collateral        = forms.ModelChoiceField(
+    collateral = forms.ModelChoiceField(
         queryset=Collateral.objects.filter(is_active=True),
         label="Select Collateral",
     )
-    doctor_contact    = forms.CharField(            # one field for all channels
+    doctor_contact = forms.CharField(
         max_length=255,
         label="Phone / E-mail",
     )
-    share_channel     = forms.ChoiceField(
+    share_channel = forms.ChoiceField(
         choices=CHANNEL_CHOICES,
         initial="WhatsApp",
     )
-    message_text      = forms.CharField(            # optional custom message
+    message_text = forms.CharField(
         widget=forms.Textarea,
         required=False,
         label="Custom Message (optional)",
     )
 
-    # ----------  extra validation so user can’t mix channels  ----------
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Add Bootstrap 5 classes
+        self.fields['collateral'].widget.attrs.update({
+            'class': 'form-select'
+        })
+        self.fields['doctor_contact'].widget.attrs.update({
+            'class': 'form-control',
+            'placeholder': '+91XXXXXXXXXX or doctor@example.com'
+        })
+        self.fields['share_channel'].widget.attrs.update({
+            'class': 'form-select'
+        })
+        self.fields['message_text'].widget.attrs.update({
+            'class': 'form-control',
+            'rows': '4',
+            'placeholder': 'Write a message (optional)'
+        })
+
     def clean(self):
         cleaned = super().clean()
-        chan  = cleaned.get("share_channel")
+        chan = cleaned.get("share_channel")
         value = (cleaned.get("doctor_contact") or "").strip()
 
         if not value:
@@ -45,10 +61,10 @@ class ShareForm(forms.Form):
                 validate_email(value)
             except ValidationError:
                 raise ValidationError("Enter a valid e-mail address.")
-        else:  # phone-like: keep digits only so +91-xxx OK, letters not
+        else:
             digits = "".join(ch for ch in value if ch.isdigit() or ch == "+")
             if len(digits) < 8:
                 raise ValidationError("Enter a valid phone number.")
-            cleaned["doctor_contact"] = digits   # normalised phone
+            cleaned["doctor_contact"] = digits
 
         return cleaned
