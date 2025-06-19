@@ -150,8 +150,10 @@ USE_I18N = USE_L10N = USE_TZ = True
 # ──────────────────────────────────────────────────────────────
 STATIC_URL  = "/static/"
 
-FRONTEND_DIST = BASE_DIR / "frontend" / "admin-console" / "dist"
-STATICFILES_DIRS = [FRONTEND_DIST] if FRONTEND_DIST.exists() else []
+FRONTEND_DIST = Path(
+    "/var/www/inclinic-education-system/frontend/admin-console/dist"
+)
+STATICFILES_DIRS = [FRONTEND_DIST]
 
 STATIC_ROOT  = BACKEND_DIR / "staticfiles"
 STATICFILES_STORAGE = (
