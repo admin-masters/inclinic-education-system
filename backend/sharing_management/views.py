@@ -3,9 +3,11 @@ from django.contrib import messages
 from django.utils import timezone
 from django.db.models import Count
 from urllib.parse import quote
+from django.core.paginator import Paginator  # ✅ added
 
 from django.core.mail import send_mail
 from django.conf import settings
+import django.forms as forms
 
 from .decorators import field_rep_required
 from .forms import ShareForm
@@ -17,9 +19,7 @@ from campaign_management.models import CampaignAssignment
 from doctor_viewer.models import DoctorEngagement
 from utils.recaptcha import recaptcha_required
 
-# -------------------------------
-# EMAIL HELPER FUNCTION
-# -------------------------------
+
 def _send_email(to_addr: str, subject: str, body: str) -> None:
     send_mail(
         subject=subject,
@@ -29,12 +29,14 @@ def _send_email(to_addr: str, subject: str, body: str) -> None:
         fail_silently=False,
     )
 
-# -------------------------------
-# SHARE VIEW
-# -------------------------------
+
 @field_rep_required
 @recaptcha_required 
 def share_content(request):
+    collateral_id = request.GET.get('collateral_id')
+    initial = {}
+    if collateral_id:
+        initial['collateral'] = collateral_id
     if request.method == 'POST':
         form = ShareForm(request.POST)
         if form.is_valid():
@@ -79,13 +81,14 @@ def share_content(request):
 
             return redirect("share_success", share_log_id=share_log.id)
     else:
-        form = ShareForm()
+        form = ShareForm(initial=initial)
+        # Hide collateral field if pre-selected
+        if collateral_id:
+            form.fields['collateral'].widget = forms.HiddenInput()
 
     return render(request, 'sharing_management/share_form.html', {'form': form})
 
-# -------------------------------
-# SHORTLINK HELPERS
-# -------------------------------
+
 def find_or_create_short_link(collateral, user):
     existing = ShortLink.objects.filter(
         resource_type='collateral',
@@ -106,6 +109,7 @@ def find_or_create_short_link(collateral, user):
     )
     return short_link
 
+
 def build_wa_link(share_log, request):
     if share_log.share_channel != "WhatsApp":
         return ""
@@ -120,9 +124,7 @@ def build_wa_link(share_log, request):
     )
     return f"https://wa.me/{share_log.doctor_identifier}?text={quote(msg_text)}"
 
-# -------------------------------
-# SUCCESS + LOGS + DASHBOARD
-# -------------------------------
+
 @field_rep_required
 def share_success(request, share_log_id):
     share_log = get_object_or_404(
@@ -135,10 +137,17 @@ def share_success(request, share_log_id):
         {"share_log": share_log, "wa_link": wa_link},
     )
 
+
 @field_rep_required
 def list_share_logs(request):
-    logs = ShareLog.objects.filter(field_rep=request.user).order_by('-share_timestamp')
+    logs_list = ShareLog.objects.filter(field_rep=request.user).order_by('-share_timestamp')
+    paginator = Paginator(logs_list, 10)  # ✅ 10 logs per page
+
+    page_number = request.GET.get("page")
+    logs = paginator.get_page(page_number)
+
     return render(request, 'sharing_management/share_logs.html', {'logs': logs})
+
 
 @field_rep_required
 def fieldrep_dashboard(request):
@@ -191,6 +200,7 @@ def fieldrep_dashboard(request):
         })
 
     return render(request, 'sharing_management/fieldrep_dashboard.html', {'stats': stats})
+
 
 @field_rep_required
 def fieldrep_campaign_detail(request, campaign_id):

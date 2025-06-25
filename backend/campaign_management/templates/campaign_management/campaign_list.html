@@ -2,16 +2,53 @@
 {% load static %}
 
 {% block content %}
-<h2>All Campaigns</h2>
-<a href="{% url 'campaign_create' %}">Create New Campaign</a>
-<ul>
+<style>
+  body {
+    background-color: #f4f6fa;
+  }
+
+  .campaign-card {
+    background: #fff;
+    box-shadow: 0 4px 16px rgba(51, 144, 255, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
+    border-radius: 0.5rem;
+    margin-bottom: 1.5rem;
+    padding: 1.5rem 1.5rem 1rem 1.5rem;
+  }
+
+  .campaign-title {
+    font-size: 1.2rem;
+    font-weight: 600;
+    color: #1769aa;
+    margin-bottom: 0.25rem;
+  }
+
+  .campaign-status {
+    font-size: 0.98rem;
+    color: #555;
+  }
+</style>
+<div class="d-flex justify-content-between align-items-center mb-4">
+  <h2 class="fw-bold mb-0">All Campaigns</h2>
+  <a class="btn btn-primary" href="{% url 'campaign_create' %}">
+    <i class="bi bi-plus-circle me-1"></i> Create New Campaign
+  </a>
+</div>
+<div class="list-group">
   {% for campaign in campaigns %}
-    <li>
-      <a href="{% url 'campaign_detail' campaign.id %}">{{ campaign.name }}</a> -
-      Status: {{ campaign.status }}
-    </li>
+  <div class="campaign-card list-group-item">
+    <div class="d-flex justify-content-between align-items-center flex-wrap">
+      <div>
+        <div class="campaign-title">
+          <a class="text-decoration-none" href="{% url 'campaign_detail' campaign.id %}">{{ campaign.name }}</a>
+        </div>
+        <div class="campaign-status">Status: {{ campaign.status }}</div>
+      </div>
+    </div>
+  </div>
+  {% empty %}
+  <div class="alert alert-info">No campaigns found.</div>
   {% endfor %}
-</ul>
+</div>
 {% endblock %}
 
 {% block extrajs %}

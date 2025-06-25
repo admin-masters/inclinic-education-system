@@ -2,54 +2,54 @@
 {% block content %}
 <div class="container">
     <h2>{{ collateral.title }}</h2>
-    
+
     <div class="card">
         <div class="card-body">
             <p><strong>Type:</strong> {{ collateral.get_type_display }}</p>
             <p><strong>Content ID:</strong> {{ collateral.content_id|default:"N/A" }}</p>
             <p><strong>Upload Date:</strong> {{ collateral.upload_date }}</p>
             <p><strong>Status:</strong> {% if collateral.is_active %}Active{% else %}Inactive{% endif %}</p>
-            
+
             {% if collateral.type == 'pdf' and collateral.file %}
-                <div class="mt-3">
-                    <h4>PDF Document</h4>
-                    <a href="{{ collateral.file.url }}" class="btn btn-primary" target="_blank">View PDF</a>
-                </div>
+            <div class="mt-3">
+                <h4>PDF Document</h4>
+                <a href="{{ collateral.file.url }}" class="btn btn-primary" target="_blank">View PDF</a>
+            </div>
             {% elif collateral.type == 'video' and collateral.vimeo_url %}
-                <div class="mt-3">
-                    <h4>Video</h4>
-                    <a href="{{ collateral.vimeo_url }}" class="btn btn-primary" target="_blank">View Video</a>
-                </div>
+            <div class="mt-3">
+                <h4>Video</h4>
+                <a href="{{ collateral.vimeo_url }}" class="btn btn-primary" target="_blank">View Video</a>
+            </div>
             {% endif %}
-            
+
             <div class="mt-4">
                 <a href="{% url 'collateral_list' %}" class="btn btn-secondary">Back to List</a>
                 {% if user.role == 'admin' %}
-                    <a href="{% url 'collateral_update' collateral.id %}" class="btn btn-warning">Edit</a>
-                    <a href="{% url 'collateral_delete' collateral.id %}" class="btn btn-danger">Delete</a>
+                <a href="{% url 'collateral_update' collateral.id %}" class="btn btn-warning">Edit</a>
+                <a href="{% url 'collateral_delete' collateral.id %}" class="btn btn-danger">Delete</a>
                 {% endif %}
+                <a href="{% url 'share_content' %}?collateral_id={{ collateral.id }}" class="btn btn-success">Share</a>
             </div>
         </div>
     </div>
-    
+
     {% if collateral.campaign_collaterals.all %}
-        <div class="mt-4">
-            <h3>Associated Campaigns</h3>
-            <ul class="list-group">
-                {% for cc in collateral.campaign_collaterals.all %}
-                    <li class="list-group-item">
-                        {{ cc.campaign.name }}
-                        {% if cc.start_date or cc.end_date %}
-                            <small>
-                                ({% if cc.start_date %}From: {{ cc.start_date }}{% endif %}
-                                {% if cc.end_date %} To: {{ cc.end_date }}{% endif %})
-                            </small>
-                        {% endif %}
-                    </li>
-                {% endfor %}
-            </ul>
-        </div>
+    <div class="mt-4">
+        <h3>Associated Campaigns</h3>
+        <ul class="list-group">
+            {% for cc in collateral.campaign_collaterals.all %}
+            <li class="list-group-item">
+                {{ cc.campaign.name }}
+                {% if cc.start_date or cc.end_date %}
+                <small>
+                    ({% if cc.start_date %}From: {{ cc.start_date }}{% endif %}
+                    {% if cc.end_date %} To: {{ cc.end_date }}{% endif %})
+                </small>
+                {% endif %}
+            </li>
+            {% endfor %}
+        </ul>
+    </div>
     {% endif %}
 </div>
 {% endblock %}
-
