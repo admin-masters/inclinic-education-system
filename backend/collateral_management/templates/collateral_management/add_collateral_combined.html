@@ -1,0 +1,212 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Campaign Collaterals Input Form{% endblock %}
+
+{% block content %}
+<style>
+  /* Two-column form layout */
+  .form-horizontal .row {
+    margin-bottom: 1.2rem;
+  }
+
+  .form-horizontal label {
+    font-weight: 600;
+    text-align: right;
+    padding-right: 1rem;
+    color: #222;
+  }
+
+  .form-horizontal .form-control,
+  .form-horizontal select,
+  .form-horizontal input[type="file"] {
+    width: 100%;
+    min-width: 180px;
+    padding: 0.45rem 0.75rem;
+    border-radius: 0.3rem;
+    border: 1px solid #ccc;
+    background: #fff;
+  }
+
+  .form-horizontal .form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px #e3f0ff;
+  }
+
+  .form-horizontal .text-muted {
+    font-size: 0.92em;
+  }
+
+  .form-horizontal .errorlist {
+    color: #d9534f;
+    margin: 0.2em 0 0.5em 0;
+    font-size: 0.97em;
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .form-horizontal button[type="submit"] {
+    padding: 0.5rem 2.5rem;
+    font-size: 1.1rem;
+    border-radius: 0.3rem;
+    background: #007bff;
+    color: #fff;
+    border: none;
+    font-weight: 600;
+    transition: background 0.2s;
+  }
+
+  .form-horizontal button[type="submit"]:hover {
+    background: #0056b3;
+  }
+
+  @media (max-width: 768px) {
+    .form-horizontal label {
+      text-align: left;
+      padding-right: 0;
+      margin-bottom: 0.3em;
+    }
+
+    .form-horizontal .row {
+      flex-direction: column;
+    }
+  }
+</style>
+<div class="container mt-4">
+  <h3 class="text-center fw-bold mb-4">Campaign Collaterals Input Form</h3>
+
+  <form method="post" enctype="multipart/form-data" class="form-horizontal">
+    {% csrf_token %}
+    {% if collateral_form.errors %}
+    <div class="alert alert-danger">
+      <ul>
+        {% for field in collateral_form %}
+        {% for error in field.errors %}
+        <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+        {% endfor %}
+        {% endfor %}
+        {% for error in collateral_form.non_field_errors %}
+        <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+    {{ collateral_form.non_field_errors }}
+
+    <!-- Brand Campaign ID -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Brand Campaign ID :</label>
+      <div class="col-sm-6">
+        {{ collateral_form.campaign }}
+        {{ collateral_form.campaign.errors }}
+      </div>
+    </div>
+
+    <!-- Purpose of the Collateral -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Purpose of the Collateral :</label>
+      <div class="col-sm-6">
+        {{ collateral_form.title }}
+        {{ collateral_form.title.errors }}
+      </div>
+    </div>
+
+    <!-- Item Name -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Item Name :</label>
+      <div class="col-sm-6">
+        {{ collateral_form.content_id }}
+        {{ collateral_form.content_id.errors }}
+        <small class="text-muted">Mini CME on 'red flag name'</small>
+      </div>
+    </div>
+
+    <!-- Item Type -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Item Type :</label>
+      <div class="col-sm-6">
+        {{ collateral_form.type }}
+        {{ collateral_form.type.errors }}
+      </div>
+    </div>
+
+    <!-- PDF Upload -->
+    <div class="row mb-3 align-items-center" id="pdf-group">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">PDF File:</label>
+      <div class="col-sm-6">
+        <small class="d-block text-muted">Keep the PDF size less than 2MB</small>
+        {{ collateral_form.file }}
+        {{ collateral_form.file.errors }}
+      </div>
+    </div>
+
+    <!-- Vimeo URL -->
+    <div class="row mb-3 align-items-center" id="video-group" style="display:none;">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Vimeo URL:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.vimeo_url }}
+        {{ collateral_form.vimeo_url.errors }}
+      </div>
+    </div>
+
+    <!-- Banner 1 Upload -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Banner 1 upload:</label>
+      <div class="col-sm-6">
+        <small class="d-block text-muted">Keep the Image size less than 2MB</small>
+        {{ collateral_form.banner_1 }}
+        {{ collateral_form.banner_1.errors }}
+      </div>
+    </div>
+
+    <!-- Banner 2 Upload -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Banner 2 upload:</label>
+      <div class="col-sm-6">
+        <small class="d-block text-muted">Keep the Image size less than 2MB</small>
+        {{ collateral_form.banner_2 }}
+        {{ collateral_form.banner_2.errors }}
+      </div>
+    </div>
+
+    <!-- Description -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Description for Display :</label>
+      <div class="col-sm-6">
+        {{ collateral_form.description }}
+        {{ collateral_form.description.errors }}
+      </div>
+    </div>
+
+    <!-- Submit -->
+    <div class="row mb-3">
+      <div class="offset-sm-3 col-sm-6">
+        <button type="submit" class="btn btn-primary px-4">Submit</button>
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block bottomjs %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const typeField = document.getElementById("id_type");
+    const pdfGroup = document.getElementById("pdf-group");
+    const videoGroup = document.getElementById("video-group");
+
+    function toggleFields() {
+      if (typeField.value === "pdf") {
+        pdfGroup.style.display = "block";
+        videoGroup.style.display = "none";
+      } else if (typeField.value === "video") {
+        pdfGroup.style.display = "none";
+        videoGroup.style.display = "block";
+      }
+    }
+
+    typeField.addEventListener("change", toggleFields);
+    toggleFields(); // run on load
+  });
+</script>
+{% endblock %}

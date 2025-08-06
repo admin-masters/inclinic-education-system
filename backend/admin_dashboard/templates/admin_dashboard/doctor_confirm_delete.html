@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="alert alert-danger col-md-6 mx-auto">
+  <h4 class="alert-heading">Confirm delete</h4>
+  <p>Remove doctor <strong>{{ object.name }}</strong> permanently?</p>
+  <form method="post">{% csrf_token %}
+    <button class="btn btn-danger">Yes – delete</button>
+    <a href="{{ request.META.HTTP_REFERER }}" class="btn btn-secondary">Cancel</a>
+  </form>
+</div>
+{% endblock %}

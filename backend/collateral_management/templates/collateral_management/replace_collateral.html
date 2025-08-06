@@ -1,0 +1,197 @@
+{% extends 'base.html' %}
+{% block title %}Edit Custom Collaterals{% endblock %}
+{% block content %}
+<style>
+  body {
+    background: #f8f9fa !important;
+  }
+
+  .custom-collateral-card {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 2px 16px rgba(0, 0, 0, 0.07);
+    max-width: 900px;
+    margin: 2.5rem auto;
+    padding: 2.5rem 2rem 2rem 2rem;
+    border: 1px solid #ececec;
+  }
+
+  .custom-collateral-card h1 {
+    font-size: 2.5rem;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 2.2rem;
+    letter-spacing: 0.01em;
+  }
+
+  .form-horizontal .row {
+    margin-bottom: 1.6rem;
+  }
+
+  .form-horizontal label {
+    font-weight: 600;
+    text-align: left;
+    padding-bottom: 0.4rem;
+    color: #222;
+    font-size: 1.08rem;
+  }
+
+  .form-horizontal .form-control,
+  .form-horizontal select,
+  .form-horizontal input[type="file"] {
+    width: 100%;
+    min-width: 180px;
+    padding: 0.7rem 1rem;
+    border-radius: 0.4rem;
+    border: 1px solid #ccc;
+    background: #fff;
+    font-size: 1.08rem;
+  }
+
+  .form-horizontal .form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px #e3f0ff;
+  }
+
+  .form-horizontal .text-muted {
+    font-size: 0.92em;
+  }
+
+  .form-horizontal .errorlist {
+    color: #d9534f;
+    margin: 0.2em 0 0.5em 0;
+    font-size: 0.97em;
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .form-horizontal button[type="submit"] {
+    padding: 0.6rem 2.5rem;
+    font-size: 1.15rem;
+    border-radius: 0.3rem;
+    background: #007bff;
+    color: #fff;
+    border: none;
+    font-weight: 600;
+    transition: background 0.2s;
+    margin-top: 0.5rem;
+  }
+
+  .form-horizontal button[type="submit"]:hover {
+    background: #0056b3;
+  }
+
+  .form-horizontal .btn-secondary {
+    margin-left: 1rem;
+    margin-top: 0.5rem;
+  }
+
+  @media (max-width: 768px) {
+    .custom-collateral-card {
+      padding: 1.2rem 0.5rem;
+    }
+
+    .form-horizontal label {
+      text-align: left;
+      padding-right: 0;
+      margin-bottom: 0.3em;
+    }
+
+    .form-horizontal .row {
+      flex-direction: column;
+    }
+  }
+</style>
+<div style="background: #f8f9fa; min-height: 100vh; padding-top: 2rem; padding-bottom: 2rem;">
+  <div class="custom-collateral-card">
+    <h1>Edit Custom Collaterals</h1>
+    <form method="post" enctype="multipart/form-data" class="form-horizontal">
+      {% csrf_token %}
+      {% if form.errors %}
+      <div class="alert alert-danger">
+        <ul>
+          {% for field in form %}
+          {% for error in field.errors %}
+          <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+          {% endfor %}
+          {% endfor %}
+          {% for error in form.non_field_errors %}
+          <li>{{ error }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+      {% endif %}
+      {{ form.non_field_errors }}
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">Brand Campaign ID :</label>
+        <div class="col-12">
+          {{ form.campaign }}
+          {{ form.campaign.errors }}
+        </div>
+      </div>
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">Purpose of the Collateral :</label>
+        <div class="col-12">
+          {{ form.title }}
+          {{ form.title.errors }}
+        </div>
+      </div>
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">Item Name :</label>
+        <div class="col-12">
+          {{ form.content_id }}
+          {{ form.content_id.errors }}
+        </div>
+      </div>
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">Item Type :</label>
+        <div class="col-12">
+          {{ form.type }}
+          {{ form.type.errors }}
+        </div>
+      </div>
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">PDF File :</label>
+        <div class="col-12">
+          {{ form.file }}
+          {{ form.file.errors }}
+        </div>
+      </div>
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">Video Url :</label>
+        <div class="col-12">
+          {{ form.vimeo_url }}
+          {{ form.vimeo_url.errors }}
+        </div>
+      </div>
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">Banner 1 :</label>
+        <div class="col-12">
+          {{ form.banner_1 }}
+          {{ form.banner_1.errors }}
+        </div>
+      </div>
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">Banner 2 :</label>
+        <div class="col-12">
+          {{ form.banner_2 }}
+          {{ form.banner_2.errors }}
+        </div>
+      </div>
+      <div class="row mb-3 align-items-center">
+        <label class="col-12 col-form-label fw-semibold">Description for Display :</label>
+        <div class="col-12">
+          {{ form.description }}
+          {{ form.description.errors }}
+        </div>
+      </div>
+      <div class="row mb-3">
+        <div class="col-12 d-flex justify-content-center">
+          <button type="submit" class="btn btn-primary px-4">Replace</button>
+          <a href="{% url 'collateral_list' %}" class="btn btn-secondary ms-2">Cancel</a>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

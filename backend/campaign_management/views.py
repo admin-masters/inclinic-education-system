@@ -5,10 +5,12 @@ from django.views.generic import ListView, DetailView, CreateView, UpdateView, D
 from django.urls import reverse_lazy
 from django.utils.decorators import method_decorator
 from django.contrib import messages
-
+from django import forms
 from .models import Campaign, CampaignAssignment
 from .forms import CampaignForm, CampaignAssignmentForm
 from .decorators import admin_required
+from .models import CampaignCollateral
+from .forms import CampaignCollateralForm
 
 # ------------------------------------------------------------------------
 # Campaign List (open to all roles to see a list, but optional restrict)
@@ -112,3 +114,17 @@ def remove_field_rep(request, pk, assignment_id):
     assignment.delete()
     messages.success(request, "Field Rep unassigned successfully.")
     return redirect('assign_field_reps', pk=campaign.id)
+
+def edit_collateral_dates(request, pk):
+    campaign_collateral = get_object_or_404(CampaignCollateral, pk=pk)
+    if request.method == 'POST':
+        form = CampaignCollateralForm(request.POST, instance=campaign_collateral)
+        if form.is_valid():
+            form.save()
+            return redirect('share_log_list')  # replace with your actual view name
+    else:
+        form = CampaignCollateralForm(instance=campaign_collateral)
+    return render(request, 'campaign_management/edit_collateral_dates.html', {
+        'form': form,
+        'campaign_collateral': campaign_collateral
+    })

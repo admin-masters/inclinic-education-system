@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #e6f5f2;">
+  <div class="card shadow" style="width: 100%; max-width: 400px;">
+    <div class="card-body p-4">
+      <h4 class="text-center mb-4" style="color:#00897b;">WhatsApp Login</h4>
+
+      {% if messages %}
+      {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}" role="alert">
+        {{ message }}
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      <form method="post" autocomplete="off">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label" style="color:#00897b;">Field ID:</label>
+          <input type="text" class="form-control" name="field_id" value="{{ field_id|default:'' }}"
+            placeholder="Enter your Field ID" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" style="color:#00897b;">WhatsApp Number:</label>
+          <input type="text" class="form-control" name="whatsapp_number" value="{{ whatsapp_number|default:'' }}"
+            placeholder="Enter 10 digit mobile number" maxlength="10" pattern="\d{10}" required>
+        </div>
+
+        {% if show_otp_field %}
+        <div class="mb-3">
+          <label class="form-label" style="color:#00897b;">OTP:</label>
+          <input type="text" class="form-control" name="otp" placeholder="Enter 6-digit OTP" maxlength="6"
+            pattern="\d{6}" required>
+          <small class="form-text text-muted">Enter the 6-digit OTP sent to your WhatsApp</small>
+        </div>
+        {% endif %}
+
+        <button type="submit" class="btn w-100"
+          style="background:#00897b; color:white; font-weight:600; font-size:1.2rem;">
+          {% if show_otp_field %}Verify OTP{% else %}Send OTP{% endif %}
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

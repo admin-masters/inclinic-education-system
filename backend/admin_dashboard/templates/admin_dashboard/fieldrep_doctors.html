@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% load static %}
+{% block title %}Doctors for Rep {{ rep.id }}{% endblock %}
+
+{% block content %}
+<h3 class="mb-3">Unique ID: {{ rep.id }}</h3>
+
+<form method="post" class="row g-2 mb-4">
+  {% csrf_token %}
+  <div class="col-md-5">{{ form.name.label_tag }}{{ form.name }}</div>
+  <div class="col-md-5">{{ form.phone.label_tag }}{{ form.phone }}</div>
+  <div class="col-md-2 d-flex align-items-end">
+    <button class="btn btn-primary w-100">Add Doctor</button>
+  </div>
+</form>
+
+<h5>Doctors List</h5>
+<ul class="list-group">
+  {% for d in doctors %}
+  <li class="list-group-item d-flex justify-content-between align-items-center">
+     {{ d.name }} - {{ d.phone }}
+     <span>
+       <a href="{% url 'admin_dashboard:doctor_edit' rep.id d.id %}"
+          class="btn btn-sm btn-primary">Edit</a>
+       <a href="{% url 'admin_dashboard:doctor_delete' rep.id d.id %}"
+          class="btn btn-sm btn-danger">Delete</a>
+     </span>
+  </li>
+  {% empty %}
+  <li class="list-group-item text-center">No doctors yet.</li>
+  {% endfor %}
+</ul>
+{% endblock %}

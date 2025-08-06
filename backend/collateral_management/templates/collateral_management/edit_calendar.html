@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<style>
+    .card {
+        border-radius: 10px;
+        box-shadow: 0 2px 16px rgba(0, 0, 0, 0.08);
+        border: 1px solid #eee;
+    }
+
+    .card-header {
+        background: #f8f9fa;
+        border-bottom: 1px solid #eee;
+        border-radius: 10px 10px 0 0;
+        padding: 1.2rem 1rem;
+    }
+
+    .card-body {
+        padding: 2rem 1.5rem;
+    }
+
+    .form-label {
+        font-weight: 600;
+    }
+
+    .form-control {
+        border-radius: 6px;
+        font-size: 1.05rem;
+    }
+
+    .btn-primary {
+        background: #1677ff;
+        border: none;
+        font-weight: 600;
+        padding: 0.5rem 1.5rem;
+    }
+
+    .btn-primary:hover {
+        background: #125bcc;
+    }
+
+    .btn-secondary {
+        background: #6c757d;
+        border: none;
+        font-weight: 600;
+        padding: 0.5rem 1.5rem;
+    }
+
+    .btn-secondary:hover {
+        background: #565e64;
+    }
+</style>
+<div class="container mt-4">
+    <div class="card mx-auto" style="max-width: 500px;">
+        <div class="card-header text-center">
+            <h2 class="mb-0">Edit Collateral Dates</h2>
+        </div>
+        <div class="card-body">
+            <form method="post">
+                {% csrf_token %}
+                <div class="mb-3">
+                    <label class="form-label">Brand Campaign ID:</label>
+                    <input type="text" class="form-control"
+                        value="{{ form.instance.campaign.brand_campaign_id|default:'' }}" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Collateral:</label>
+                    <input type="text" class="form-control" value="{{ form.instance.collateral.title }}" readonly>
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Start Date:</label>
+                    {{ form.start_date }}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">End Date:</label>
+                    {{ form.end_date }}
+                </div>
+                <button type="submit" class="btn btn-primary">Update Dates</button>
+                <a href="{% url 'fieldrep_dashboard' %}" class="btn btn-secondary ms-2">Cancel</a>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -9,32 +9,51 @@
 <h1>Inditech Admin Dashboard</h1>
 
 <table class="admin-dashboard">
-<thead>
-  <tr>
-    <th>Campaign</th>
-    <th>Shares</th>
-    <th>PDF Impressions</th>
-    <th>Video Completions</th>
-    <th>Links</th>
-  </tr>
-</thead>
-<tbody>
-  {% for stat in campaign_stats %}
-  <tr>
-    <td>{{ stat.campaign.name }}</td>
-    <td>{{ stat.shares }}</td>
-    <td>{{ stat.pdfs }}</td>
-    <td>{{ stat.videos }}</td>
-    <td>
-      <a href="{% url 'admin:campaign_management_campaign_change' stat.campaign.id %}">Edit Campaign</a>
-    </td>
-  </tr>
-  {% empty %}
-  <tr><td colspan="5">No campaigns found.</td></tr>
-  {% endfor %}
-</tbody>
+  <thead>
+    <tr>
+      <th>Campaign</th>
+      <th>Shares</th>
+      <th>PDF Impressions</th>
+      <th>Video Completions (Old)</th>
+      <th>Video Completions (New)</th>
+      <th>Links</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for stat in stats %}
+    <tr>
+      <td>{{ stat.campaign.name }}</td>
+      <td>{{ stat.shares }}</td>
+      <td>{{ stat.pdf_completions }}</td>
+      <td>{{ stat.video_completions_old }}</td>
+      <td>{{ stat.video_completions_new }}</td>
+      <td>
+        <a href="{% url 'admin:campaign_management_campaign_change' stat.campaign.id %}">Edit Campaign</a>
+      </td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="6">No campaigns found.</td>
+    </tr>
+    {% endfor %}
+  </tbody>
 </table>
 
 <p><a href="{% url 'admin_dashboard:bulk_upload' %}">Bulk upload Field Reps</a></p>
-{% endblock %}
 
+<!-- ✅ Bulk Sharing Links -->
+<p class="mt-4">
+  <a href="{% url 'bulk_manual_upload' %}" class="btn btn-outline-primary w-100 mb-2">
+    Bulk Registration – Manual Sharing
+  </a>
+  <a href="{% url 'bulk_pre_mapped_upload' %}" class="btn btn-outline-primary w-100 mb-2">
+    Bulk Registration – Pre-mapped Doctors Sharing
+  </a>
+  <a href="{% url 'bulk_manual_upload_whatsapp' %}" class="btn btn-outline-success w-100">
+    Bulk Registration – Manual Sharing by WhatsApp
+  </a>
+  <a href="{% url 'collateral_add' %}" class="btn btn-primary">
+    + Add Collateral
+  </a>
+</p>
+{% endblock %}

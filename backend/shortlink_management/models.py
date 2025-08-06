@@ -41,3 +41,34 @@ class ShortLink(models.Model):
             except Collateral.DoesNotExist:
                 return None
         return None
+
+
+class DoctorVerificationOTP(models.Model):
+    """
+    OTP for doctor verification via WhatsApp.
+    """
+    phone_e164 = models.CharField(max_length=20)
+    otp_hash = models.BinaryField(max_length=60)
+    short_link = models.ForeignKey(
+        ShortLink,
+        on_delete=models.CASCADE,
+        related_name='doctor_verification_otps'
+    )
+    expires_at = models.DateTimeField()
+    verified_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        db_table = 'doctor_verification_otp'
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"OTP for {self.phone_e164} - {self.short_link.short_code}"
+    
+    def is_expired(self):
+        """Check if the OTP has expired"""
+        return timezone.now() > self.expires_at
+    
+    def is_verified(self):
+        """Check if the OTP has been verified"""
+        return self.verified_at is not None

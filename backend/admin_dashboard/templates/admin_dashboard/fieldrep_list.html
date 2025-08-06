@@ -1,0 +1,62 @@
+{% extends "base.html" %}
+{% load static %}
+{% load custom_filters %} 
+{% block title %}Field Reps · Inditech{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="mb-0">Field Reps</h2>
+  <a href="{% url 'admin_dashboard:fieldrep_add' %}" class="btn btn-success">
+     Add Field Rep
+  </a>
+</div>
+
+<form class="input-group mb-3" method="get">
+  <input type="text" name="q" value="{{ q }}"
+         class="form-control" placeholder="Search by Field ID, Gmail ID …">
+  <button class="btn btn-primary" type="submit">Search</button>
+</form>
+
+<div class="table-responsive">
+<table class="table table-striped table-bordered align-middle">
+  <thead class="table-dark">
+    <tr>
+      <th>Unique ID</th>
+      <th>Field ID</th>
+      <th>Gmail ID</th>
+      <th>Field Rep Number</th>
+      <th>Brand Campaign ID</th>
+      <th style="width:200px">Action</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in reps %}
+    <tr>
+      <td>{{ r.id }}</td>
+      <td>{{ r.field_id|default_if_none:"—" }}</td>
+      <td>{{ r.email|default_if_none:"—" }}</td>
+      <td>{{ r.phone_number|default_if_none:"—" }}</td>
+      <td>{{ brand_map|get_item:r.id|default:"—" }}</td>
+      <td>
+        <a href="{% url 'admin_dashboard:fieldrep_edit' r.id %}" class="btn btn-sm btn-primary">Edit</a>
+
+        <form action="{% url 'admin_dashboard:fieldrep_delete' r.id %}" method="post" style="display:inline">
+          {% csrf_token %}
+          <button class="btn btn-sm btn-danger"
+                  onclick="return confirm('Delete this field-rep?')">
+            Delete
+          </button>
+        </form>
+
+        <a href="{% url 'admin_dashboard:doctor_list' r.id %}" class="btn btn-sm btn-info">
+          View Doctors
+        </a>
+      </td>
+    </tr>
+    {% empty %}
+    <tr><td colspan="6" class="text-center">No field reps found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endblock %}

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container mt-4">
+  <div class="card mx-auto" style="max-width: 600px;">
+    <div class="card-header text-center">
+      <h2 class="mb-0">Edit Collateral Dates</h2>
+    </div>
+    <div class="card-body">
+      <form method="post">
+        {% csrf_token %}
+        <!-- Brand Campaign ID -->
+        <div class="mb-3">
+          <label class="form-label">Brand Campaign ID:</label>
+          {% if form.campaign %}
+          {{ form.campaign }}
+          {% else %}
+          <input type="text" class="form-control" value="{{ form.instance.campaign.brand_campaign_id|default:'' }}"
+            readonly>
+          {% endif %}
+        </div>
+        <!-- Select Collateral -->
+        <div class="mb-3">
+          <label class="form-label">Select Collateral:</label>
+          {{ form.collateral }}
+        </div>
+        <!-- Start Date -->
+        <div class="mb-3">
+          <label class="form-label">Start Date:</label>
+          {{ form.start_date }}
+        </div>
+        <!-- End Date -->
+        <div class="mb-3">
+          <label class="form-label">End Date:</label>
+          {{ form.end_date }}
+        </div>
+        <button type="submit" class="btn btn-primary">Update Dates</button>
+        <a href="{% url 'fieldrep_dashboard' %}" class="btn btn-secondary ms-2">Cancel</a>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

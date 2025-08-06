@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #f8f9fa;">
+  <div class="card shadow" style="width: 100%; max-width: 400px;">
+    <div class="card-body p-4">
+      <h4 class="text-center mb-4">Field Rep Login</h4>
+      {% if error %}
+      <div class="alert alert-danger" role="alert">
+        {{ error }}
+      </div>
+      {% endif %}
+      <form method="post" autocomplete="off">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label">Email ID:</label>
+          <input type="email" class="form-control" name="email" placeholder="Enter your email" required autofocus>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Password:</label>
+          <input type="password" class="form-control" name="password" placeholder="Enter your password" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-100 mb-2" style="background:#1877f2; border:none;">Login</button>
+        <div class="text-center">
+          <a href="{% url 'fieldrep_forgot_password' %}" class="text-decoration-underline">Forgot Password?</a>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

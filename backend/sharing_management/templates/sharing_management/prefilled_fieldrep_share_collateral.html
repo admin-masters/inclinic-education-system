@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #f8f9fa;">
+  <div class="card shadow" style="width: 100%; max-width: 400px;">
+    <div class="card-header text-center">
+      <h5 class="mb-0">Share Collaterals Form</h5>
+      <div class="small text-muted">Field Rep: {{ fieldrep_id }} ({{ fieldrep_email }})</div>
+    </div>
+    <div class="card-body p-4">
+      {% if messages %}
+      {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}" role="alert">
+        {{ message }}
+      </div>
+      {% endfor %}
+      {% endif %}
+      <form method="post" autocomplete="off" id="shareForm">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label">Select Doctor:</label>
+          <select class="form-select" name="doctor_id" id="doctorSelect" required>
+            <option value="">Select Doctor</option>
+            {% for d in doctors %}
+            <option value="{{ d.id }}" data-name="{{ d.name }}" data-phone="{{ d.phone }}">{{ d.name }} / {{ d.phone }}
+            </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Name of Doctor:</label>
+          <input type="text" class="form-control" id="doctorName" name="doctor_name" readonly>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Doctor Phone Number:</label>
+          <input type="text" class="form-control" id="doctorPhone" name="doctor_phone" readonly>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Select Active Collaterals:</label>
+          <select class="form-select" name="collateral" required>
+            <option value="">Select Collateral</option>
+            {% for c in collaterals %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Select Past Collaterals:</label>
+          <input type="text" class="form-control" value="0 Items" disabled>
+        </div>
+        <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Submit</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script>
+  const doctorSelect = document.getElementById('doctorSelect');
+  const doctorName = document.getElementById('doctorName');
+  const doctorPhone = document.getElementById('doctorPhone');
+  doctorSelect.onchange = function () {
+    const selected = doctorSelect.options[doctorSelect.selectedIndex];
+    doctorName.value = selected.getAttribute('data-name') || '';
+    doctorPhone.value = selected.getAttribute('data-phone') || '';
+  };
+</script>
+{% endblock %}

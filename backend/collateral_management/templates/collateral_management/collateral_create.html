@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% load crispy_forms_tags %}
+
+{% block title %}{{ page_title|default:"Add Collateral" }}{% endblock %}
+
+{% block content %}
+<div class="container mt-4" style="max-width:720px;">
+  <a href="{% url 'collateral_list' %}" class="btn btn-outline-secondary mb-3">&larr; Back</a>
+  <h3 class="mb-4 text-center">{{ page_title|default:"Add Collateral" }}</h3>
+
+  {% if messages %}
+  {% for m in messages %}
+  <div class="alert alert-{{ m.tags }}">{{ m }}</div>
+  {% endfor %}
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+    {{ form|crispy }}
+
+    <div class="text-center mt-3">
+      <button class="btn btn-primary px-4">Save</button>
+      <a href="{% url 'collateral_list' %}" class="btn btn-secondary px-4 ms-2">Cancel</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

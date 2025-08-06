@@ -76,16 +76,16 @@ class ShortLinkDeleteView(DeleteView):
 # ----------------------------------------------------------------
 def resolve_shortlink(request, code):
     """
-    Resolve the short code and redirect to the viewer page if both
-    the shortlink and its associated collateral are active.
-    Otherwise, render an info page with an error message.
+    Resolve the short code and redirect to the doctor verification page (WhatsApp number verification).
     """
     shortlink = get_object_or_404(ShortLink, short_code=code, is_active=True)
     collateral = shortlink.get_collateral()
 
     if collateral and collateral.is_active:
-        viewer_url = reverse("doctor_view", kwargs={"code": code})
-        return redirect(viewer_url)
+        # Redirect to doctor verification page with short_link_id as query param
+        from django.urls import reverse
+        verify_url = reverse("doctor_collateral_verify") + f"?short_link_id={shortlink.id}"
+        return redirect(verify_url)
 
     messages.error(request, "Resource not found or inactive.")
     return render(

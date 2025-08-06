@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #f8f9fa;">
+  <div class="card shadow" style="width: 100%; max-width: 400px;">
+    <div class="card-body p-4">
+      <h4 class="text-center mb-4">Gmail Login</h4>
+
+      {% if messages %}
+      {% for message in messages %}
+      <div class="alert alert-{{ message.tags }}" role="alert">
+        {{ message }}
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      <form method="post" autocomplete="off">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label">Field ID:</label>
+          <input type="text" class="form-control" name="field_id" placeholder="Enter your Field ID" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Gmail ID:</label>
+          <input type="email" class="form-control" name="gmail_id" placeholder="example@gmail.com"
+            pattern="^[a-zA-Z0-9._%+-]+@gmail\.com$" required>
+          <small class="form-text text-muted">Only Gmail addresses are allowed (e.g., example@gmail.com).</small>
+        </div>
+        <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Login</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

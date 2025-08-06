@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Delete Field Rep #{{ object.id }}?</h3>
+<form method="post">
+  {% csrf_token %}
+  <button class="btn btn-danger">Yes – delete</button>
+  <a href="{% url 'admin_dashboard:fieldrep_list' %}" class="btn btn-secondary">Cancel</a>
+</form>
+{% endblock %}

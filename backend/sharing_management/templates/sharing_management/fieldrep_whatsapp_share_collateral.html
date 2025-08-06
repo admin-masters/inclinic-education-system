@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #f8f9fa;">
+  <div class="card shadow" style="width: 100%; max-width: 400px;">
+    <div class="card-header text-center">
+      <h5 class="mb-0">Share Collaterals Form</h5>
+      <div class="small text-muted">Brand Campaign ID: {{ brand_campaign_id }}</div>
+    </div>
+    <div class="card-body p-4">
+      <form method="post" autocomplete="off">
+        {% csrf_token %}
+        <div class="mb-3">
+          <label class="form-label">Field Rep ID:</label>
+          <input type="text" class="form-control" name="fieldrep_id" value="{{ fieldrep_id }}" readonly>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Name of Doctor:</label>
+          <input type="text" class="form-control" name="doctor_name" placeholder="Doctor Name" required>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Doctor WhatsApp Number:</label>
+          <input type="text" class="form-control" name="doctor_whatsapp" placeholder="Enter 10 digit mobile number"
+            maxlength="10" pattern="\d{10}" required>
+          <small class="form-text text-muted">Enter 10 digit mobile number</small>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">Select Collaterals:</label>
+          <select class="form-select" name="collateral" required>
+            <option value="">Select Collateral</option>
+            {% for c in collaterals %}
+            <option value="{{ c.id }}">{{ c.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Submit</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

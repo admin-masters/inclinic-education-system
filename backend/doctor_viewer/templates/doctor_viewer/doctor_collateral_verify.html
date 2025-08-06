@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #fff;">
+  <div class="card shadow" style="width: 100%; max-width: 400px;">
+    <div class="card-body p-4">
+      {% if collateral %}
+      <h3 class="text-center mb-2">{{ collateral.title }}</h3>
+      {% if collateral.description %}
+      <p class="text-center text-muted mb-4">{{ collateral.description }}</p>
+      {% endif %}
+      {% else %}
+      <h3 class="text-center mb-4">Health and Education</h3>
+      {% endif %}
+
+      {% if messages %}
+      {% for message in messages %}
+      <div
+        class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %} alert-dismissible fade show"
+        role="alert">
+        {{ message }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+      {% endfor %}
+      {% endif %}
+
+      <form method="post" autocomplete="off">
+        {% csrf_token %}
+
+        <!-- WhatsApp Number Verification Form -->
+        <div class="mb-3">
+          <label class="form-label">Enter your WhatsApp Number:</label>
+          <input type="text" class="form-control" name="whatsapp_number" placeholder="7006244895" maxlength="10"
+            pattern="\d{10}" required>
+          <input type="hidden" name="short_link_id" value="{{ short_link_id|default:'' }}">
+        </div>
+        <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Verify</button>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

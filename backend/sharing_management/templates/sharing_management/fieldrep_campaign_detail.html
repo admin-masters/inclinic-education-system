@@ -2,17 +2,37 @@
 {% block content %}
 <h2>Campaign Collaterals</h2>
 <table border="1" cellpadding="6">
-<thead><tr><th>Title</th><th>Type</th><th>Shares</th><th>PDF Views</th><th>Video Views</th></tr></thead>
-<tbody>
-{% for r in rows %}
-<tr>
-  <td>{{ r.collateral.title }}</td>
-  <td>{{ r.collateral.type }}</td>
-  <td>{{ r.shares }}</td>
-  <td>{{ r.pdfs }}</td>
-  <td>{{ r.videos }}</td>
-</tr>
-{% endfor %}
-</tbody></table>
+  <thead>
+    <tr>
+      <th>Title</th>
+      <th>Type</th>
+      <th>Doctor</th>
+      <th>Status</th>
+      <th>Detail</th>
+    </tr>
+  </thead>
+  <tbody>
+    {% for r in rows %}
+    {% for ds in r.doctor_statuses %}
+    <tr>
+      <td>{{ r.collateral.title }}</td>
+      <td>{{ r.collateral.type }}</td>
+      <td>{{ ds.doctor }}</td>
+      <td>
+        {% if ds.status == 0 %}Not Seen
+        {% elif ds.status == 1 %}Partially Viewed
+        {% elif ds.status == 2 %}Fully Viewed
+        {% endif %}
+      </td>
+      <td>{{ ds.detail }}</td>
+    </tr>
+    {% empty %}
+    <tr>
+      <td colspan="5">No doctors have been sent this collateral.</td>
+    </tr>
+    {% endfor %}
+    {% endfor %}
+  </tbody>
+</table>
 <a href="{% url 'fieldrep_dashboard' %}">← back to campaigns</a>
 {% endblock %}
