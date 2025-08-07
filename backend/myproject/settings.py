@@ -22,7 +22,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent          # …/backend
 PROJECT_DIR = BACKEND_DIR.parent                              # …/inclinic-education-system
 
 # you may still use PROJECT_DIR elsewhere if needed
-# BASE_DIR = BACKEND_DIR                                        # ← *key change*
+# BASE_DIR = BACKEND_DIR                                        # ← key change
 
 # ──────────────────────────────────────────────────────────────
 # 2   Security
@@ -233,4 +233,3 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")  # your-email@gmail.com
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")  # App Password
 DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
-
