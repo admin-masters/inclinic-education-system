@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}PDF & Video Tracking Dashboard{% endblock %}
+
+{% block content %}
+<div class="container-fluid mt-4">
+  <h2 class="mb-4 text-center">📊 PDF & Video Tracking Dashboard</h2>
+
+  <!-- Summary Cards -->
+  <div class="row mb-4">
+    <div class="col-md-4">
+      <div class="card bg-primary text-white">
+        <div class="card-body text-center">
+          <h3>{{ total_engagements }}</h3>
+          <p class="mb-0">Total Engagements</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card bg-success text-white">
+        <div class="card-body text-center">
+          <h3>{{ pdf_engagements }}</h3>
+          <p class="mb-0">PDF Completions</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card bg-info text-white">
+        <div class="card-body text-center">
+          <h3>{{ video_engagements }}</h3>
+          <p class="mb-0">Video Completions (90%+)</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Collateral Statistics -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header">
+          <h5>📈 Collateral-wise Statistics</h5>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th>Collateral Name</th>
+                  <th>Type</th>
+                  <th>Total Views</th>
+                  <th>PDF Completions</th>
+                  <th>Video Completions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for collateral_name, stats in collateral_stats.items %}
+                <tr>
+                  <td><strong>{{ collateral_name }}</strong></td>
+                  <td>
+                    <span class="badge {% if stats.type == 'pdf' %}bg-primary{% else %}bg-success{% endif %}">
+                      {{ stats.type|upper }}
+                    </span>
+                  </td>
+                  <td>{{ stats.total_views }}</td>
+                  <td>{{ stats.pdf_completed }}</td>
+                  <td>{{ stats.video_completed }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                  <td colspan="5" class="text-center">No collateral data available</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent Engagements -->
+  <div class="row">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header">
+          <h5>🕒 Recent Engagements (Last 50)</h5>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-striped">
+              <thead>
+                <tr>
+                  <th>Short Code</th>
+                  <th>Collateral</th>
+                  <th>Type</th>
+                  <th>Progress</th>
+                  <th>Status</th>
+                  <th>Timestamp</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for engagement in recent_engagements %}
+                <tr>
+                  <td>
+                    <code>{{ engagement.short_link.short_code }}</code>
+                  </td>
+                  <td>
+                    {% if engagement.short_link.get_collateral %}
+                    {{ engagement.short_link.get_collateral.title|default:"Unknown" }}
+                    {% else %}
+                    Unknown
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if engagement.short_link.get_collateral %}
+                    <span
+                      class="badge {% if engagement.short_link.get_collateral.type == 'pdf' %}bg-primary{% else %}bg-success{% endif %}">
+                      {{ engagement.short_link.get_collateral.type|upper }}
+                    </span>
+                    {% else %}
+                    Unknown
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if engagement.short_link.get_collateral %}
+                    {% if engagement.short_link.get_collateral.type == 'pdf' %}
+                    {% if engagement.pdf_completed %}
+                    <span class="text-success">✓ Complete</span>
+                    {% else %}
+                    Page {{ engagement.last_page_scrolled }}
+                    {% endif %}
+                    {% else %}
+                    <div class="progress" style="height: 20px;">
+                      <div class="progress-bar" role="progressbar" data-width="{{ engagement.video_watch_percentage }}"
+                        aria-valuenow="{{ engagement.video_watch_percentage }}" aria-valuemin="0" aria-valuemax="100">
+                        {{ engagement.video_watch_percentage }}%
+                      </div>
+                    </div>
+                    {% endif %}
+                    {% else %}
+                    N/A
+                    {% endif %}
+                  </td>
+                  <td>
+                    {% if engagement.status == 0 %}
+                    <span class="badge bg-secondary">Not Started</span>
+                    {% elif engagement.status == 1 %}
+                    <span class="badge bg-warning">In Progress</span>
+                    {% elif engagement.status == 2 %}
+                    <span class="badge bg-success">Completed</span>
+                    {% endif %}
+                  </td>
+                  <td>{{ engagement.view_timestamp|date:"M d, Y H:i" }}</td>
+                </tr>
+                {% empty %}
+                <tr>
+                  <td colspan="6" class="text-center">No engagements found</td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Back Button -->
+  <div class="row mt-4">
+    <div class="col-12 text-center">
+      <a href="{% url 'admin-dashboard:dashboard' %}" class="btn btn-outline-secondary">&larr; Back to Admin
+        Dashboard</a>
+    </div>
+  </div>
+</div>
+
+<style>
+  .card {
+    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    border: 1px solid rgba(0, 0, 0, 0.125);
+  }
+
+  .progress {
+    background-color: #e9ecef;
+  }
+
+  .badge {
+    font-size: 0.875em;
+  }
+
+  .table th {
+    background-color: #f8f9fa;
+    border-top: none;
+  }
+</style>
+
+<script>
+  // Set progress bar widths from data attributes
+  document.addEventListener('DOMContentLoaded', function () {
+    const progressBars = document.querySelectorAll('.progress-bar[data-width]');
+    progressBars.forEach(function (bar) {
+      const width = bar.getAttribute('data-width');
+      bar.style.width = width + '%';
+    });
+  });
+</script>
+{% endblock %}

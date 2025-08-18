@@ -26,14 +26,12 @@ from .forms import (
     BulkManualWhatsappShareForm,
     BulkPreFilledWhatsappShareForm,
 )
-from .models import ShareLog
 from campaign_management.models import CampaignAssignment
 from campaign_management.models import Collateral, CampaignCollateral
 from doctor_viewer.models import DoctorEngagement
 from shortlink_management.models import ShortLink
 from shortlink_management.utils import generate_short_code
 from utils.recaptcha import recaptcha_required
-# from .models import Collateral  # Removed duplicate import
 from .forms import CollateralForm
 from campaign_management.forms import CampaignCollateralForm
 from .utils.db_operations import (
@@ -41,6 +39,7 @@ from .utils.db_operations import (
     validate_forgot_password, 
     get_security_question_by_email,
     authenticate_field_representative,
+    authenticate_field_representative_direct,
     reset_field_representative_password,
     generate_and_store_otp,
     verify_otp
@@ -1287,70 +1286,44 @@ def fieldrep_whatsapp_login(request):
     if request.method == 'POST':
         field_id = request.POST.get('field_id')
         whatsapp_number = request.POST.get('whatsapp_number')
-        otp = request.POST.get('otp')
         
-        # Step 1: Generate OTP
-        if not otp:
-            if field_id and whatsapp_number:
-                # Generate and store OTP
-                success, otp_code, user_id, user_data = generate_and_store_otp(field_id, whatsapp_number)
+        if field_id and whatsapp_number:
+            # Get client IP and user agent for audit logging
+            ip_address = request.META.get('REMOTE_ADDR')
+            user_agent = request.META.get('HTTP_USER_AGENT', '')
+            
+            # Direct authentication without OTP
+            success, user_id, user_data = authenticate_field_representative_direct(field_id, whatsapp_number, ip_address, user_agent)
+            
+            if success:
+                # Clear any existing Google authentication session
+                google_session_keys = [
+                    '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
+                    'user_id', 'username', 'email', 'first_name', 'last_name'
+                ]
                 
-                if success:
-                    # In a real implementation, send OTP via WhatsApp API
-                    # For now, we'll show it in a message (in production, remove this)
-                    messages.success(request, f'OTP sent to your WhatsApp! OTP: {otp_code}')
-                    return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
-                        'field_id': field_id,
-                        'whatsapp_number': whatsapp_number,
-                        'show_otp_field': True
-                    })
+                for key in google_session_keys:
+                    if key in request.session:
+                        del request.session[key]
+                
+                # Store field rep user info in session
+                request.session['field_rep_id'] = user_id
+                request.session['field_rep_email'] = user_data['email']
+                request.session['field_rep_field_id'] = user_data['field_id']
+                
+                messages.success(request, f'Welcome back, {user_data["field_id"]}!')
+                
+                # Check if user is prefilled or manual based on field_id
+                if user_data['field_id'] and user_data['field_id'].startswith('PREFILLED_'):
+                    # Prefilled user - redirect to prefilled share collateral
+                    return redirect('prefilled_fieldrep_share_collateral')
                 else:
-                    messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
+                    # Manual user - redirect to whatsapp share collateral
+                    return redirect('fieldrep_whatsapp_share_collateral')
             else:
-                messages.error(request, 'Please provide both Field ID and WhatsApp number.')
+                messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
         else:
-            # Step 2: Verify OTP
-            if field_id and whatsapp_number and otp:
-                # Get client IP and user agent for audit logging
-                ip_address = request.META.get('REMOTE_ADDR')
-                user_agent = request.META.get('HTTP_USER_AGENT', '')
-                
-                success, user_id, user_data = verify_otp(field_id, whatsapp_number, otp, ip_address, user_agent)
-                
-                if success:
-                    # Clear any existing Google authentication session
-                    google_session_keys = [
-                        '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
-                        'user_id', 'username', 'email', 'first_name', 'last_name'
-                    ]
-                    
-                    for key in google_session_keys:
-                        if key in request.session:
-                            del request.session[key]
-                    
-                    # Store field rep user info in session
-                    request.session['field_rep_id'] = user_id
-                    request.session['field_rep_email'] = user_data['email']
-                    request.session['field_rep_field_id'] = user_data['field_id']
-                    
-                    messages.success(request, f'Welcome back, {user_data["field_id"]}!')
-                    
-                    # Check if user is prefilled or manual based on field_id
-                    if user_data['field_id'] and user_data['field_id'].startswith('PREFILLED_'):
-                        # Prefilled user - redirect to prefilled share collateral
-                        return redirect('prefilled_fieldrep_share_collateral')
-                    else:
-                        # Manual user - redirect to whatsapp share collateral
-                        return redirect('fieldrep_whatsapp_share_collateral')
-                else:
-                    messages.error(request, 'Invalid OTP. Please try again.')
-                    return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
-                        'field_id': field_id,
-                        'whatsapp_number': whatsapp_number,
-                        'show_otp_field': True
-                    })
-            else:
-                messages.error(request, 'Please provide all required information.')
+            messages.error(request, 'Please provide both Field ID and WhatsApp number.')
     
     return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
 

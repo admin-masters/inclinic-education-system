@@ -7,6 +7,7 @@ from django.utils import timezone
 from shortlink_management.models import ShortLink
 from collateral_management.models import Collateral
 from .models import DoctorEngagement
+from campaign_management.models import CampaignCollateral
 
 # ──────────────────────────────────────────────────────────────
 # Safe page count helper – works with local + remote storage
@@ -232,3 +233,51 @@ def doctor_collateral_view(request):
     
     # If no POST or verification failed, show verification form
     return render(request, 'doctor_viewer/doctor_collateral_verify.html')
+
+def tracking_dashboard(request):
+    """
+    Comprehensive tracking dashboard showing all doctor engagement data
+    """
+    # Get all doctor engagements with related data
+    engagements = DoctorEngagement.objects.select_related(
+        'short_link'
+    ).order_by('-view_timestamp')
+    
+    # Get summary statistics
+    total_engagements = engagements.count()
+    pdf_engagements = engagements.filter(pdf_completed=True).count()
+    video_engagements = engagements.filter(video_watch_percentage__gte=90).count()
+    
+    # Get collateral-wise statistics (instead of campaign-wise)
+    collateral_stats = {}
+    for engagement in engagements:
+        collateral = engagement.short_link.get_collateral()
+        if collateral:
+            collateral_name = collateral.title if hasattr(collateral, 'title') else str(collateral)
+            
+            if collateral_name not in collateral_stats:
+                collateral_stats[collateral_name] = {
+                    'pdf_completed': 0,
+                    'video_completed': 0,
+                    'total_views': 0,
+                    'type': collateral.type if hasattr(collateral, 'type') else 'unknown'
+                }
+            
+            collateral_stats[collateral_name]['total_views'] += 1
+            if engagement.pdf_completed:
+                collateral_stats[collateral_name]['pdf_completed'] += 1
+            if engagement.video_watch_percentage >= 90:
+                collateral_stats[collateral_name]['video_completed'] += 1
+    
+    # Get recent engagements for detailed view
+    recent_engagements = engagements[:50]  # Last 50 engagements
+    
+    context = {
+        'total_engagements': total_engagements,
+        'pdf_engagements': pdf_engagements,
+        'video_engagements': video_engagements,
+        'collateral_stats': collateral_stats,  # Changed from campaign_stats
+        'recent_engagements': recent_engagements,
+    }
+    
+    return render(request, 'doctor_viewer/tracking_dashboard.html', context)

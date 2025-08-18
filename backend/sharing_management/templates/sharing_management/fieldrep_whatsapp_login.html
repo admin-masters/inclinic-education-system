@@ -28,18 +28,9 @@
             placeholder="Enter 10 digit mobile number" maxlength="10" pattern="\d{10}" required>
         </div>
 
-        {% if show_otp_field %}
-        <div class="mb-3">
-          <label class="form-label" style="color:#00897b;">OTP:</label>
-          <input type="text" class="form-control" name="otp" placeholder="Enter 6-digit OTP" maxlength="6"
-            pattern="\d{6}" required>
-          <small class="form-text text-muted">Enter the 6-digit OTP sent to your WhatsApp</small>
-        </div>
-        {% endif %}
-
         <button type="submit" class="btn w-100"
           style="background:#00897b; color:white; font-weight:600; font-size:1.2rem;">
-          {% if show_otp_field %}Verify OTP{% else %}Send OTP{% endif %}
+          Login
         </button>
       </form>
     </div>

@@ -413,6 +413,34 @@ def verify_otp(field_id, phone_number, otp, ip_address=None, user_agent=None):
         print(f"Error verifying OTP: {e}")
         return False, None, None 
 
+def authenticate_field_representative_direct(field_id, phone_number, ip_address=None, user_agent=None):
+    """
+    Authenticate a field representative directly using field_id and phone_number without OTP.
+    
+    Args:
+        field_id: The field representative ID
+        phone_number: The phone number for WhatsApp
+        ip_address: IP address for audit logging
+        user_agent: User agent for audit logging
+    
+    Returns:
+        tuple: (success: bool, user_id: int, user_data: dict) or (False, None, None)
+    """
+    try:
+        # First lookup user
+        success, user_id, user_data = lookup_user_by_field_and_phone(field_id, phone_number)
+        if not success:
+            return False, None, None
+        
+        # Log successful login attempt
+        log_whatsapp_login_attempt(user_id, True, ip_address, user_agent)
+        return True, user_id, user_data
+            
+    except Exception as e:
+        print(f"Error authenticating field representative directly: {e}")
+        return False, None, None
+
+
 def lookup_user_by_field_and_phone(field_id, phone_e164):
     """
     Lookup user by field_id and phone_number for WhatsApp login.
