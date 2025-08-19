@@ -4,7 +4,7 @@ from .views import (
     fieldrep_dashboard, fieldrep_campaign_detail,
     bulk_manual_upload, bulk_template_csv,
     bulk_pre_mapped_upload, bulk_pre_mapped_template, # ✅ Correct function-based views
-    bulk_pre_filled_share_whatsapp, edit_campaign_calendar
+    bulk_pre_filled_share_whatsapp, bulk_prefilled_whatsapp_template_csv, edit_campaign_calendar
 )
 from .views import bulk_manual_upload_whatsapp, bulk_whatsapp_template_csv
 from . import views
@@ -67,6 +67,11 @@ urlpatterns = [
     "bulk-prefilled-whatsapp/",
     bulk_pre_filled_share_whatsapp,
     name="bulk_pre_filled_share_whatsapp",
+),
+path(
+    "bulk-prefilled-whatsapp-template.csv",
+    bulk_prefilled_whatsapp_template_csv,
+    name="bulk_prefilled_whatsapp_template",
 ),
 path('collaterals/edit/<int:pk>/', views.edit_collateral_dates, name='edit_collateral_dates'),
 path('edit-calendar/', edit_campaign_calendar, name='edit_campaign_calendar'),

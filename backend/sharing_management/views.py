@@ -487,6 +487,24 @@ def bulk_pre_filled_share_whatsapp(request):
 
     return render(request, "sharing_management/bulk_prefilled_whatsapp_upload.html", {"form": form})
 
+@staff_member_required
+def bulk_prefilled_whatsapp_template_csv(request):
+    """
+    Download CSV template for bulk prefilled WhatsApp sharing
+    """
+    import csv
+    from django.http import HttpResponse
+    
+    response = HttpResponse(content_type='text/csv')
+    response['Content-Disposition'] = 'attachment; filename="bulk_prefilled_whatsapp_template.csv"'
+    
+    writer = csv.writer(response)
+    writer.writerow(['doctor_name', 'whatsapp_number', 'fieldrep_id'])
+    writer.writerow(['Dr. John Doe', '+919876543210', '1'])
+    writer.writerow(['Dr. Jane Smith', '+919876543211', '2'])
+    
+    return response
+
 def edit_collateral_dates(request, pk):
     collateral = get_object_or_404(Collateral, pk=pk)
     if request.method == 'POST':

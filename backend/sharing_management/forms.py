@@ -355,14 +355,9 @@ class BulkManualWhatsappShareForm(forms.Form):
 class BulkPreFilledWhatsappShareForm(forms.Form):
     """
     CSV with header: doctor_name, whatsapp_number, fieldrep_id
-    Selects ONE collateral from the form
     """
-    collateral = forms.ModelChoiceField(
-        queryset=Collateral.objects.filter(is_active=True),
-        label="Select Collateral"
-    )
     csv_file = forms.FileField(
-        label="Upload CSV",
+        label="Choose a CSV file",
         help_text="CSV must include doctor_name, whatsapp_number, fieldrep_id",
     )
 
@@ -387,66 +382,15 @@ class BulkPreFilledWhatsappShareForm(forms.Form):
         """
         f = io.StringIO(self.cleaned_data["csv_file"].read().decode())
         reader = csv.DictReader(f)
-        collateral = self.cleaned_data["collateral"]
-
+        
+        # Note: Collateral field removed - this method needs to be updated
+        # to handle the business logic without collateral selection
+        
         stats = {"created": 0, "errors": [], "logs": []}
-        for row_no, row in enumerate(reader, start=2):
-            try:
-                name = (row.get("doctor_name") or "").strip()
-                phone = (row.get("whatsapp_number") or "").strip()
-                rep_id = int(row.get("fieldrep_id") or 0)
-
-                if not (name and phone and rep_id):
-                    raise ValueError("Missing one or more required values")
-
-                if not re.match(r"^\+?\d{8,15}$", phone):
-                    raise ValueError("Invalid phone number format")
-
-                rep = User.objects.get(pk=rep_id, role="field_rep")
-
-                # Doctor create/reuse
-                doctor, _ = Doctor.objects.get_or_create(
-                    rep=rep,
-                    phone=phone,
-                    defaults={"name": name.strip().title()}
-                )
-
-                # DoctorCollateral
-                DoctorCollateral.objects.get_or_create(
-                    doctor=doctor,
-                    collateral=collateral
-                )
-
-                # ShortLink create or reuse
-                from shortlink_management.models import ShortLink
-                from shortlink_management.utils import generate_short_code
-
-                short = ShortLink.objects.filter(
-                    resource_type="collateral",
-                    resource_id=collateral.id,
-                    is_active=True
-                ).first() or ShortLink.objects.create(
-                    short_code=generate_short_code(8),
-                    resource_type="collateral",
-                    resource_id=collateral.id,
-                    created_by=admin_user,
-                    is_active=True
-                )
-
-                # ShareLog
-                log = ShareLog.objects.create(
-                    short_link=short,
-                    field_rep=rep,
-                    doctor_identifier=phone,
-                    share_channel="WhatsApp",
-                    message_text="",  # to be edited later
-                )
-                stats["logs"].append(log)
-                stats["created"] += 1
-
-            except Exception as exc:
-                stats["errors"].append(f"Line {row_no}: {exc}")
-
+        
+        # For now, return an error indicating this needs to be configured
+        stats["errors"].append("This functionality needs to be configured for operation without collateral selection")
+        
         return stats
 class CollateralForm(forms.ModelForm):
     class Meta:
