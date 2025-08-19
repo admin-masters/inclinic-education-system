@@ -13,17 +13,14 @@
         <!-- Brand Campaign ID -->
         <div class="mb-3">
           <label class="form-label">Brand Campaign ID:</label>
-          {% if form.campaign %}
-          {{ form.campaign }}
-          {% else %}
-          <input type="text" class="form-control" value="{{ form.instance.campaign.brand_campaign_id|default:'' }}"
+          <input type="text" id="brand-campaign-id" class="form-control" value="{{ form.campaign.value|default:'' }}"
             readonly>
-          {% endif %}
         </div>
         <!-- Select Collateral -->
         <div class="mb-3">
           <label class="form-label">Select Collateral:</label>
           {{ form.collateral }}
+          <small class="text-muted">ID: {{ form.collateral.id_for_label }}</small>
         </div>
         <!-- Start Date -->
         <div class="mb-3">
@@ -41,4 +38,65 @@
     </div>
   </div>
 </div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function () {
+    console.log('DOM loaded, setting up collateral selection handler...');
+
+    const collateralSelect = document.getElementById('id_collateral');
+    const brandCampaignIdField = document.getElementById('brand-campaign-id');
+
+    console.log('Collateral select element:', collateralSelect);
+    console.log('Brand campaign ID field:', brandCampaignIdField);
+
+    if (collateralSelect && brandCampaignIdField) {
+      console.log('Both elements found, setting up event listeners...');
+
+      // Set initial value if editing existing record
+      if (collateralSelect.value) {
+        console.log('Initial collateral value:', collateralSelect.value);
+        updateBrandCampaignId(collateralSelect.value);
+      }
+
+      // Add change event listener
+      collateralSelect.addEventListener('change', function () {
+        const selectedCollateralId = this.value;
+        console.log('Collateral selection changed to:', selectedCollateralId);
+        if (selectedCollateralId) {
+          updateBrandCampaignId(selectedCollateralId);
+        } else {
+          brandCampaignIdField.value = '';
+        }
+      });
+    } else {
+      console.error('Required elements not found!');
+    }
+
+    function updateBrandCampaignId(collateralId) {
+      console.log('Updating brand campaign ID for collateral:', collateralId);
+      const apiUrl = `/api/get-collateral-campaign/${collateralId}/`;
+      console.log('API URL:', apiUrl);
+
+      fetch(apiUrl)
+        .then(response => {
+          console.log('API response status:', response.status);
+          return response.json();
+        })
+        .then(data => {
+          console.log('API response data:', data);
+          if (data.success) {
+            brandCampaignIdField.value = data.brand_campaign_id;
+            console.log('Updated brand campaign ID to:', data.brand_campaign_id);
+          } else {
+            brandCampaignIdField.value = 'Error loading campaign ID';
+            console.error('API error:', data.error);
+          }
+        })
+        .catch(error => {
+          console.error('Fetch error:', error);
+          brandCampaignIdField.value = 'Error loading campaign ID';
+        });
+    }
+  });
+</script>
 {% endblock %}

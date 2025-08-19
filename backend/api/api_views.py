@@ -1,4 +1,7 @@
 from rest_framework import viewsets, permissions
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
 from .serializers import (
     CampaignSerializer, CollateralSerializer, ShortLinkSerializer,
     ShareLogSerializer, DoctorEngagementSerializer
@@ -8,6 +11,43 @@ from collateral_management.models import Collateral
 from shortlink_management.models import ShortLink
 from sharing_management.models    import ShareLog
 from doctor_viewer.models         import DoctorEngagement
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def get_collateral_campaign(request, collateral_id):
+    """
+    Get the brand campaign ID for a selected collateral
+    """
+    try:
+        from campaign_management.models import CampaignCollateral
+        from collateral_management.models import Collateral
+        
+        # First try to get from CampaignCollateral relationship
+        campaign_collateral = CampaignCollateral.objects.select_related('campaign').filter(collateral_id=collateral_id).first()
+        
+        if campaign_collateral:
+            return Response({
+                'success': True,
+                'brand_campaign_id': campaign_collateral.campaign.brand_campaign_id
+            })
+        
+        # If not found in CampaignCollateral, check direct campaign relationship
+        collateral = Collateral.objects.select_related('campaign').filter(id=collateral_id).first()
+        if collateral and collateral.campaign:
+            return Response({
+                'success': True,
+                'brand_campaign_id': collateral.campaign.brand_campaign_id
+            })
+        
+        return Response({
+            'success': False,
+            'error': 'No campaign found for this collateral'
+        })
+    except Exception as e:
+        return Response({
+            'success': False,
+            'error': str(e)
+        })
 
 class IsAdmin(permissions.BasePermission):
     def has_permission(self, request, view):

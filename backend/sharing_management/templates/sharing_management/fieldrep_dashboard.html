@@ -266,7 +266,7 @@
                 <td>
                     {% if collateral.campaign_collateral_id %}
                     <a class="btn btn-primary"
-                        href="{% url 'edit_campaign_calendar' collateral.campaign_collateral_id %}">Edit
+                        href="{% url 'edit_campaign_calendar' %}?id={{ collateral.campaign_collateral_id }}">Edit
                         Dates</a>
                     {% else %}
                     <span class="text-muted">N/A</span>

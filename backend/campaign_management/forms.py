@@ -37,11 +37,31 @@ class CampaignAssignmentForm(forms.ModelForm):
 
 # ✅ NEWLY ADDED: Collateral Assignment Form
 class CampaignCollateralForm(forms.ModelForm):
+    campaign = forms.CharField(
+        max_length=255,
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
+        label="Brand Campaign ID"
+    )
+    
     class Meta:
         model = CampaignCollateral
-        fields = ['collateral', 'start_date', 'end_date']
+        fields = ['campaign', 'collateral', 'start_date', 'end_date']
         widgets = {
             'collateral': forms.Select(attrs={'class': 'form-select'}),
             'start_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
             'end_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
         }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.instance and self.instance.pk:
+            # Set the campaign field value to the brand_campaign_id when editing
+            self.fields['campaign'].initial = self.instance.campaign.brand_campaign_id
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        # Remove the campaign field from cleaned_data since it's just for display
+        if 'campaign' in cleaned_data:
+            del cleaned_data['campaign']
+        return cleaned_data
