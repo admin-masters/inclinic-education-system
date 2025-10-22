@@ -125,15 +125,24 @@ class FieldRepListView(StaffRequiredMixin, ListView):
         return ctx
 
 class FieldRepCreateView(StaffRequiredMixin, CreateView):
+    model         = User
     form_class    = FieldRepForm
     template_name = "admin_dashboard/fieldrep_form.html"
     success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
+    
+    def form_valid(self, form):
+        messages.success(self.request, "Field representative created successfully!")
+        return super().form_valid(form)
 
 class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
     model         = User
     form_class    = FieldRepForm
     template_name = "admin_dashboard/fieldrep_form.html"
     success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
+    
+    def form_valid(self, form):
+        messages.success(self.request, "Field representative updated successfully!")
+        return super().form_valid(form)
 
 class FieldRepDeleteView(StaffRequiredMixin, DeleteView):
     model         = User

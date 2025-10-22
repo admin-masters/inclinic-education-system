@@ -25,9 +25,11 @@ from .forms import (
     BulkPreMappedUploadForm,
     BulkManualWhatsappShareForm,
     BulkPreFilledWhatsappShareForm,
+    BulkPreMappedByLoginForm,
 )
 from campaign_management.models import CampaignAssignment
-from campaign_management.models import Collateral, CampaignCollateral
+from collateral_management.models import Collateral
+from campaign_management.models import CampaignCollateral
 from doctor_viewer.models import DoctorEngagement
 from shortlink_management.models import ShortLink
 from shortlink_management.utils import generate_short_code
@@ -249,7 +251,9 @@ def fieldrep_dashboard(request):
             'videos': videos,
         })
 
-    all_collaterals = Collateral.objects.all()
+    # Use campaign_management Collateral here to match the FK on CampaignCollateral
+    from campaign_management.models import Collateral as CampaignMgmtCollateral
+    all_collaterals = CampaignMgmtCollateral.objects.all()
     
     # Add search functionality
     search_query = request.GET.get('search', '').strip()
@@ -373,47 +377,179 @@ def fieldrep_campaign_detail(request, campaign_id):
     return render(request, 'sharing_management/fieldrep_campaign_detail.html', {'rows': rows})
 
 
-@staff_member_required
 def bulk_manual_upload(request):
     if request.method == "POST":
+        print(f"POST request received with files: {request.FILES}")
+        
+        # Simple test redirect first
+        if 'test_redirect' in request.POST:
+            messages.success(request, "Test redirect working!")
+            return redirect("bulk_upload_success")
+        
         form = BulkManualShareForm(request.POST, request.FILES)
+        print(f"Form is valid: {form.is_valid()}")
+        
         if form.is_valid():
-            created, errors = form.save(user_request=request.user)
-            if created:
-                messages.success(request, f"{created} rows imported.")
-            for err in errors:
-                messages.error(request, f"{err}")
+            try:
+                # Debug: Show CSV content
+                csv_file = request.FILES['csv_file']
+                csv_content = csv_file.read().decode('utf-8')
+                print(f"CSV Content:\n{csv_content}")
+                
+                # Check what field reps actually exist
+                from django.contrib.auth import get_user_model
+                UserModel = get_user_model()
+                existing_field_reps = UserModel.objects.filter(role="field_rep").values_list('email', flat=True)
+                print(f"Existing field reps in database: {list(existing_field_reps)}")
+                
+                # Reset file pointer for form processing
+                csv_file.seek(0)
+                
+                created, errors = form.save(user_request=request.user)
+                print(f"Created: {created}, Errors: {errors}")
+                
+                if created and created > 0:
+                    messages.success(request, f"{created} rows imported successfully.")
+                    print("Redirecting to bulk_upload_success")
+                    return redirect("bulk_upload_success")
+                else:
+                    messages.warning(request, "No rows were created. Please check your CSV file format and data.")
+                    if errors:
+                        messages.info(request, f"Total errors found: {len(errors)}")
+                        # Show available field reps in error message
+                        if existing_field_reps:
+                            messages.info(request, f"Available field rep emails: {', '.join(existing_field_reps)}")
+                        else:
+                            messages.error(request, "No field representatives found in database! Please create field rep users first.")
+                    
+                for err in errors:
+                    messages.error(request, f"Error: {err}")
+                    
+            except Exception as e:
+                print(f"Save error: {e}")
+                messages.error(request, f"Upload failed: {str(e)}")
+                
             return redirect("bulk_manual_upload")
+        else:
+            print(f"Form errors: {form.errors}")
+            for field, field_errors in form.errors.items():
+                for error in field_errors:
+                    messages.error(request, f"{field}: {error}")
     else:
         form = BulkManualShareForm()
 
     return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
 
 
-@staff_member_required
+def bulk_upload_success(request):
+    """
+    Show recently uploaded data from bulk upload
+    """
+    from datetime import datetime, timedelta
+    
+    # Get recent ShareLog entries (last 1 hour) - show all recent uploads, not just current user's
+    recent_time = timezone.now() - timedelta(hours=1)
+    recent_uploads = ShareLog.objects.filter(
+        created_at__gte=recent_time
+    ).select_related('collateral', 'field_rep', 'short_link').order_by('-created_at')[:50]
+    
+    return render(request, "sharing_management/bulk_upload_success.html", {
+        "recent_uploads": recent_uploads,
+        "total_count": recent_uploads.count()
+    })
+
+
+def all_share_logs(request):
+    """
+    Show all share logs
+    """
+    share_logs = ShareLog.objects.all().select_related('collateral', 'field_rep', 'short_link').order_by('-created_at')[:100]
+    
+    return render(request, "sharing_management/all_share_logs.html", {
+        "share_logs": share_logs,
+        "total_count": share_logs.count()
+    })
+
+
 def bulk_template_csv(request):
     response = HttpResponse(content_type="text/csv")
     response["Content-Disposition"] = "attachment; filename=bulk_manual_template.csv"
     writer = csv.writer(response)
+    
+    # Write header row
     writer.writerow([
-        "rep@example.com",
-        "Dr John Doe",
+        "field_rep_email",
+        "doctor_name", 
+        "doctor_contact",
+        "collateral_id",
+        "share_channel",
+        "message_text",
+    ])
+    
+    # Get actual field rep users from database
+    from django.contrib.auth import get_user_model
+    UserModel = get_user_model()
+    
+    try:
+        # Try to get a real field rep user
+        field_rep = UserModel.objects.filter(role="field_rep").first()
+        rep_email = field_rep.email if field_rep else "bhartidhote8@gmail.com"
+    except:
+        rep_email = "bhartidhote8@gmail.com"
+    
+    # Get actual collateral ID
+    try:
+        from collateral_management.models import Collateral
+        collateral = Collateral.objects.filter(is_active=True).first()
+        col_id = str(collateral.id) if collateral else "1"
+        print(f"DEBUG: Using collateral ID {col_id} for template")
+        if not collateral:
+            # If no active collaterals, try any collateral
+            collateral = Collateral.objects.first()
+            col_id = str(collateral.id) if collateral else "1"
+            print(f"DEBUG: No active collaterals, using any collateral ID {col_id}")
+    except Exception as e:
+        print(f"DEBUG: Error getting collateral: {e}")
+        col_id = "1"
+    
+    writer.writerow([
+        rep_email,
+        "Dr John Doe", 
         "+919812345678",
-        "42",
+        col_id,
         "WhatsApp",
         "Hi Doctor, please see this.",
     ])
     return response
 
 
-@staff_member_required
+def bulk_upload_help(request):
+    """
+    Show available field reps and collaterals for CSV upload
+    """
+    from django.contrib.auth import get_user_model
+    UserModel = get_user_model()
+    
+    # Get available field reps
+    field_reps = UserModel.objects.filter(role="field_rep").values('id', 'email', 'username')
+    
+    # Get available collaterals
+    collaterals = Collateral.objects.filter(is_active=True).values('id', 'title', 'description')
+    
+    return render(request, "sharing_management/bulk_upload_help.html", {
+        "field_reps": field_reps,
+        "collaterals": collaterals,
+    })
+
+
 def bulk_pre_mapped_upload(request):
     if request.method == "POST":
         form = BulkPreMappedUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            created, errors = form.save(user_request=request.user)
+            created, errors = form.save(admin_user=request.user)
             if created:
-                messages.success(request, f"{created} rows imported.")
+                messages.success(request, f"{created} rows imported successfully.")
+                return redirect("bulk_upload_success")
             for err in errors:
                 messages.error(request, err)
             return redirect("bulk_pre_mapped_upload")
@@ -422,7 +558,6 @@ def bulk_pre_mapped_upload(request):
     return render(request, "sharing_management/bulk_premapped_upload.html", {"form": form})
 
 
-@staff_member_required
 def bulk_pre_mapped_template(request):
     response = HttpResponse(content_type="text/csv")
     response["Content-Disposition"] = "attachment; filename=premapped_template.csv"
@@ -432,14 +567,14 @@ def bulk_pre_mapped_template(request):
     return response
 
 # ─── Bulk manual (WhatsApp‑only) UI ──────────────────────────────────────────
-@staff_member_required
 def bulk_manual_upload_whatsapp(request):
     if request.method == "POST":
         form = BulkManualWhatsappShareForm(request.POST, request.FILES)
         if form.is_valid():
             created, errors = form.save(user_request=request.user)
             if created:
-                messages.success(request, f"{created} WhatsApp rows imported.")
+                messages.success(request, f"{created} WhatsApp rows imported successfully.")
+                return redirect("bulk_upload_success")
             for err in errors:
                 messages.error(request, err)
             return redirect("bulk_manual_upload_whatsapp")
@@ -453,7 +588,6 @@ def bulk_manual_upload_whatsapp(request):
     )
 
 
-@staff_member_required
 def bulk_whatsapp_template_csv(request):
     """
     Example CSV for WhatsApp‑only bulk upload.
@@ -461,6 +595,16 @@ def bulk_whatsapp_template_csv(request):
     response = HttpResponse(content_type="text/csv")
     response["Content-Disposition"] = "attachment; filename=bulk_manual_whatsapp_template.csv"
     writer = csv.writer(response)
+    
+    # Write header row
+    writer.writerow([
+        "field_rep_email",
+        "doctor_name",
+        "whatsapp_number",
+        "collateral_id",
+        "message_text",
+    ])
+    
     writer.writerow([
         "rep@example.com",
         "Dr Jane Doe",
@@ -469,7 +613,6 @@ def bulk_whatsapp_template_csv(request):
         "Hi Doctor, please see this.",
     ])
     return response
-@staff_member_required
 def bulk_pre_filled_share_whatsapp(request):
     from .forms import BulkPreFilledWhatsappShareForm
 
@@ -487,7 +630,6 @@ def bulk_pre_filled_share_whatsapp(request):
 
     return render(request, "sharing_management/bulk_prefilled_whatsapp_upload.html", {"form": form})
 
-@staff_member_required
 def bulk_prefilled_whatsapp_template_csv(request):
     """
     Download CSV template for bulk prefilled WhatsApp sharing
@@ -499,9 +641,9 @@ def bulk_prefilled_whatsapp_template_csv(request):
     response['Content-Disposition'] = 'attachment; filename="bulk_prefilled_whatsapp_template.csv"'
     
     writer = csv.writer(response)
-    writer.writerow(['doctor_name', 'whatsapp_number', 'fieldrep_id'])
-    writer.writerow(['Dr. John Doe', '+919876543210', '1'])
-    writer.writerow(['Dr. Jane Smith', '+919876543211', '2'])
+    writer.writerow(['doctor_name', 'whatsapp_number', 'fieldrep_id', 'collateral_id', 'message_text'])
+    writer.writerow(['Dr. John Doe', '+919876543210', '1', '42', 'Hi Doctor, please check this content.'])
+    writer.writerow(['Dr. Jane Smith', '+919876543211', '2', '43', 'Hello Doctor, here is some useful information.'])
     
     return response
 
@@ -525,30 +667,79 @@ def edit_campaign_calendar(request):
     
     # Check if we're editing an existing record
     edit_id = request.GET.get('id')
+    print(f"Edit ID from URL: {edit_id}")
     if edit_id:
         try:
             existing_record = CampaignCollateral.objects.get(id=edit_id)
             if request.method == 'POST':
+                print(f"POST data: {request.POST}")
                 form = CampaignCollateralForm(request.POST, instance=existing_record)
+                print(f"Form is valid: {form.is_valid()}")
                 if form.is_valid():
-                    form.save()
+                    print(f"Form cleaned_data: {form.cleaned_data}")
+                    saved_instance = form.save()
+                    print(f"Saved instance: {saved_instance}")
+                    print(f"Start date: {saved_instance.start_date}, End date: {saved_instance.end_date}")
                     messages.success(request, 'Calendar dates updated successfully.')
-                    return redirect('edit_campaign_calendar')
+                    return redirect(f'/share/edit-calendar/?id={edit_id}')
+                else:
+                    print(f"Form errors: {form.errors}")
+                    # Add form errors to messages for debugging
+                    for field, errors in form.errors.items():
+                        for error in errors:
+                            messages.error(request, f'{field}: {error}')
             else:
                 form = CampaignCollateralForm(instance=existing_record)
         except CampaignCollateral.DoesNotExist:
             messages.error(request, 'Record not found.')
             return redirect('edit_campaign_calendar')
     else:
-        # Adding new record
+        # No ID provided - handle form submission to update existing records
         if request.method == 'POST':
-            form = CampaignCollateralForm(request.POST)
-            if form.is_valid():
-                form.save()
-                messages.success(request, 'Campaign collateral added successfully.')
-                return redirect('edit_campaign_calendar')
-        else:
-            form = CampaignCollateralForm()
+            collateral_id = request.POST.get('collateral')
+            start_date = request.POST.get('start_date')
+            end_date = request.POST.get('end_date')
+            
+            print(f"POST data - Collateral ID: {collateral_id}, Start: {start_date}, End: {end_date}")
+            
+            if collateral_id:
+                # Find existing CampaignCollateral record with this collateral
+                existing_record = CampaignCollateral.objects.filter(collateral_id=collateral_id).first()
+                
+                if existing_record:
+                    # Update existing record
+                    form = CampaignCollateralForm(request.POST, instance=existing_record)
+                    if form.is_valid():
+                        print(f"Updating existing record: {existing_record}")
+                        form.save()
+                        messages.success(request, 'Calendar dates updated successfully!')
+                        return redirect('edit_campaign_calendar')
+                    else:
+                        print(f"Form errors: {form.errors}")
+                        for field, errors in form.errors.items():
+                            for error in errors:
+                                messages.error(request, f'{field}: {error}')
+                else:
+                    # Create new record
+                    form = CampaignCollateralForm(request.POST)
+                    if form.is_valid():
+                        instance = form.save(commit=False)
+                        
+                        # Set campaign from first available campaign
+                        from campaign_management.models import Campaign
+                        first_campaign = Campaign.objects.first()
+                        if first_campaign:
+                            instance.campaign = first_campaign
+                            instance.save()
+                            messages.success(request, 'New campaign collateral created successfully!')
+                            return redirect('edit_campaign_calendar')
+                        else:
+                            messages.error(request, 'No campaigns available. Please create a campaign first.')
+            else:
+                messages.error(request, 'Please select a collateral.')
+        
+        # Show empty form
+        form = CampaignCollateralForm()
     
     return render(request, 'sharing_management/edit_calendar.html', {
         'form': form,
@@ -739,7 +930,7 @@ def fieldrep_share_collateral(request):
     
     # Get real collaterals from database
     try:
-        from campaign_management.models import Collateral
+        from collateral_management.models import Collateral
         collaterals = Collateral.objects.all()
         
         # Convert to list format for template
@@ -922,7 +1113,7 @@ def prefilled_fieldrep_share_collateral(request):
     
     # Get real collaterals from database
     try:
-        from campaign_management.models import Collateral
+        from collateral_management.models import Collateral
         collaterals = Collateral.objects.all()
         
         # Convert to list format for template
@@ -952,7 +1143,7 @@ def prefilled_fieldrep_share_collateral(request):
         if selected_doctor and selected_collateral:
             try:
                 from .utils.db_operations import share_prefilled_doctor
-                from campaign_management.models import Collateral
+                from collateral_management.models import Collateral
                 
                 # Get the short link for this collateral
                 collateral_obj = Collateral.objects.get(id=collateral_id)
@@ -1060,7 +1251,7 @@ def fieldrep_gmail_share_collateral(request):
     
     # Get real collaterals from database
     try:
-        from campaign_management.models import Collateral
+        from collateral_management.models import Collateral
         collaterals = Collateral.objects.all()  # All collaterals from our imported data
         
         # Convert to list format for template
@@ -1105,7 +1296,7 @@ def fieldrep_gmail_share_collateral(request):
         if selected_collateral and doctor_name and doctor_whatsapp:
             try:
                 from .utils.db_operations import log_manual_doctor_share
-                from campaign_management.models import Collateral
+                from collateral_management.models import Collateral
                 
                 # Get the short link for this collateral
                 collateral_obj = Collateral.objects.get(id=collateral_id)
@@ -1230,7 +1421,7 @@ def prefilled_fieldrep_gmail_share_collateral(request):
     
     # Get real collaterals from database
     try:
-        from campaign_management.models import Collateral
+        from collateral_management.models import Collateral
         collaterals = Collateral.objects.all()
         
         # Convert to list format for template
@@ -1260,7 +1451,7 @@ def prefilled_fieldrep_gmail_share_collateral(request):
         if selected_doctor and selected_collateral:
             try:
                 from .utils.db_operations import share_prefilled_doctor
-                from campaign_management.models import Collateral
+                from collateral_management.models import Collateral
                 
                 # Get the short link for this collateral
                 collateral_obj = Collateral.objects.get(id=collateral_id)
@@ -1303,8 +1494,253 @@ def prefilled_fieldrep_gmail_share_collateral(request):
 def fieldrep_whatsapp_login(request):
     if request.method == 'POST':
         field_id = request.POST.get('field_id')
-        whatsapp_number = request.POST.get('whatsapp_number')
+        raw = request.POST.get('whatsapp_number', '')
+        import re
+        digits = re.sub(r'\D', '', raw)
+        if len(digits) == 10:
+            whatsapp_number = f'+91{digits}'
+        elif digits.startswith('91') and len(digits) == 12:
+            whatsapp_number = f'+{digits}'
+        elif digits.startswith('0') and len(digits) == 11:
+            whatsapp_number = f'+91{digits[1:]}'
+        else:
+            whatsapp_number = f'+{digits}'
         
+        if field_id and whatsapp_number:
+            # Get client IP and user agent for audit logging
+            ip_address = request.META.get('REMOTE_ADDR')
+            user_agent = request.META.get('HTTP_USER_AGENT', '')
+            
+            # Try authentication first
+            success, user_id, user_data = authenticate_field_representative_direct(field_id, whatsapp_number, ip_address, user_agent)
+            
+            # If authentication fails, try to register new user automatically
+            if not success:
+                print(f"Authentication failed, attempting automatic registration for {field_id}")
+                
+                # Create user directly in User model for immediate login
+                try:
+                    from user_management.models import User
+                    from django.contrib.auth.hashers import make_password
+                    
+                    # Check if user already exists in User model
+                    existing_user = User.objects.filter(field_id=field_id).first()
+                    if not existing_user:
+                        # Create new user directly
+                        new_user = User.objects.create(
+                            username=f"fieldrep_{field_id}",
+                            email=f"{field_id.lower()}@example.com",
+                            field_id=field_id,
+                            phone_number=whatsapp_number,
+                            role='field_rep',
+                            active=True,
+                            password=make_password("defaultpass123")
+                        )
+                        print(f"DEBUG: Created new user with ID: {new_user.id}")
+                        
+                        # Set session data directly for immediate login
+                        success = True
+                        user_id = new_user.id
+                        user_data = {
+                            'field_id': field_id,
+                            'email': new_user.email,
+                            'phone_number': whatsapp_number
+                        }
+                        messages.success(request, f'Welcome! New account created for {field_id}')
+                    else:
+                        print(f"DEBUG: User already exists, using existing user")
+                        success = True
+                        user_id = existing_user.id
+                        user_data = {
+                            'field_id': field_id,
+                            'email': existing_user.email,
+                            'phone_number': whatsapp_number
+                        }
+                        messages.success(request, f'Welcome back, {field_id}!')
+                        
+                except Exception as e:
+                    print(f"DEBUG: Error creating user: {e}")
+                    messages.error(request, 'Could not create account. Please try again.')
+                    return redirect('fieldrep_whatsapp_login')
+            
+            if success:
+                # Clear any existing Google authentication session
+                google_session_keys = [
+                    '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
+                    'user_id', 'username', 'email', 'first_name', 'last_name'
+                ]
+                
+                for key in google_session_keys:
+                    if key in request.session:
+                        del request.session[key]
+                
+                # Store field rep user info in session
+                request.session['field_rep_id'] = user_id
+                request.session['field_rep_email'] = user_data['email']
+                request.session['field_rep_field_id'] = user_data['field_id']
+                
+                print(f"DEBUG: Session data stored - ID: {user_id}, Email: {user_data['email']}, Field ID: {user_data['field_id']}")
+                
+                messages.success(request, f'Welcome back, {user_data["field_id"]}!')
+                
+                # Check if user is prefilled or manual based on field_id
+                if user_data['field_id'] and user_data['field_id'].startswith('PREFILLED_'):
+                    # Prefilled user - redirect to prefilled share collateral
+                    print(f"DEBUG: Redirecting to prefilled share collateral")
+                    return redirect('prefilled_fieldrep_share_collateral')
+                else:
+                    # Manual user - redirect to whatsapp share collateral
+                    print(f"DEBUG: Redirecting to manual whatsapp share collateral")
+                    return redirect('fieldrep_whatsapp_share_collateral')
+            else:
+                messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
+        else:
+            messages.error(request, 'Please provide both Field ID and WhatsApp number.')
+    
+    return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+
+def fieldrep_whatsapp_share_collateral(request):
+    import urllib.parse
+    
+    # Get user info from session
+    field_rep_id = request.session.get('field_rep_id')
+    field_rep_email = request.session.get('field_rep_email')
+    field_rep_field_id = request.session.get('field_rep_field_id')
+    
+    print(f"DEBUG: Share collateral view - Session data: ID={field_rep_id}, Email={field_rep_email}, Field_ID={field_rep_field_id}")
+    
+    if not field_rep_id:
+        print(f"DEBUG: No field_rep_id in session, redirecting to login")
+        messages.error(request, 'Please login first.')
+        return redirect('fieldrep_whatsapp_login')
+    
+    # Get real collaterals from database
+    try:
+        from collateral_management.models import Collateral
+        from user_management.models import User
+        collaterals = Collateral.objects.all()
+        
+        # Get the actual user object for short link creation
+        try:
+            actual_user = User.objects.get(id=field_rep_id)
+        except User.DoesNotExist:
+            actual_user = request.user  # fallback
+        
+        # Convert to list format for template
+        collaterals_list = []
+        for collateral in collaterals:
+            # Create short link for each collateral
+            short_link = find_or_create_short_link(collateral, actual_user)
+            collaterals_list.append({
+                'id': collateral.id,
+                'name': collateral.title,
+                'description': collateral.description,
+                'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
+            })
+    except Exception as e:
+        print(f"Error fetching collaterals: {e}")
+        collaterals_list = []
+        messages.error(request, 'Error loading collaterals. Please try again.')
+    
+    if request.method == 'POST':
+        print(f"POST request received: {request.POST}")
+        doctor_name = request.POST.get('doctor_name')
+        doctor_whatsapp = request.POST.get('doctor_whatsapp')
+        collateral_id = request.POST.get('collateral')
+        
+        print(f"Form data - Doctor: {doctor_name}, WhatsApp: {doctor_whatsapp}, Collateral: {collateral_id}")
+        
+        if not collateral_id:
+            messages.error(request, 'Please select a collateral.')
+            return redirect('fieldrep_whatsapp_share_collateral')
+            
+        try:
+            collateral_id = int(collateral_id)
+        except (ValueError, TypeError):
+            messages.error(request, 'Invalid collateral selected.')
+            return redirect('fieldrep_whatsapp_share_collateral')
+        
+        # Find the selected collateral
+        selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
+        print(f"Selected collateral: {selected_collateral}")
+        
+        if selected_collateral and doctor_name and doctor_whatsapp:
+            try:
+                from .utils.db_operations import log_manual_doctor_share
+                from collateral_management.models import Collateral
+                
+                # Get the short link for this collateral
+                collateral_obj = Collateral.objects.get(id=collateral_id)
+                short_link = find_or_create_short_link(collateral_obj, actual_user)
+                print(f"Short link created: {short_link.short_code}")
+                
+                # Log the manual doctor share
+                print(f"Logging share - short_link_id: {short_link.id}, field_rep_id: {field_rep_id}, phone: {doctor_whatsapp}, collateral_id: {collateral_id}")
+                success = log_manual_doctor_share(
+                    short_link_id=short_link.id,
+                    field_rep_id=field_rep_id,
+                    phone_e164=doctor_whatsapp,
+                    collateral_id=collateral_id
+                )
+                
+                if success:
+                    # Get brand-specific message
+                    message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
+                    
+                    # Clean phone number for WhatsApp URL
+                    clean_phone = doctor_whatsapp.replace('+91', '').replace('+', '')
+                    wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
+                    
+                    messages.success(request, f'Collateral shared successfully with {doctor_name}!')
+                    return redirect(wa_url)
+                else:
+                    messages.error(request, 'Error sharing collateral. Please try again.')
+                    return redirect('fieldrep_whatsapp_share_collateral')
+                    
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                messages.error(request, f'Error sharing collateral: {str(e)}')
+                return redirect('fieldrep_whatsapp_share_collateral')
+        else:
+            missing_fields = []
+            if not doctor_name: missing_fields.append('Doctor Name')
+            if not doctor_whatsapp: missing_fields.append('WhatsApp Number')
+            if not selected_collateral: missing_fields.append('Valid Collateral')
+            
+            messages.error(request, f'Please fill all required fields: {", ".join(missing_fields)}')
+            return redirect('fieldrep_whatsapp_share_collateral')
+    
+    return render(request, 'sharing_management/fieldrep_whatsapp_share_collateral.html', {
+        'fieldrep_id': field_rep_field_id or 'Unknown',
+        'fieldrep_email': field_rep_email,
+        'collaterals': collaterals_list
+    })
+
+def prefilled_fieldrep_whatsapp_login(request):
+    # Get existing field reps from database for dropdown
+    existing_field_reps = []
+    try:
+        from user_management.models import User
+        field_reps = User.objects.filter(role='field_rep', active=True).values('field_id', 'email', 'phone_number')
+        existing_field_reps = list(field_reps)
+        print(f"Found {len(existing_field_reps)} existing field reps")
+    except Exception as e:
+        print(f"Error fetching field reps: {e}")
+    
+    if request.method == 'POST':
+        field_id = request.POST.get('field_id')
+        raw = request.POST.get('whatsapp_number', '')
+        import re
+        digits = re.sub(r'\D', '', raw)
+        if len(digits) == 10:
+            whatsapp_number = f'+91{digits}'
+        elif digits.startswith('91') and len(digits) == 12:
+            whatsapp_number = f'+{digits}'
+        elif digits.startswith('0') and len(digits) == 11:
+            whatsapp_number = f'+91{digits[1:]}'
+        else:
+            whatsapp_number = f'+{digits}'
         if field_id and whatsapp_number:
             # Get client IP and user agent for audit logging
             ip_address = request.META.get('REMOTE_ADDR')
@@ -1330,167 +1766,15 @@ def fieldrep_whatsapp_login(request):
                 request.session['field_rep_field_id'] = user_data['field_id']
                 
                 messages.success(request, f'Welcome back, {user_data["field_id"]}!')
-                
-                # Check if user is prefilled or manual based on field_id
-                if user_data['field_id'] and user_data['field_id'].startswith('PREFILLED_'):
-                    # Prefilled user - redirect to prefilled share collateral
-                    return redirect('prefilled_fieldrep_share_collateral')
-                else:
-                    # Manual user - redirect to whatsapp share collateral
-                    return redirect('fieldrep_whatsapp_share_collateral')
+                return redirect('prefilled_fieldrep_whatsapp_share_collateral')
             else:
                 messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
         else:
             messages.error(request, 'Please provide both Field ID and WhatsApp number.')
     
-    return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
-
-def fieldrep_whatsapp_share_collateral(request):
-    import urllib.parse
-    
-    # Get user info from session
-    field_rep_id = request.session.get('field_rep_id')
-    field_rep_email = request.session.get('field_rep_email')
-    field_rep_field_id = request.session.get('field_rep_field_id')
-    
-    if not field_rep_id:
-        messages.error(request, 'Please login first.')
-        return redirect('fieldrep_login')
-    
-    # Get real collaterals from database
-    try:
-        from campaign_management.models import Collateral
-        collaterals = Collateral.objects.all()
-        
-        # Convert to list format for template
-        collaterals_list = []
-        for collateral in collaterals:
-            # Create short link for each collateral
-            short_link = find_or_create_short_link(collateral, request.user)
-            collaterals_list.append({
-                'id': collateral.id,
-                'name': collateral.item_name,
-                'description': collateral.description,
-                'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
-            })
-    except Exception as e:
-        print(f"Error fetching collaterals: {e}")
-        collaterals_list = []
-        messages.error(request, 'Error loading collaterals. Please try again.')
-    
-    if request.method == 'POST':
-        doctor_name = request.POST.get('doctor_name')
-        doctor_whatsapp = request.POST.get('doctor_whatsapp')
-        collateral_id = int(request.POST.get('collateral'))
-        
-        # Find the selected collateral
-        selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
-        
-        if selected_collateral and doctor_name and doctor_whatsapp:
-            try:
-                from .utils.db_operations import log_manual_doctor_share
-                from campaign_management.models import Collateral
-                
-                # Get the short link for this collateral
-                collateral_obj = Collateral.objects.get(id=collateral_id)
-                short_link = find_or_create_short_link(collateral_obj, request.user)
-                
-                # Log the manual doctor share
-                success = log_manual_doctor_share(
-                    short_link_id=short_link.id,
-                    field_rep_id=field_rep_id,
-                    phone_e164=doctor_whatsapp,
-                    collateral_id=collateral_id
-                )
-                
-                if success:
-                    # Get brand-specific message
-                    message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
-                    wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
-                    
-                    messages.success(request, f'Collateral shared successfully with {doctor_name}!')
-                    return redirect(wa_url)
-                else:
-                    messages.error(request, 'Error sharing collateral. Please try again.')
-                    return redirect('fieldrep_whatsapp_share_collateral')
-                    
-            except Exception as e:
-                print(f"Error sharing manual doctor: {e}")
-                messages.error(request, 'Error sharing collateral. Please try again.')
-                return redirect('fieldrep_whatsapp_share_collateral')
-        else:
-            messages.error(request, 'Please fill all required fields.')
-            return redirect('fieldrep_whatsapp_share_collateral')
-    
-    return render(request, 'sharing_management/fieldrep_whatsapp_share_collateral.html', {
-        'fieldrep_id': field_rep_field_id or 'Unknown',
-        'fieldrep_email': field_rep_email,
-        'collaterals': collaterals_list
+    return render(request, 'sharing_management/prefilled_fieldrep_whatsapp_login.html', {
+        'existing_field_reps': existing_field_reps
     })
-
-def prefilled_fieldrep_whatsapp_login(request):
-    if request.method == 'POST':
-        field_id = request.POST.get('field_id')
-        whatsapp_number = request.POST.get('whatsapp_number')
-        otp = request.POST.get('otp')
-        
-        # Step 1: Generate OTP
-        if not otp:
-            if field_id and whatsapp_number:
-                # Generate and store OTP
-                success, otp_code, user_id, user_data = generate_and_store_otp(field_id, whatsapp_number)
-                
-                if success:
-                    # In a real implementation, send OTP via WhatsApp API
-                    # For now, we'll show it in a message (in production, remove this)
-                    messages.success(request, f'OTP sent to your WhatsApp! OTP: {otp_code}')
-                    return render(request, 'sharing_management/prefilled_fieldrep_whatsapp_login.html', {
-                        'field_id': field_id,
-                        'whatsapp_number': whatsapp_number,
-                        'show_otp_field': True
-                    })
-                else:
-                    messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
-            else:
-                messages.error(request, 'Please provide both Field ID and WhatsApp number.')
-        else:
-            # Step 2: Verify OTP
-            if field_id and whatsapp_number and otp:
-                # Get client IP and user agent for audit logging
-                ip_address = request.META.get('REMOTE_ADDR')
-                user_agent = request.META.get('HTTP_USER_AGENT', '')
-                
-                success, user_id, user_data = verify_otp(field_id, whatsapp_number, otp, ip_address, user_agent)
-                
-                if success:
-                    # Clear any existing Google authentication session
-                    google_session_keys = [
-                        '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
-                        'user_id', 'username', 'email', 'first_name', 'last_name'
-                    ]
-                    
-                    for key in google_session_keys:
-                        if key in request.session:
-                            del request.session[key]
-                    
-                    # Store field rep user info in session
-                    request.session['field_rep_id'] = user_id
-                    request.session['field_rep_email'] = user_data['email']
-                    request.session['field_rep_field_id'] = user_data['field_id']
-                    
-                    messages.success(request, f'Welcome back, {user_data["field_id"]}!')
-                    return redirect('prefilled_fieldrep_whatsapp_share_collateral')
-                else:
-                    messages.error(request, 'Invalid OTP. Please try again.')
-                    return render(request, 'sharing_management/prefilled_fieldrep_whatsapp_login.html', {
-                        'field_id': field_id,
-                        'whatsapp_number': whatsapp_number,
-                        'show_otp_field': True
-                    })
-            else:
-                messages.error(request, 'Please provide all required information.')
-    
-    return render(request, 'sharing_management/prefilled_fieldrep_whatsapp_login.html')
 
 def prefilled_fieldrep_whatsapp_share_collateral(request):
     import urllib.parse
@@ -1531,7 +1815,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request):
     
     # Get real collaterals from database
     try:
-        from campaign_management.models import Collateral
+        from collateral_management.models import Collateral
         collaterals = Collateral.objects.all()
         
         # Convert to list format for template
@@ -1561,7 +1845,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request):
         if selected_doctor and selected_collateral:
             try:
                 from .utils.db_operations import share_prefilled_doctor
-                from campaign_management.models import Collateral
+                from collateral_management.models import Collateral
                 
                 # Get the short link for this collateral
                 collateral_obj = Collateral.objects.get(id=collateral_id)
@@ -1646,3 +1930,60 @@ def video_tracking(request):
         return JsonResponse({"status": "success", "msg": "New video tracking log inserted successfully."})
     else:
         return JsonResponse({"status": "exists", "msg": "This video progress state has already been recorded."})
+
+def bulk_pre_mapped_by_login(request):
+    if request.method == "POST":
+        form = BulkPreMappedByLoginForm(request.POST, request.FILES)
+        if form.is_valid():
+            result = form.save(admin_user=request.user)
+            if result["created"] or result.get("updated"):
+                messages.success(
+                    request,
+                    f"Doctors created: {result['created']}. Mappings created/updated: {result.get('updated', 0)}."
+                )
+            for err in result["errors"]:
+                messages.error(request, err)
+            return render(
+                request,
+                "sharing_management/bulk_premapped_login_success.html",
+                result
+            )
+    else:
+        form = BulkPreMappedByLoginForm()
+    return render(
+        request,
+        "sharing_management/bulk_premapped_login_upload.html",
+        {"form": form}
+    )
+
+def bulk_pre_mapped_by_login_template(request):
+    response = HttpResponse(content_type="text/csv")
+    response["Content-Disposition"] = "attachment; filename=premapped_by_login_template.csv"
+    w = csv.writer(response)
+    # Header is REQUIRED for clarity and robustness
+    w.writerow(["doctor_name", "whatsapp_number", "fieldrep_id", "collateral_id"])
+    w.writerow(["Dr Jane Doe", "+919999998888", "42", "99"])
+    return response
+
+def debug_collaterals(request):
+    """Debug view to show available collaterals"""
+    from collateral_management.models import Collateral
+    from django.contrib.auth import get_user_model
+    
+    UserModel = get_user_model()
+    
+    collaterals = Collateral.objects.all()[:20]  # Limit to first 20
+    field_reps = UserModel.objects.filter(role="field_rep")[:10]  # Limit to first 10
+    
+    html = "<h2>Debug Information</h2>"
+    html += "<h3>Available Collaterals:</h3><ul>"
+    for col in collaterals:
+        html += f"<li>ID: {col.id}, Name: {getattr(col, 'item_name', 'N/A')}, Active: {col.is_active}</li>"
+    html += "</ul>"
+    
+    html += "<h3>Available Field Reps:</h3><ul>"
+    for rep in field_reps:
+        html += f"<li>ID: {rep.id}, Email: {rep.email}</li>"
+    html += "</ul>"
+    
+    return HttpResponse(html)

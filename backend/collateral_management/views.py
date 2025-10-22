@@ -5,8 +5,7 @@ from django.views.generic import ListView, DetailView, CreateView, UpdateView, D
 from django.contrib import messages
 from django.db import transaction 
 from .decorators import admin_required
-from .models import Collateral
-from campaign_management.models import CampaignCollateral
+from .models import Collateral, CampaignCollateral
 from .forms import CollateralForm, CampaignCollateralForm
 from campaign_management.models import Campaign
 from .forms import CampaignCollateralDateForm
@@ -96,7 +95,8 @@ def add_collateral_with_campaign(request):
             with transaction.atomic():
                 collateral = form.save(commit=False)
                 collateral.created_by = request.user
-                collateral.purpose = form.cleaned_data['title']  # Always set purpose from title
+                # Correct: read from the proper purpose field
+                collateral.purpose = form.cleaned_data.get('purpose')
                 collateral.save()
                 CampaignCollateral.objects.create(
                     campaign=collateral.campaign,  # Use campaign from form
@@ -115,8 +115,6 @@ def add_collateral_with_campaign(request):
         },
     )
 def edit_campaign_collateral_dates(request, pk):
-    # Use the correct CampaignCollateral model from campaign_management
-    from campaign_management.models import CampaignCollateral
     campaign_collateral = get_object_or_404(CampaignCollateral, pk=pk)
     
     if request.method == 'POST':

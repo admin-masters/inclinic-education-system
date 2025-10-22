@@ -2,42 +2,126 @@
 {% load static %}
 
 {% block content %}
-<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #fff;">
-  <div class="card shadow" style="width: 100%; max-width: 400px;">
-    <div class="card-body p-4">
-      {% if collateral %}
-      <h3 class="text-center mb-2">{{ collateral.title }}</h3>
-      {% if collateral.description %}
-      <p class="text-center text-muted mb-4">{{ collateral.description }}</p>
-      {% endif %}
-      {% else %}
-      <h3 class="text-center mb-4">Health and Education</h3>
-      {% endif %}
+<div class="container-fluid" style="min-height: 100vh; background: #f8f9fa;">
+  <div class="row h-100">
 
-      {% if messages %}
-      {% for message in messages %}
-      <div
-        class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %} alert-dismissible fade show"
-        role="alert">
-        {{ message }}
-        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
-      </div>
-      {% endfor %}
-      {% endif %}
-
-      <form method="post" autocomplete="off">
-        {% csrf_token %}
-
-        <!-- WhatsApp Number Verification Form -->
-        <div class="mb-3">
-          <label class="form-label">Enter your WhatsApp Number:</label>
-          <input type="text" class="form-control" name="whatsapp_number" placeholder="7006244895" maxlength="10"
-            pattern="\d{10}" required>
-          <input type="hidden" name="short_link_id" value="{{ short_link_id|default:'' }}">
+    <!-- Left side: PDF Preview -->
+    <div class="col-md-8 p-0">
+      {% if pdf_preview_url %}
+      <div class="pdf-preview-container" style="height: 100vh; border-right: 1px solid #dee2e6;">
+        <div class="preview-header bg-primary text-white p-3">
+          <h5 class="mb-0">
+            <i class="fas fa-file-pdf me-2"></i>
+            {{ collateral.title }} - Preview
+          </h5>
+          <small>First page preview • Verify your WhatsApp number to access full content</small>
         </div>
-        <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Verify</button>
-      </form>
+
+        <div class="pdf-preview" style="height: calc(100vh - 80px); overflow: hidden;">
+          <embed src="{{ pdf_preview_url }}" type="application/pdf" width="100%" height="100%"
+            style="border: none; pointer-events: none;" id="pdf-preview">
+        </div>
+      </div>
+      {% else %}
+      <div class="d-flex align-items-center justify-content-center h-100 bg-light">
+        <div class="text-center">
+          <i class="fas fa-file-alt fa-5x text-muted mb-3"></i>
+          <h4 class="text-muted">Content Preview</h4>
+          <p class="text-muted">{{ collateral.title }}</p>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+
+    <!-- Right side: Verification Form -->
+    <div class="col-md-4 d-flex align-items-center justify-content-center">
+      <div class="card shadow-lg border-0" style="width: 100%; max-width: 400px; margin: 2rem;">
+        <div class="card-body p-4">
+          {% if collateral %}
+          <div class="text-center mb-4">
+            <i class="fas fa-shield-alt fa-2x text-primary mb-2"></i>
+            <h4 class="mb-2">Verify Access</h4>
+            <p class="text-muted small">Enter your WhatsApp number to unlock full content</p>
+          </div>
+          {% else %}
+          <h3 class="text-center mb-4">Health and Education</h3>
+          {% endif %}
+
+          {% if messages %}
+          {% for message in messages %}
+          <div
+            class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %} alert-dismissible fade show"
+            role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+          </div>
+          {% endfor %}
+          {% endif %}
+
+          <form method="post" autocomplete="off">
+            {% csrf_token %}
+
+            <!-- WhatsApp Number Verification Form -->
+            <div class="mb-3">
+              <label class="form-label fw-bold">
+                <i class="fab fa-whatsapp text-success me-1"></i>
+                WhatsApp Number:
+              </label>
+              <input type="text" class="form-control form-control-lg" name="whatsapp_number" placeholder="9812345678"
+                maxlength="10" pattern="\d{10}" required style="border: 2px solid #e9ecef; border-radius: 10px;">
+              <input type="hidden" name="short_link_id" value="{{ short_link_id|default:'' }}">
+              <small class="form-text text-muted">
+                <i class="fas fa-info-circle me-1"></i>
+                Enter the 10-digit number used for sharing
+              </small>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-lg w-100 mb-3"
+              style="background: linear-gradient(45deg, #1877f2, #42a5f5); border: none; border-radius: 10px;">
+              <i class="fas fa-unlock me-2"></i>
+              Verify & Access Content
+            </button>
+
+            <div class="text-center">
+              <small class="text-muted">
+                <i class="fas fa-lock me-1"></i>
+                Secure verification required
+              </small>
+            </div>
+          </form>
+        </div>
+      </div>
     </div>
   </div>
 </div>
+
+<style>
+  .pdf-preview-container {
+    position: relative;
+  }
+
+  .preview-header {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+
+  @media (max-width: 768px) {
+    .row {
+      flex-direction: column-reverse;
+    }
+
+    .col-md-8 {
+      height: 50vh;
+    }
+
+    .col-md-4 {
+      height: 50vh;
+    }
+
+    .pdf-preview {
+      height: calc(50vh - 80px) !important;
+    }
+  }
+</style>
 {% endblock %}

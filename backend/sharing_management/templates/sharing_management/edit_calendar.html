@@ -45,17 +45,21 @@
 
     const collateralSelect = document.getElementById('id_collateral');
     const brandCampaignIdField = document.getElementById('brand-campaign-id');
+    const startDateField = document.getElementById('id_start_date');
+    const endDateField = document.getElementById('id_end_date');
 
     console.log('Collateral select element:', collateralSelect);
     console.log('Brand campaign ID field:', brandCampaignIdField);
+    console.log('Start date field:', startDateField);
+    console.log('End date field:', endDateField);
 
     if (collateralSelect && brandCampaignIdField) {
-      console.log('Both elements found, setting up event listeners...');
+      console.log('Required elements found, setting up event listeners...');
 
       // Set initial value if editing existing record
       if (collateralSelect.value) {
         console.log('Initial collateral value:', collateralSelect.value);
-        updateBrandCampaignId(collateralSelect.value);
+        updateCollateralData(collateralSelect.value);
       }
 
       // Add change event listener
@@ -63,17 +67,19 @@
         const selectedCollateralId = this.value;
         console.log('Collateral selection changed to:', selectedCollateralId);
         if (selectedCollateralId) {
-          updateBrandCampaignId(selectedCollateralId);
+          updateCollateralData(selectedCollateralId);
         } else {
           brandCampaignIdField.value = '';
+          if (startDateField) startDateField.value = '';
+          if (endDateField) endDateField.value = '';
         }
       });
     } else {
       console.error('Required elements not found!');
     }
 
-    function updateBrandCampaignId(collateralId) {
-      console.log('Updating brand campaign ID for collateral:', collateralId);
+    function updateCollateralData(collateralId) {
+      console.log('Updating collateral data for collateral:', collateralId);
       const apiUrl = `/api/get-collateral-campaign/${collateralId}/`;
       console.log('API URL:', apiUrl);
 
@@ -85,8 +91,21 @@
         .then(data => {
           console.log('API response data:', data);
           if (data.success) {
+            // Update brand campaign ID
             brandCampaignIdField.value = data.brand_campaign_id;
             console.log('Updated brand campaign ID to:', data.brand_campaign_id);
+            
+            // Update start date if available
+            if (startDateField && data.start_date) {
+              startDateField.value = data.start_date;
+              console.log('Updated start date to:', data.start_date);
+            }
+            
+            // Update end date if available
+            if (endDateField && data.end_date) {
+              endDateField.value = data.end_date;
+              console.log('Updated end date to:', data.end_date);
+            }
           } else {
             brandCampaignIdField.value = 'Error loading campaign ID';
             console.error('API error:', data.error);

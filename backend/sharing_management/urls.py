@@ -48,10 +48,25 @@ urlpatterns = [
     # Admin Tools
     path("bulk-manual-share/", bulk_manual_upload, name="bulk_manual_upload"),
     path("bulk-manual-template.csv", bulk_template_csv, name="bulk_manual_template"),
+    path("bulk-upload-success/", views.bulk_upload_success, name="bulk_upload_success"),
+    path("bulk-upload-help/", views.bulk_upload_help, name="bulk_upload_help"),
+    path("all-share-logs/", views.all_share_logs, name="all_share_logs"),
 
     # Pre-mapped upload
     path("bulk/premapped/", bulk_pre_mapped_upload, name="bulk_pre_mapped_upload"),
     path("bulk/premapped/template/", bulk_pre_mapped_template, name="bulk_pre_mapped_template"),
+    
+    # Pre-mapped by login
+    path(
+        "bulk/premapped-by-login/",
+        views.bulk_pre_mapped_by_login,
+        name="bulk_pre_mapped_by_login",
+    ),
+    path(
+        "bulk/premapped-by-login/template.csv",
+        views.bulk_pre_mapped_by_login_template,
+        name="bulk_pre_mapped_by_login_template",
+    ),
 
     path(
         "bulk-manual-share-whatsapp/",
@@ -76,5 +91,6 @@ path(
 path('collaterals/edit/<int:pk>/', views.edit_collateral_dates, name='edit_collateral_dates'),
 path('edit-calendar/', edit_campaign_calendar, name='edit_campaign_calendar'),
 path('video-tracking/', views.video_tracking, name='video_tracking'),
+path('debug-collaterals/', views.debug_collaterals, name='debug_collaterals'),
 
 ]

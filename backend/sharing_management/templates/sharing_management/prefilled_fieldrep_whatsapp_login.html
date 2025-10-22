@@ -5,21 +5,72 @@
 <div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #e6f5f2;">
   <div class="card shadow" style="width: 100%; max-width: 400px;">
     <div class="card-body p-4">
-      <h4 class="text-center mb-4" style="color:#00897b;">Field Rep Registration</h4>
+      <h4 class="text-center mb-4" style="color:#00897b;">
+        <i class="fas fa-users me-2"></i>
+        Prefilled Field Rep Login
+      </h4>
+      
+      
       <form method="post" autocomplete="off">
         {% csrf_token %}
+        
         <div class="mb-3">
-          <label class="form-label" style="color:#00897b;">Field ID:</label>
-          <input type="text" class="form-control" name="field_id" placeholder="Test shivani" required>
+          <label class="form-label" style="color:#00897b;">
+            <i class="fas fa-id-badge me-1"></i>
+            Field ID:
+          </label>
+          {% if existing_field_reps %}
+          <select class="form-select" name="field_id" id="field_id_select" required>
+            <option value="">-- Select Existing Field Rep --</option>
+            {% for rep in existing_field_reps %}
+            <option value="{{ rep.field_id }}" data-phone="{{ rep.phone_number }}" data-email="{{ rep.email }}">
+              {{ rep.field_id }} ({{ rep.email }})
+            </option>
+            {% endfor %}
+          </select>
+          <small class="form-text text-muted">
+            <i class="fas fa-database me-1"></i>
+            {{ existing_field_reps|length }} field rep(s) available
+          </small>
+          {% else %}
+          <input type="text" class="form-control" name="field_id" placeholder="Enter Field ID" required>
+          <small class="form-text text-muted">No existing field reps found in database</small>
+          {% endif %}
         </div>
+        
         <div class="mb-3">
-          <label class="form-label" style="color:#00897b;">WhatsApp Number:</label>
-          <input type="text" class="form-control" name="whatsapp_number" placeholder="7006244895" maxlength="10"
-            pattern="\d{10}" required>
+          <label class="form-label" style="color:#00897b;">
+            <i class="fab fa-whatsapp me-1"></i>
+            WhatsApp Number:
+          </label>
+          <input type="text" class="form-control" name="whatsapp_number" id="whatsapp_input" 
+                 placeholder="7006244895" maxlength="10" pattern="\d{10}" required>
+          <small class="form-text text-muted">
+            <i class="fas fa-info-circle me-1"></i>
+            Enter 10-digit WhatsApp number
+          </small>
         </div>
+        
         <button type="submit" class="btn w-100"
-          style="background:#00897b; color:white; font-weight:600; font-size:1.2rem;">Login</button>
+          style="background:#00897b; color:white; font-weight:600; font-size:1.2rem;">
+          <i class="fas fa-sign-in-alt me-2"></i>Login
+        </button>
       </form>
+      
+      <script>
+        // Auto-fill WhatsApp number when field rep is selected
+        document.getElementById('field_id_select')?.addEventListener('change', function() {
+          const selectedOption = this.options[this.selectedIndex];
+          const phone = selectedOption.getAttribute('data-phone');
+          if (phone && phone !== 'None') {
+            // Extract digits from phone number
+            const digits = phone.replace(/\D/g, '');
+            if (digits.length >= 10) {
+              document.getElementById('whatsapp_input').value = digits.slice(-10);
+            }
+          }
+        });
+      </script>
     </div>
   </div>
 </div>

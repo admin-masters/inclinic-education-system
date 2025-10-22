@@ -62,6 +62,15 @@ class Collateral(models.Model):
 
     description = models.CharField(max_length=255, blank=True)
 
+    # NEW: Optional doctor name for display
+    doctor_name = models.CharField(max_length=255, blank=True)
+
+    # NEW: Optional webinar fields
+    webinar_title = models.CharField(max_length=255, blank=True)
+    webinar_description = models.TextField(blank=True)
+    webinar_url = models.URLField(blank=True)
+    webinar_date = models.DateField(null=True, blank=True)
+
     # meta / flags --------------------------------------------------
     is_active   = models.BooleanField(default=True)
     upload_date = models.DateTimeField(default=timezone.now)
@@ -74,6 +83,12 @@ class Collateral(models.Model):
     # pretty name ---------------------------------------------------
     def __str__(self):
         return f"{self.title} ({self.type})"
+    
+    # helper (optional)
+    def webinar_month_year(self):
+        if self.webinar_date:
+            return self.webinar_date.strftime("%B %Y")
+        return None
 
 
 # ------------------------------------------------------------------

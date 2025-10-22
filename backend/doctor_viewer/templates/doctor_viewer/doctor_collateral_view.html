@@ -10,6 +10,9 @@
       {% if collateral.description %}
       <p class="text-muted mb-0">{{ collateral.description }}</p>
       {% endif %}
+      {% if collateral.doctor_name %}
+      <p class="text-muted mb-0">By Dr. {{ collateral.doctor_name }}</p>
+      {% endif %}
     </div>
     <div class="card-body text-center">
 
@@ -20,14 +23,60 @@
         style="background:#1877f2; border:none;">CLICK HERE to download the PDF</a>
       <p>If you are not able to see the PDF, please refresh the page!</p>
 
-      <!-- Try multiple PDF display methods -->
-      <div class="pdf-container" style="border:1px solid #ccc; height:600px; overflow:hidden;">
-        <!-- Method 1: Object tag (better for PDFs) -->
-        <object data="{{ collateral.file.url }}" type="application/pdf" width="100%" height="100%">
-          <!-- Fallback: Iframe -->
-          <iframe src="{{ collateral.file.url }}" width="100%" height="100%" style="border:none;"></iframe>
-        </object>
+      <!-- Enhanced PDF display with multiple methods -->
+      <div class="pdf-container" style="border:1px solid #ccc; height:600px; overflow:hidden; position:relative;">
+        <!-- Primary method: Embed with PDF parameters -->
+        <embed src="{{ collateral.file.url }}#toolbar=1&navpanes=1&scrollbar=1&view=FitH" type="application/pdf"
+          width="100%" height="100%" id="pdf-embed">
       </div>
+
+      <!-- JavaScript to handle PDF loading -->
+      <script>
+        document.addEventListener('DOMContentLoaded', function () {
+          const pdfEmbed = document.getElementById('pdf-embed');
+          const container = document.querySelector('.pdf-container');
+
+          // Add loading indicator
+          const loadingDiv = document.createElement('div');
+          loadingDiv.innerHTML = `
+            <div style="display:flex; align-items:center; justify-content:center; height:100%; flex-direction:column;">
+              <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">Loading...</span>
+              </div>
+              <p class="mt-3">Loading PDF...</p>
+            </div>
+          `;
+          loadingDiv.style.position = 'absolute';
+          loadingDiv.style.top = '0';
+          loadingDiv.style.left = '0';
+          loadingDiv.style.width = '100%';
+          loadingDiv.style.height = '100%';
+          loadingDiv.style.backgroundColor = '#f8f9fa';
+          loadingDiv.style.zIndex = '1';
+          container.appendChild(loadingDiv);
+
+          // Remove loading indicator after 3 seconds
+          setTimeout(() => {
+            if (loadingDiv.parentNode) {
+              loadingDiv.remove();
+            }
+          }, 3000);
+
+          // Handle PDF load error
+          pdfEmbed.onerror = function () {
+            container.innerHTML = `
+              <div style="display:flex; align-items:center; justify-content:center; height:100%; flex-direction:column; background:#f8f9fa;">
+                <i class="fas fa-file-pdf fa-3x text-muted mb-3"></i>
+                <h5>PDF Preview Not Available</h5>
+                <p class="text-muted">Your browser cannot display this PDF inline.</p>
+                <a href="{{ collateral.file.url }}" class="btn btn-primary" target="_blank">
+                  <i class="fas fa-external-link-alt"></i> Open PDF in New Tab
+                </a>
+              </div>
+            `;
+          };
+        });
+      </script>
 
       <!-- Alternative: Direct link -->
       <div class="mt-3">
@@ -68,6 +117,70 @@
       </div>
       {% endif %}
     </div>
+
+    <!-- === Archives Section === -->
+    {% if archives %}
+    <hr class="my-4">
+    <div class="text-start">
+      <h5 class="mb-3">Archives</h5>
+      <div class="row g-3">
+        {% for item in archives %}
+        <div class="col-12 col-md-4">
+          <div class="card h-100">
+            <div class="card-body">
+              <h6 class="card-title mb-1">{{ item.obj.title }}</h6>
+              {% if item.obj.description %}
+              <small class="text-muted d-block">{{ item.obj.description|truncatechars:80 }}</small>
+              {% endif %}
+              {% if item.obj.doctor_name %}
+              <small class="text-muted d-block">By Dr. {{ item.obj.doctor_name }}</small>
+              {% endif %}
+            </div>
+            <div class="card-footer bg-white border-0">
+              {% if item.short_code %}
+              <!-- Use the existing shortlink resolver -->
+              <a class="btn btn-sm btn-outline-primary w-100" href="{% url 'resolve_shortlink' item.short_code %}">
+                Open
+              </a>
+              {% else %}
+              <button class="btn btn-sm btn-outline-secondary w-100" disabled>No link available</button>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- === Webinar Section === -->
+    {% if collateral.webinar_title or collateral.webinar_url %}
+    <hr class="my-4">
+    <div class="text-start">
+      <h5 class="mb-3">Webinar</h5>
+      <div class="card">
+        <div class="card-body">
+          <div class="d-flex justify-content-between align-items-start">
+            <div>
+              <h6 class="mb-1">{{ collateral.webinar_title|default:"Learning Webinar" }}</h6>
+              {% if collateral.webinar_date %}
+              <small class="text-muted">{{ collateral.webinar_month_year }}</small>
+              {% endif %}
+              {% if collateral.webinar_description %}
+              <p class="mt-2 mb-0">{{ collateral.webinar_description }}</p>
+              {% endif %}
+            </div>
+            {% if collateral.webinar_url %}
+            <a class="btn btn-outline-primary" href="{{ collateral.webinar_url }}" target="_blank" rel="noopener">
+              View on DIAP
+            </a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
   </div>
 </div>
 {% else %}

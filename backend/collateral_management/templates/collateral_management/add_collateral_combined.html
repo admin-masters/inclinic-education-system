@@ -102,22 +102,30 @@
       </div>
     </div>
 
-    <!-- Purpose of the Collateral -->
+    <!-- Purpose (select) -->
     <div class="row mb-3 align-items-center">
-      <label class="col-sm-3 col-form-label fw-semibold text-end">Purpose of the Collateral :</label>
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Purpose of the Collateral:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.purpose }}
+        {{ collateral_form.purpose.errors }}
+      </div>
+    </div>
+
+    <!-- Title -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Content Title:</label>
       <div class="col-sm-6">
         {{ collateral_form.title }}
         {{ collateral_form.title.errors }}
       </div>
     </div>
 
-    <!-- Item Name -->
+    <!-- Content ID -->
     <div class="row mb-3 align-items-center">
-      <label class="col-sm-3 col-form-label fw-semibold text-end">Item Name :</label>
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Content ID:</label>
       <div class="col-sm-6">
         {{ collateral_form.content_id }}
         {{ collateral_form.content_id.errors }}
-        <small class="text-muted">Mini CME on 'red flag name'</small>
       </div>
     </div>
 
@@ -130,22 +138,26 @@
       </div>
     </div>
 
-    <!-- PDF Upload -->
-    <div class="row mb-3 align-items-center" id="pdf-group">
-      <label class="col-sm-3 col-form-label fw-semibold text-end">PDF File:</label>
-      <div class="col-sm-6">
-        <small class="d-block text-muted">Keep the PDF size less than 2MB</small>
-        {{ collateral_form.file }}
-        {{ collateral_form.file.errors }}
+    <!-- PDF Upload / Video URL Wrapper -->
+    <div class="row mb-3" id="asset-wrapper" style="min-height: 92px;">
+      <div class="col-md-12" id="pdf-group">
+        <div class="row align-items-center">
+          <label class="col-sm-3 col-form-label fw-semibold text-end">PDF File:</label>
+          <div class="col-sm-6">
+            <small class="d-block text-muted">Keep the PDF size less than 2MB</small>
+            {{ collateral_form.file }}
+            {{ collateral_form.file.errors }}
+          </div>
+        </div>
       </div>
-    </div>
-
-    <!-- Vimeo URL -->
-    <div class="row mb-3 align-items-center" id="video-group" style="display:none;">
-      <label class="col-sm-3 col-form-label fw-semibold text-end">Vimeo URL:</label>
-      <div class="col-sm-6">
-        {{ collateral_form.vimeo_url }}
-        {{ collateral_form.vimeo_url.errors }}
+      <div class="col-md-12 d-none" id="video-group">
+        <div class="row align-items-center">
+          <label class="col-sm-3 col-form-label fw-semibold text-end">Vimeo URL:</label>
+          <div class="col-sm-6">
+            {{ collateral_form.vimeo_url }}
+            {{ collateral_form.vimeo_url.errors }}
+          </div>
+        </div>
       </div>
     </div>
 
@@ -169,12 +181,60 @@
       </div>
     </div>
 
-    <!-- Description -->
+    <!-- Doctor's Name -->
     <div class="row mb-3 align-items-center">
-      <label class="col-sm-3 col-form-label fw-semibold text-end">Description for Display :</label>
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Doctor's Name:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.doctor_name }}
+        {{ collateral_form.doctor_name.errors }}
+      </div>
+    </div>
+
+    <!-- Description (Content Description) -->
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Content Description:</label>
       <div class="col-sm-6">
         {{ collateral_form.description }}
         {{ collateral_form.description.errors }}
+      </div>
+    </div>
+
+    <!-- Webinar block -->
+    <div class="row mb-2">
+      <div class="col-sm-9 offset-sm-3">
+        <h6 class="text-muted mt-2">Optional Webinar</h6>
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">DIAP Webinar Link:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.webinar_url }}
+        {{ collateral_form.webinar_url.errors }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Webinar Title:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.webinar_title }}
+        {{ collateral_form.webinar_title.errors }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Webinar Description:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.webinar_description }}
+        {{ collateral_form.webinar_description.errors }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Webinar Date:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.webinar_date }}
+        {{ collateral_form.webinar_date.errors }}
       </div>
     </div>
 
@@ -196,13 +256,9 @@
     const videoGroup = document.getElementById("video-group");
 
     function toggleFields() {
-      if (typeField.value === "pdf") {
-        pdfGroup.style.display = "block";
-        videoGroup.style.display = "none";
-      } else if (typeField.value === "video") {
-        pdfGroup.style.display = "none";
-        videoGroup.style.display = "block";
-      }
+      const type = typeField.value;
+      pdfGroup.classList.toggle('d-none', type !== 'pdf');
+      videoGroup.classList.toggle('d-none', type !== 'video');
     }
 
     typeField.addEventListener("change", toggleFields);

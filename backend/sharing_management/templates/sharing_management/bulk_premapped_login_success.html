@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Upload Complete (by Login){% endblock %}
+{% block content %}
+<h2>Bulk Pre‑mapped (by Login) — Success</h2>
+<p class="lead">
+  Doctors created: <strong>{{ created }}</strong><br>
+  Mappings created/updated: <strong>{{ updated }}</strong>
+</p>
+{% if rows %}
+<table class="table table-bordered">
+  <thead class="table-light">
+    <tr><th>#</th><th>Doctor</th><th>Short URL</th><th>Error</th></tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td>{{ r.row }}</td>
+      <td>{{ r.doctor }}</td>
+      <td>{% if r.short_url %}<a href="{{ r.short_url }}" target="_blank">open</a>{% endif %}</td>
+      <td class="text-danger">{{ r.error }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+<a href="{% url 'bulk_pre_mapped_by_login' %}" class="btn btn-primary">Upload another file</a>
+{% endblock %}

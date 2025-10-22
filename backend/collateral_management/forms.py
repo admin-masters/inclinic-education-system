@@ -1,8 +1,8 @@
 # collateral_management/forms.py
 from django import forms
 from django.core.exceptions import ValidationError
-from .models import Collateral
-from campaign_management.models import CampaignCollateral
+from .models import Collateral, CampaignCollateral
+from campaign_management.models import Campaign
 
 class CampaignCollateralDateForm(forms.ModelForm):
     class Meta:
@@ -14,33 +14,69 @@ class CampaignCollateralDateForm(forms.ModelForm):
         }
 MAX_FILE_SIZE_MB = 2
 
-TITLE_CHOICES = [
-    ('Doctor education short',  'Doctor education short'),
-    ('Doctor education long',   'Doctor education long'),
-    ('Patient education compliance', 'Patient education compliance'),
-    ('Patient education general',    'Patient education general'),
-]
-
 class CollateralForm(forms.ModelForm):
-    # ── UI overrides / extra inputs ──────────────────────────────────────────
-    title = forms.ChoiceField(
-        choices=[('', 'Select Purpose of the Collateral')] + TITLE_CHOICES,
+    # Purpose choices moved to a dedicated field
+    PURPOSE_CHOICES = [
+        ('Doctor education short', 'Doctor education short'),
+        ('Doctor education long', 'Doctor education long'),
+        ('Patient education compliance', 'Patient education compliance'),
+        ('Patient education general', 'Patient education general'),
+    ]
+
+    purpose = forms.ChoiceField(
+        choices=[('', 'Select Purpose of the Collateral')] + PURPOSE_CHOICES,
         widget=forms.Select(attrs={'class': 'form-select'}),
         required=True,
         label="Purpose of the Collateral"
     )
+
+    # Title is now a genuine text input again
+    title = forms.CharField(
+        required=True,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+        label="Content Title"
+    )
+
+    # NEW fields
+    doctor_name = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+        label="Doctor's Name (optional)"
+    )
+    webinar_title = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+        label="Webinar Title"
+    )
+    webinar_description = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+        label="Webinar Description"
+    )
+    webinar_url = forms.URLField(
+        required=False,
+        widget=forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://...'}),
+        label="DIAP Webinar Link"
+    )
+    webinar_date = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+        label="Webinar Date"
+    )
+
     banner_1    = forms.ImageField(required=False)
     banner_2    = forms.ImageField(required=False)
     description = forms.CharField(max_length=255, required=False)
-    # purpose field removed
 
     class Meta:
         model  = Collateral
         fields = [
-            'campaign',      # <- will be set/validated in the view
-            'title', 'type', 'file', 'vimeo_url',
-            'content_id', 'banner_1', 'banner_2', 'description',
-            'is_active',
+            'campaign', 'purpose', 'title', 'content_id', 'type',
+            'file', 'vimeo_url',
+            'banner_1', 'banner_2',
+            'description', 'doctor_name',
+            'webinar_title', 'webinar_description', 'webinar_url', 'webinar_date',
+            'is_active'
         ]
 
     # ── custom validation ───────────────────────────────────────────────────

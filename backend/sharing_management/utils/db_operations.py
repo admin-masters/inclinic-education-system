@@ -671,14 +671,30 @@ def log_manual_doctor_share(short_link_id, field_rep_id, phone_e164, collateral_
                     }
                 )
         
-        with connection.cursor() as cursor:
-            cursor.execute("""
-                INSERT INTO sharing_management_sharelog
-                (short_link_id, field_rep_id, doctor_identifier, share_channel, share_timestamp, created_at, updated_at, collateral_id)
-                VALUES (%s, %s, %s, 'WhatsApp', NOW(), NOW(), NOW(), %s)
-            """, [short_link_id, user.id, phone_e164, collateral_id])
+        # Use Django ORM instead of raw SQL to ensure proper foreign key handling
+        from sharing_management.models import ShareLog
+        from shortlink_management.models import ShortLink
+        from collateral_management.models import Collateral
+        from django.utils import timezone
+        
+        try:
+            short_link = ShortLink.objects.get(id=short_link_id)
+            collateral = Collateral.objects.get(id=collateral_id)
             
+            ShareLog.objects.create(
+                short_link=short_link,
+                collateral=collateral,
+                field_rep=user,
+                doctor_identifier=phone_e164,
+                share_channel='WhatsApp',
+                share_timestamp=timezone.now(),
+                created_at=timezone.now(),
+                updated_at=timezone.now()
+            )
             return True
+        except (ShortLink.DoesNotExist, Collateral.DoesNotExist) as e:
+            print(f"Foreign key object not found: {e}")
+            return False
     except Exception as e:
         print(f"Error logging manual doctor share: {e}")
         return False
@@ -733,30 +749,82 @@ def share_prefilled_doctor(rep_id, prefilled_doctor_id, short_link_id, collatera
         return False
 
 
-def verify_doctor_whatsapp_number(phone_e164, short_link_id):
+def verify_doctor_whatsapp_number(phone_input, short_link_id):
     """
     Verify if the provided WhatsApp number matches the one used to share the collateral.
+    Handles multiple phone number formats for better matching.
     
     Args:
-        phone_e164: Phone number in E.164 format
+        phone_input: Phone number in any format (10 digits, +91, etc.)
         short_link_id: The short link ID for the collateral
     
     Returns:
         bool: True if WhatsApp number matches, False otherwise
     """
     try:
+        import re
+        
+        # Normalize the input phone number to get just digits
+        digits = re.sub(r'\D', '', phone_input)
+        
+        # Generate possible formats to check
+        possible_formats = []
+        
+        if len(digits) == 10:
+            # 10 digit number - add various prefixes
+            possible_formats = [
+                digits,                    # 9812345678
+                f'+91{digits}',           # +919812345678
+                f'91{digits}',            # 919812345678
+                f'0{digits}',             # 09812345678
+            ]
+        elif len(digits) == 12 and digits.startswith('91'):
+            # 12 digit starting with 91
+            base_digits = digits[2:]  # Remove 91 prefix
+            possible_formats = [
+                digits,                    # 919812345678
+                f'+{digits}',             # +919812345678
+                base_digits,              # 9812345678
+                f'+91{base_digits}',      # +919812345678
+            ]
+        elif len(digits) == 11 and digits.startswith('0'):
+            # 11 digit starting with 0
+            base_digits = digits[1:]  # Remove 0 prefix
+            possible_formats = [
+                digits,                    # 09812345678
+                base_digits,              # 9812345678
+                f'+91{base_digits}',      # +919812345678
+                f'91{base_digits}',       # 919812345678
+            ]
+        else:
+            # Use as-is and with +91 prefix
+            possible_formats = [
+                phone_input,
+                digits,
+                f'+91{digits}',
+                f'91{digits}',
+            ]
+        
+        print(f"DEBUG: Checking phone formats: {possible_formats}")
+        
         with connection.cursor() as cursor:
-            # Check if this phone number was used to share this collateral
-            cursor.execute("""
-                SELECT 1 FROM sharing_management_sharelog
+            # Check if any of the possible formats match
+            placeholders = ','.join(['%s'] * len(possible_formats))
+            cursor.execute(f"""
+                SELECT doctor_identifier FROM sharing_management_sharelog
                 WHERE short_link_id = %s 
-                  AND doctor_identifier = %s
+                  AND doctor_identifier IN ({placeholders})
                   AND share_channel = 'WhatsApp'
                 LIMIT 1
-            """, [short_link_id, phone_e164])
+            """, [short_link_id] + possible_formats)
             
             result = cursor.fetchone()
-            return result is not None
+            if result:
+                print(f"DEBUG: Match found with format: {result[0]}")
+                return True
+            else:
+                print(f"DEBUG: No match found for any format")
+                return False
             
     except Exception as e:
         print(f"Error verifying doctor WhatsApp number: {e}")

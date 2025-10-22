@@ -46,7 +46,7 @@ class CampaignCollateralForm(forms.ModelForm):
     
     class Meta:
         model = CampaignCollateral
-        fields = ['campaign', 'collateral', 'start_date', 'end_date']
+        fields = ['collateral', 'start_date', 'end_date']
         widgets = {
             'collateral': forms.Select(attrs={'class': 'form-select'}),
             'start_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
@@ -65,3 +65,16 @@ class CampaignCollateralForm(forms.ModelForm):
         if 'campaign' in cleaned_data:
             del cleaned_data['campaign']
         return cleaned_data
+    
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+        
+        # For existing instances, preserve the original campaign
+        if self.instance and self.instance.pk:
+            original = CampaignCollateral.objects.get(pk=self.instance.pk)
+            instance.campaign = original.campaign
+        
+        if commit:
+            instance.save()
+        return instance
+    

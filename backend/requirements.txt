@@ -13,6 +13,9 @@ mysqlclient==2.2.4            # MySQL/MariaDB connector for Django
 celery==5.3.6                 # optional: run_etl via Celery Beat
 redis==5.0.3                  # broker/back‑end if you use Redis
 
+# ───────────────────────── Static Files ──────────────────────────
+whitenoise==6.6.0             # static file serving middleware
+
 # ───────────────────────── Utility / Parsing ──────────────────────
 python-dotenv==1.0.1          # load .env into settings (if you like)
 django-environ==0.11.2        # alternative env loader

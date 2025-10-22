@@ -82,6 +82,29 @@ class FieldRepForm(forms.ModelForm):
             "email": forms.EmailInput(attrs={"class": "form-control"}),
             "field_id": forms.TextInput(attrs={"class": "form-control"}),
         }
+    
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        
+        # Set role to field_rep
+        user.role = 'field_rep'
+        
+        # Generate username from email if not set
+        if not user.username:
+            base_username = user.email.split('@')[0]
+            username = base_username
+            counter = 1
+            
+            # Ensure username is unique
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}_{counter}"
+                counter += 1
+            
+            user.username = username
+        
+        if commit:
+            user.save()
+        return user
 
 # ------------------------------------------------------------------
 # DOCTOR FORM

@@ -6,8 +6,8 @@ from django.utils import timezone
 
 from shortlink_management.models import ShortLink
 from collateral_management.models import Collateral
+from collateral_management.models import CampaignCollateral as CollateralCampaignLink
 from .models import DoctorEngagement
-from campaign_management.models import CampaignCollateral
 
 # ──────────────────────────────────────────────────────────────
 # Safe page count helper – works with local + remote storage
@@ -117,12 +117,23 @@ def doctor_collateral_verify(request):
                 short_link = get_object_or_404(ShortLink, id=short_link_id, is_active=True)
                 collateral = short_link.get_collateral()
                 if collateral and collateral.is_active:
-
+                    # Generate PDF preview URL for the first page
+                    pdf_preview_url = None
+                    if collateral.type == 'pdf' and collateral.file:
+                        # Build absolute URL using current host + MEDIA_URL to avoid embedded 127.0.0.1
+                        from django.conf import settings
+                        media_path = collateral.file.name  # path relative to MEDIA_ROOT
+                        absolute_pdf = request.build_absolute_uri(f"{settings.MEDIA_URL}{media_path}")
+                        # Hide sidebar/thumbs and toolbar; lock to page 1
+                        pdf_preview_url = (
+                            f"{absolute_pdf}#page=1&zoom=85&toolbar=0&navpanes=0&pagemode=none&view=FitH"
+                        )
                     
                     return render(request, 'doctor_viewer/doctor_collateral_verify.html', {
                         'short_link': short_link,
                         'collateral': collateral,
-                        'short_link_id': short_link_id
+                        'short_link_id': short_link_id,
+                        'pdf_preview_url': pdf_preview_url
                     })
                 else:
                     from django.contrib import messages
@@ -142,11 +153,14 @@ def doctor_collateral_verify(request):
         
         if whatsapp_number and short_link_id:
             try:
+                print(f"DEBUG: Verifying WhatsApp number: {whatsapp_number} for short_link_id: {short_link_id}")
+                
                 # Check if this WhatsApp number was used to share this collateral
                 from sharing_management.utils.db_operations import verify_doctor_whatsapp_number
                 
                 # Verify WhatsApp number matches the one used in sharing
                 success = verify_doctor_whatsapp_number(whatsapp_number, short_link_id)
+                print(f"DEBUG: Verification result: {success}")
                 
                 if success:
                     # Grant download access
@@ -159,12 +173,43 @@ def doctor_collateral_verify(request):
                         collateral = short_link.get_collateral()
                         
                         if collateral:
+                            # Build Archives list (same logic as OTP flow)
+                            campaign_id = None
+                            if getattr(collateral, 'campaign_id', None):
+                                campaign_id = collateral.campaign_id
+                            else:
+                                link = CollateralCampaignLink.objects.filter(collateral=collateral).select_related('campaign').first()
+                                if link:
+                                    campaign_id = link.campaign_id
 
-                            
+                            archives = []
+                            if campaign_id:
+                                older_qs = Collateral.objects.filter(
+                                    campaign_id=campaign_id,
+                                    is_active=True,
+                                    upload_date__lt=collateral.upload_date
+                                ).exclude(pk=collateral.pk).order_by('-upload_date')
+
+                                n_prev = older_qs.count()
+                                limit = 3 if n_prev >= 3 else n_prev
+                                older_items = list(older_qs[:limit])
+
+                                for c in older_items:
+                                    sl = ShortLink.objects.filter(
+                                        resource_type='collateral',
+                                        resource_id=c.id,
+                                        is_active=True
+                                    ).order_by('-date_created').first()
+                                    archives.append({
+                                        'obj': c,
+                                        'short_code': sl.short_code if sl else None
+                                    })
+
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
                                 'short_link': short_link,
-                                'verified': True
+                                'verified': True,
+                                'archives': archives,
                             })
                         else:
                             from django.contrib import messages
@@ -209,10 +254,50 @@ def doctor_collateral_view(request):
                         collateral = short_link.get_collateral()
                         
                         if collateral:
+                            # === NEW: Build Archives list ===
+                            campaign_id = None
+                            # Prefer direct FK if present
+                            if getattr(collateral, 'campaign_id', None):
+                                campaign_id = collateral.campaign_id
+                            else:
+                                # Fallback via link table
+                                link = CollateralCampaignLink.objects.filter(collateral=collateral).select_related('campaign').first()
+                                if link:
+                                    campaign_id = link.campaign_id
+
+                            archives = []
+                            if campaign_id:
+                                older_qs = Collateral.objects.filter(
+                                    campaign_id=campaign_id,
+                                    is_active=True,
+                                    upload_date__lt=collateral.upload_date
+                                ).exclude(pk=collateral.pk).order_by('-upload_date')
+
+                                n_prev = older_qs.count()
+                                if n_prev >= 3:
+                                    limit = 3
+                                else:
+                                    limit = n_prev  # 0, 1 or 2
+                                older_items = list(older_qs[:limit])
+
+                                # Attach short links if any
+                                archives = []
+                                for c in older_items:
+                                    sl = ShortLink.objects.filter(
+                                        resource_type='collateral',
+                                        resource_id=c.id,
+                                        is_active=True
+                                    ).order_by('-date_created').first()
+                                    archives.append({
+                                        'obj': c,
+                                        'short_code': sl.short_code if sl else None
+                                    })
+
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
                                 'short_link': short_link,
-                                'verified': True
+                                'verified': True,
+                                'archives': archives,   # NEW
                             })
                         else:
                             from django.contrib import messages

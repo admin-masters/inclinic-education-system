@@ -5,7 +5,11 @@
 <div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #e6f5f2;">
   <div class="card shadow" style="width: 100%; max-width: 400px;">
     <div class="card-body p-4">
-      <h4 class="text-center mb-4" style="color:#00897b;">WhatsApp Login</h4>
+      <h4 class="text-center mb-4" style="color:#00897b;">
+        <i class="fas fa-user-plus me-2"></i>
+        Manual Field Rep Login
+      </h4>
+      
 
       {% if messages %}
       {% for message in messages %}
@@ -18,19 +22,34 @@
       <form method="post" autocomplete="off">
         {% csrf_token %}
         <div class="mb-3">
-          <label class="form-label" style="color:#00897b;">Field ID:</label>
+          <label class="form-label" style="color:#00897b;">
+            <i class="fas fa-id-badge me-1"></i>
+            Field ID:
+          </label>
           <input type="text" class="form-control" name="field_id" value="{{ field_id|default:'' }}"
-            placeholder="Enter your Field ID" required>
+            placeholder="Enter your Field ID (e.g., FR001)" required>
+          <small class="form-text text-muted">
+            <i class="fas fa-info-circle me-1"></i>
+            If new, account will be created automatically
+          </small>
         </div>
         <div class="mb-3">
-          <label class="form-label" style="color:#00897b;">WhatsApp Number:</label>
+          <label class="form-label" style="color:#00897b;">
+            <i class="fab fa-whatsapp me-1"></i>
+            WhatsApp Number:
+          </label>
           <input type="text" class="form-control" name="whatsapp_number" value="{{ whatsapp_number|default:'' }}"
-            placeholder="Enter 10 digit mobile number" maxlength="10" pattern="\d{10}" required>
+            placeholder="9812345678" maxlength="10" pattern="\d{10}" required>
+          <small class="form-text text-muted">
+            <i class="fas fa-info-circle me-1"></i>
+            Enter 10-digit WhatsApp number
+          </small>
         </div>
 
         <button type="submit" class="btn w-100"
           style="background:#00897b; color:white; font-weight:600; font-size:1.2rem;">
-          Login
+          <i class="fas fa-sign-in-alt me-2"></i>
+          Login / Register
         </button>
       </form>
     </div>

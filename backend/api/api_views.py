@@ -16,7 +16,7 @@ from doctor_viewer.models         import DoctorEngagement
 @permission_classes([IsAuthenticated])
 def get_collateral_campaign(request, collateral_id):
     """
-    Get the brand campaign ID for a selected collateral
+    Get the brand campaign ID, start date, and end date for a selected collateral
     """
     try:
         from campaign_management.models import CampaignCollateral
@@ -28,7 +28,9 @@ def get_collateral_campaign(request, collateral_id):
         if campaign_collateral:
             return Response({
                 'success': True,
-                'brand_campaign_id': campaign_collateral.campaign.brand_campaign_id
+                'brand_campaign_id': campaign_collateral.campaign.brand_campaign_id,
+                'start_date': campaign_collateral.start_date.strftime('%Y-%m-%d') if campaign_collateral.start_date else '',
+                'end_date': campaign_collateral.end_date.strftime('%Y-%m-%d') if campaign_collateral.end_date else ''
             })
         
         # If not found in CampaignCollateral, check direct campaign relationship
@@ -36,7 +38,9 @@ def get_collateral_campaign(request, collateral_id):
         if collateral and collateral.campaign:
             return Response({
                 'success': True,
-                'brand_campaign_id': collateral.campaign.brand_campaign_id
+                'brand_campaign_id': collateral.campaign.brand_campaign_id,
+                'start_date': '',
+                'end_date': ''
             })
         
         return Response({
