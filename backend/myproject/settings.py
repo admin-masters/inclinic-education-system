@@ -153,7 +153,11 @@ STATIC_URL  = "/static/"
 FRONTEND_DIST = Path(
     "/var/www/inclinic-education-system/frontend/admin-console/dist"
 )
-STATICFILES_DIRS = [FRONTEND_DIST]
+# Only add to STATICFILES_DIRS if the directory exists
+if FRONTEND_DIST.exists():
+    STATICFILES_DIRS = [FRONTEND_DIST]
+else:
+    STATICFILES_DIRS = []
 
 STATIC_ROOT  = BACKEND_DIR / "staticfiles"
 STATICFILES_STORAGE = (
