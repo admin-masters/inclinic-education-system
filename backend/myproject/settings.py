@@ -12,7 +12,7 @@ import os
 # ──────────────────────────────────────────────────────────────
 # 0   Environment variables
 # ──────────────────────────────────────────────────────────────
-BASE_DIR = Path(_file_).resolve().parents[2]
+BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv("/var/www/secrets/.env")
 
 # ──────────────────────────────────────────────────────────────
