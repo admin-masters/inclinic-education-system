@@ -12,13 +12,13 @@ import os
 # ──────────────────────────────────────────────────────────────
 # 0   Environment variables
 # ──────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).resolve().parents[2]
+BASE_DIR = Path(_file_).resolve().parents[2]
 load_dotenv("/var/www/secrets/.env")
 
 # ──────────────────────────────────────────────────────────────
 # 1   Paths
 # ──────────────────────────────────────────────────────────────
-BACKEND_DIR = Path(__file__).resolve().parent.parent          # …/backend
+BACKEND_DIR = Path(_file_).resolve().parent.parent          # …/backend
 PROJECT_DIR = BACKEND_DIR.parent                              # …/inclinic-education-system
 
 # you may still use PROJECT_DIR elsewhere if needed
@@ -185,7 +185,7 @@ LOGOUT_REDIRECT_URL = "/"
 SOCIAL_AUTH_URL_NAMESPACE = "social"
 
 ADMIN_DASHBOARD_LINK = "/admin/dashboard/"
-
+SHORTLINK_REDIRECT_DOMAIN = 'https://new.cpdinclinic.co.in'
 # ──────────────────────────────────────────────────────────────
 # 11  Django REST framework
 # ──────────────────────────────────────────────────────────────

@@ -931,7 +931,7 @@ def fieldrep_share_collateral(request):
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral
-        collaterals = Collateral.objects.all()
+        collaterals = Collateral.objects.filter(is_active=True)
         
         # Convert to list format for template
         collaterals_list = []
@@ -940,7 +940,7 @@ def fieldrep_share_collateral(request):
             short_link = find_or_create_short_link(collateral, request.user)
             collaterals_list.append({
                 'id': collateral.id,
-                'name': collateral.item_name,
+                'name': collateral.title,
                 'description': collateral.description,
                 'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
             })
@@ -1114,7 +1114,7 @@ def prefilled_fieldrep_share_collateral(request):
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral
-        collaterals = Collateral.objects.all()
+        collaterals = Collateral.objects.filter(is_active=True)
         
         # Convert to list format for template
         collaterals_list = []
@@ -1123,7 +1123,7 @@ def prefilled_fieldrep_share_collateral(request):
             short_link = find_or_create_short_link(collateral, request.user)
             collaterals_list.append({
                 'id': collateral.id,
-                'name': collateral.item_name,
+                'name': collateral.title,
                 'description': collateral.description,
                 'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
             })
@@ -1252,7 +1252,7 @@ def fieldrep_gmail_share_collateral(request):
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral
-        collaterals = Collateral.objects.all()  # All collaterals from our imported data
+        collaterals = Collateral.objects.filter(is_active=True)  # All collaterals from our imported data
         
         # Convert to list format for template
         collaterals_list = []
@@ -1272,7 +1272,7 @@ def fieldrep_gmail_share_collateral(request):
                 short_link = find_or_create_short_link(collateral, user)
                 collaterals_list.append({
                     'id': collateral.id,
-                    'name': collateral.item_name,  # Use item_name from our model
+                    'name': collateral.title,  # Use item_name from our model
                     'description': collateral.description,
                     'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
                 })
@@ -1422,7 +1422,7 @@ def prefilled_fieldrep_gmail_share_collateral(request):
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral
-        collaterals = Collateral.objects.all()
+        collaterals = Collateral.objects.filter(is_active=True)
         
         # Convert to list format for template
         collaterals_list = []
@@ -1431,7 +1431,7 @@ def prefilled_fieldrep_gmail_share_collateral(request):
             short_link = find_or_create_short_link(collateral, request.user)
             collaterals_list.append({
                 'id': collateral.id,
-                'name': collateral.item_name,
+                'name': collateral.title,
                 'description': collateral.description,
                 'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
             })
@@ -1618,7 +1618,7 @@ def fieldrep_whatsapp_share_collateral(request):
     try:
         from collateral_management.models import Collateral
         from user_management.models import User
-        collaterals = Collateral.objects.all()
+        collaterals = Collateral.objects.filter(is_active=True)
         
         # Get the actual user object for short link creation
         try:
@@ -1816,7 +1816,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request):
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral
-        collaterals = Collateral.objects.all()
+        collaterals = Collateral.objects.filter(is_active=True)
         
         # Convert to list format for template
         collaterals_list = []
@@ -1825,7 +1825,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request):
             short_link = find_or_create_short_link(collateral, request.user)
             collaterals_list.append({
                 'id': collateral.id,
-                'name': collateral.item_name,
+                'name': collateral.title,
                 'description': collateral.description,
                 'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
             })

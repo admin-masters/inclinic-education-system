@@ -6,7 +6,8 @@ from .views import (
     ShortLinkDetailView,
     create_short_link,
     ShortLinkDeleteView,
-    resolve_shortlink
+    resolve_shortlink,
+    debug_shortlink
 )
 
 urlpatterns = [
@@ -17,4 +18,7 @@ urlpatterns = [
 
     # Public-facing short code resolution
     path('go/<str:code>/', resolve_shortlink, name='resolve_shortlink'),
+    
+    # Debug endpoint
+    path('debug/<str:code>/', debug_shortlink, name='debug_shortlink'),
 ]
