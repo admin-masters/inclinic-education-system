@@ -15,6 +15,10 @@ class CollateralListView(ListView):
     template_name = 'collateral_management/collateral_list.html'
     context_object_name = 'collaterals'
     ordering = ['-created_at']
+    
+    def get_queryset(self):
+        """Return only active collaterals"""
+        return Collateral.objects.filter(is_active=True)
 
 
 class CollateralDetailView(DetailView):
@@ -32,6 +36,7 @@ class CollateralCreateView(CreateView):
 
     def form_valid(self, form):
         form.instance.created_by = self.request.user
+        form.instance.is_active = True  # Ensure collateral is active by default
         return super().form_valid(form)
 
 
@@ -95,6 +100,7 @@ def add_collateral_with_campaign(request):
             with transaction.atomic():
                 collateral = form.save(commit=False)
                 collateral.created_by = request.user
+                collateral.is_active = True  # Ensure collateral is active by default
                 # Correct: read from the proper purpose field
                 collateral.purpose = form.cleaned_data.get('purpose')
                 collateral.save()

@@ -119,21 +119,56 @@ def doctor_collateral_verify(request):
                 if collateral and collateral.is_active:
                     # Generate PDF preview URL for the first page
                     pdf_preview_url = None
+                    pdf_preview_image = None
                     if collateral.type == 'pdf' and collateral.file:
                         # Build absolute URL using current host + MEDIA_URL to avoid embedded 127.0.0.1
                         from django.conf import settings
+                        import os
                         media_path = collateral.file.name  # path relative to MEDIA_ROOT
                         absolute_pdf = request.build_absolute_uri(f"{settings.MEDIA_URL}{media_path}")
-                        # Hide sidebar/thumbs and toolbar; lock to page 1
-                        pdf_preview_url = (
-                            f"{absolute_pdf}#page=1&zoom=85&toolbar=0&navpanes=0&pagemode=none&view=FitH"
-                        )
+                        
+                        # Check if file exists
+                        file_path = os.path.join(settings.MEDIA_ROOT, media_path)
+                        if os.path.exists(file_path):
+                            # Try simple URL first
+                            pdf_preview_url = absolute_pdf
+                            print(f"DEBUG: PDF preview URL: {pdf_preview_url}")
+                            
+                            # Try to create a preview image
+                            try:
+                                import fitz  # PyMuPDF
+                                doc = fitz.open(file_path)
+                                page = doc[0]  # First page
+                                mat = fitz.Matrix(2, 2)  # 2x zoom
+                                pix = page.get_pixmap(matrix=mat)
+                                img_data = pix.tobytes("png")
+                                
+                                # Save preview image
+                                preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
+                                os.makedirs(preview_dir, exist_ok=True)
+                                preview_filename = f"preview_{collateral.id}.png"
+                                preview_path = os.path.join(preview_dir, preview_filename)
+                                
+                                with open(preview_path, 'wb') as f:
+                                    f.write(img_data)
+                                
+                                pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
+                                print(f"DEBUG: PDF preview image created: {pdf_preview_image}")
+                                
+                                doc.close()
+                            except Exception as e:
+                                print(f"DEBUG: Could not create preview image: {e}")
+                                pdf_preview_image = None
+                        else:
+                            print(f"DEBUG: File not found at {file_path}")
+                            pdf_preview_url = None
                     
                     return render(request, 'doctor_viewer/doctor_collateral_verify.html', {
                         'short_link': short_link,
                         'collateral': collateral,
                         'short_link_id': short_link_id,
-                        'pdf_preview_url': pdf_preview_url
+                        'pdf_preview_url': pdf_preview_url,
+                        'pdf_preview_image': pdf_preview_image
                     })
                 else:
                     from django.contrib import messages
@@ -205,11 +240,47 @@ def doctor_collateral_verify(request):
                                         'short_code': sl.short_code if sl else None
                                     })
 
+                            # Generate PDF preview image for post-verification view
+                            pdf_preview_image = None
+                            if collateral.type == 'pdf' and collateral.file:
+                                try:
+                                    import fitz  # PyMuPDF
+                                    from django.conf import settings
+                                    import os
+                                    
+                                    file_path = os.path.join(settings.MEDIA_ROOT, collateral.file.name)
+                                    if os.path.exists(file_path):
+                                        doc = fitz.open(file_path)
+                                        page = doc[0]  # First page
+                                        mat = fitz.Matrix(2, 2)  # 2x zoom
+                                        pix = page.get_pixmap(matrix=mat)
+                                        img_data = pix.tobytes("png")
+                                        
+                                        # Save preview image
+                                        preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
+                                        os.makedirs(preview_dir, exist_ok=True)
+                                        preview_filename = f"preview_{collateral.id}.png"
+                                        preview_path = os.path.join(preview_dir, preview_filename)
+                                        
+                                        with open(preview_path, 'wb') as f:
+                                            f.write(img_data)
+                                        
+                                        pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
+                                        doc.close()
+                                except Exception as e:
+                                    print(f"DEBUG: Could not create preview image for post-verification: {e}")
+                                    pdf_preview_image = None
+
+                            # Generate absolute PDF URL to avoid localhost issues
+                            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
+                            
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
                                 'short_link': short_link,
                                 'verified': True,
                                 'archives': archives,
+                                'pdf_preview_image': pdf_preview_image,
+                                'absolute_pdf_url': absolute_pdf_url,
                             })
                         else:
                             from django.contrib import messages
@@ -293,11 +364,15 @@ def doctor_collateral_view(request):
                                         'short_code': sl.short_code if sl else None
                                     })
 
+                            # Generate absolute PDF URL to avoid localhost issues
+                            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
+                            
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
                                 'short_link': short_link,
                                 'verified': True,
                                 'archives': archives,   # NEW
+                                'absolute_pdf_url': absolute_pdf_url,
                             })
                         else:
                             from django.contrib import messages

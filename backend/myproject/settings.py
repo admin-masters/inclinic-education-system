@@ -18,7 +18,7 @@ load_dotenv("/var/www/secrets/.env")
 # ──────────────────────────────────────────────────────────────
 # 1   Paths
 # ──────────────────────────────────────────────────────────────
-BACKEND_DIR = Path(_file_).resolve().parent.parent          # …/backend
+BACKEND_DIR = Path(__file__).resolve().parent.parent          # …/backend
 PROJECT_DIR = BACKEND_DIR.parent                              # …/inclinic-education-system
 
 # you may still use PROJECT_DIR elsewhere if needed

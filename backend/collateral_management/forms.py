@@ -67,6 +67,7 @@ class CollateralForm(forms.ModelForm):
     banner_1    = forms.ImageField(required=False)
     banner_2    = forms.ImageField(required=False)
     description = forms.CharField(max_length=255, required=False)
+    is_active   = forms.BooleanField(required=False, initial=True, widget=forms.HiddenInput())
 
     class Meta:
         model  = Collateral
