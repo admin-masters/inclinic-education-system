@@ -1187,7 +1187,18 @@ def fieldrep_gmail_login(request):
     if request.method == 'POST':
         field_id = request.POST.get('field_id')
         gmail_id = request.POST.get('gmail_id')
+        action = request.POST.get('action')  # Get which button was clicked
         
+        # Check if Register button was clicked
+        if 'register' in request.POST:
+            # Redirect to registration flow with email
+            if gmail_id:
+                return redirect(f'/share/fieldrep-create-password/?email={gmail_id}')
+            else:
+                messages.error(request, 'Please provide Gmail ID to register.')
+                return render(request, 'sharing_management/fieldrep_gmail_login.html')
+        
+        # Handle Login
         if field_id and gmail_id:
             # Look up user by field_id and email (gmail_id)
             try:
