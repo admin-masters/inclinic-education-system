@@ -43,16 +43,19 @@
 
 <!-- ✅ Bulk Sharing Links -->
 <p class="mt-4">
+  <a href="{% url 'campaign_create' %}" class="btn btn-primary w-100 mb-2">
+    + Add a New Campaign
+  </a>
   <a href="{% url 'bulk_manual_upload' %}" class="btn btn-outline-primary w-100 mb-2">
     Bulk Registration – Manual Sharing
   </a>
   <a href="{% url 'bulk_pre_mapped_upload' %}" class="btn btn-outline-primary w-100 mb-2">
     Bulk Registration – Pre-mapped Doctors Sharing
   </a>
-  <a href="{% url 'bulk_manual_upload_whatsapp' %}" class="btn btn-outline-success w-100">
+  <a href="{% url 'bulk_manual_upload_whatsapp' %}" class="btn btn-outline-success w-100 mb-2">
     Bulk Registration – Manual Sharing by WhatsApp
   </a>
-  <a href="{% url 'collateral_add' %}" class="btn btn-primary">
+  <a href="{% url 'collateral_add' %}" class="btn btn-primary w-100">
     + Add Collateral
   </a>
 </p>

@@ -26,6 +26,16 @@
     font-size: 0.98rem;
     color: #555;
   }
+
+  .campaign-id {
+    font-family: monospace;
+    background-color: #f8f9fa;
+    padding: 0.2rem 0.5rem;
+    border-radius: 0.25rem;
+    font-size: 0.9rem;
+    color: #495057;
+    border: 1px solid #e9ecef;
+  }
 </style>
 <div class="d-flex justify-content-between align-items-center mb-4">
   <h2 class="fw-bold mb-0">All Campaigns</h2>
@@ -38,6 +48,9 @@
   <div class="campaign-card list-group-item">
     <div class="d-flex justify-content-between align-items-center flex-wrap">
       <div>
+        <div class="campaign-id mb-2">
+          <code>{{ campaign.brand_campaign_id }}</code>
+        </div>
         <div class="campaign-title">
           <a class="text-decoration-none" href="{% url 'campaign_detail' campaign.id %}">{{ campaign.name }}</a>
         </div>

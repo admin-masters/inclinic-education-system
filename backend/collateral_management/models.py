@@ -19,6 +19,7 @@ def collateral_upload_path(instance, filename):
 COLLATERAL_TYPE_CHOICES = (
     ("pdf",   "PDF"),
     ("video", "Video"),
+    ("pdf_video", "PDF + Video"),
 )
 
 PURPOSE_CHOICES = (
@@ -82,7 +83,7 @@ class Collateral(models.Model):
 
     # pretty name ---------------------------------------------------
     def __str__(self):
-        return f"{self.title} ({self.type})"
+        return self.title
     
     # helper (optional)
     def webinar_month_year(self):

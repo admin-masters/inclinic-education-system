@@ -1,6 +1,7 @@
 import hashlib
 import os
 from datetime import datetime
+import re
 from django.db import connection
 from django.contrib.auth.hashers import make_password
 
@@ -440,47 +441,86 @@ def authenticate_field_representative_direct(field_id, phone_number, ip_address=
         print(f"Error authenticating field representative directly: {e}")
         return False, None, None
 
-
-def lookup_user_by_field_and_phone(field_id, phone_e164):
+def _last10_digits(phone: str) -> str:
+    digits = re.sub(r'\D', '', phone or '')
+    return digits[-10:] if len(digits) >= 10 else digits
+def lookup_user_by_field_and_phone(field_id, phone_input):
     """
-    Lookup user by field_id and phone_number for WhatsApp login.
-    
-    Args:
-        field_id: The field representative ID
-        phone_e164: Phone number in E.164 format
-    
-    Returns:
-        tuple: (success: bool, user_id: int, user_data: dict) or (False, None, None)
+    Robust lookup for WhatsApp login:
+    - case-insensitive field_id
+    - phone-number normalization (match on last 10 digits)
+    - search user_management_user first; if not found, fallback to sharing_management_fieldrepresentative
+      and (if matched) upsert a User so downstream views can 'login(request, user)' reliably.
     """
     try:
+        want_last10 = _last10_digits(phone_input)
+
+        # 1) Search user_management_user by field_id (case-insensitive)
         with connection.cursor() as cursor:
             cursor.execute("""
-                SELECT id, username, email, field_id, phone_number, role, is_active
+                SELECT id, username, email, field_id, phone_number, role, active
                 FROM user_management_user
-                WHERE field_id = %s AND phone_number = %s
-                LIMIT 1
-            """, [field_id, phone_e164])
-            
-            result = cursor.fetchone()
-            if result:
-                user_id, username, email, field_id, phone_number, role, is_active = result
+                WHERE UPPER(field_id) = UPPER(%s)
+            """, [field_id])
+            rows = cursor.fetchall()
+
+        for (uid, username, email, fid, db_phone, role, active) in rows:
+            if _last10_digits(db_phone) == want_last10:
                 user_data = {
-                    'id': user_id,
+                    'id': uid,
                     'username': username,
                     'email': email,
-                    'field_id': field_id,
-                    'phone_number': phone_number,
+                    'field_id': fid,
+                    'phone_number': db_phone,
                     'role': role,
-                    'is_active': is_active
+                    'is_active': bool(active),
                 }
-                return True, user_id, user_data
-            else:
-                return False, None, None
-                
+                return True, uid, user_data
+
+        # 2) Fallback: search sharing_management_fieldrepresentative
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT id, field_id, email, COALESCE(whatsapp_number,''), is_active
+                FROM sharing_management_fieldrepresentative
+                WHERE UPPER(field_id) = UPPER(%s)
+                LIMIT 5
+            """, [field_id])
+            rows = cursor.fetchall()
+
+        for (_fid_pk, fid, email, wa_phone, is_active) in rows:
+            if bool(is_active) and _last10_digits(wa_phone) == want_last10:
+                # Ensure a User exists so view can login() using Django auth
+                from user_management.models import User
+                from django.contrib.auth.hashers import make_password
+
+                user, created = User.objects.get_or_create(
+                    field_id=fid,
+                    defaults={
+                        'username': f'fieldrep_{fid}',
+                        'email': email or f'{fid.lower()}@example.com',
+                        'phone_number': phone_input,     # keep input as user-facing value (E.164 from form)
+                        'role': 'field_rep',
+                        'active': True,
+                        'password': make_password('defaultpass123'),
+                    }
+                )
+                user_data = {
+                    'id': user.id,
+                    'username': user.username,
+                    'email': user.email,
+                    'field_id': user.field_id,
+                    'phone_number': user.phone_number,
+                    'role': user.role,
+                    'is_active': bool(user.active),
+                }
+                return True, user.id, user_data
+
+        # 3) No match
+        return False, None, None
+
     except Exception as e:
         print(f"Error looking up user: {e}")
         return False, None, None
-
 
 def generate_doctor_verification_otp(phone_e164, short_link_id):
     """
@@ -658,9 +698,14 @@ def log_manual_doctor_share(short_link_id, field_rep_id, phone_e164, collateral_
         try:
             user = User.objects.get(username=f"field_rep_{field_rep_id}")
         except User.DoesNotExist:
-            # If not found, try to find by ID
+            # If not found, try to find by ID only when numeric
             try:
-                user = User.objects.get(id=field_rep_id)
+                if isinstance(field_rep_id, int):
+                    user = User.objects.get(id=field_rep_id)
+                elif isinstance(field_rep_id, str) and field_rep_id.isdigit():
+                    user = User.objects.get(id=int(field_rep_id))
+                else:
+                    raise User.DoesNotExist
             except User.DoesNotExist:
                 # If still not found, create a new user
                 user, created = User.objects.get_or_create(
@@ -702,11 +747,12 @@ def log_manual_doctor_share(short_link_id, field_rep_id, phone_e164, collateral_
 
 def share_prefilled_doctor(rep_id, prefilled_doctor_id, short_link_id, collateral_id):
     """
-    Share a prefilled doctor via WhatsApp.
+    Share a doctor via WhatsApp.
+    Handles doctors from both doctor_viewer_doctor (assigned via admin) and prefilled_doctor tables.
     
     Args:
         rep_id: The field representative ID
-        prefilled_doctor_id: The ID of the prefilled doctor to share
+        prefilled_doctor_id: The ID of the doctor to share (can be from doctor_viewer_doctor or prefilled_doctor)
         short_link_id: The short link ID for the collateral
         collateral_id: The collateral ID
     
@@ -715,26 +761,41 @@ def share_prefilled_doctor(rep_id, prefilled_doctor_id, short_link_id, collatera
     """
     try:
         with connection.cursor() as cursor:
-            # Step 1: Copy doctor to personal list (if absent)
-            cursor.execute("""
-                INSERT INTO doctor_viewer_doctor (rep_id, name, phone, source)
-                SELECT %s, full_name, phone, 'prefill_wa'
-                FROM prefilled_doctor
-                WHERE id = %s
-                ON DUPLICATE KEY UPDATE doctor_viewer_doctor.id = doctor_viewer_doctor.id
-            """, [rep_id, prefilled_doctor_id])
+            phone_e164 = None
+            doctor_name = None
             
-            # Step 2: Get the doctor's phone number for logging
+            # Step 1: First check if doctor exists in doctor_viewer_doctor (assigned via admin dashboard)
             cursor.execute("""
-                SELECT phone FROM prefilled_doctor WHERE id = %s
-            """, [prefilled_doctor_id])
+                SELECT phone, name FROM doctor_viewer_doctor 
+                WHERE id = %s AND rep_id = %s
+            """, [prefilled_doctor_id, rep_id])
             
             result = cursor.fetchone()
-            if not result:
-                print(f"Prefilled doctor with ID {prefilled_doctor_id} not found")
-                return False
+            if result:
+                phone_e164 = result[0]
+                doctor_name = result[1]
+            else:
+                # Step 2: If not found, check prefilled_doctor table
+                cursor.execute("""
+                    SELECT phone, full_name FROM prefilled_doctor WHERE id = %s
+                """, [prefilled_doctor_id])
+                
+                result = cursor.fetchone()
+                if result:
+                    phone_e164 = result[0]
+                    doctor_name = result[1]
+                    
+                    # Copy doctor to personal list (if absent)
+                    cursor.execute("""
+                        INSERT INTO doctor_viewer_doctor (rep_id, name, phone, source)
+                        VALUES (%s, %s, %s, 'prefill_wa')
+                        ON DUPLICATE KEY UPDATE doctor_viewer_doctor.id = doctor_viewer_doctor.id
+                    """, [rep_id, doctor_name, phone_e164])
+                else:
+                    return False
             
-            phone_e164 = result[0]
+            if not phone_e164:
+                return False
             
             # Step 3: Insert share log (channel = 'WhatsApp')
             cursor.execute("""
@@ -745,7 +806,6 @@ def share_prefilled_doctor(rep_id, prefilled_doctor_id, short_link_id, collatera
             
             return True
     except Exception as e:
-        print(f"Error sharing prefilled doctor: {e}")
         return False
 
 
@@ -917,4 +977,4 @@ def reset_field_representative_password(email, new_password):
             
     except Exception as e:
         print(f"Error resetting password: {e}")
-        return False 
+        return False

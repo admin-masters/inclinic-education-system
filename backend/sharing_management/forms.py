@@ -1,10 +1,14 @@
 import csv, io, re
+from datetime import datetime, timedelta
 from django import forms
+from django.db.models import Q, Count, Max, Case, When, Value, BooleanField
 from django.core.exceptions import ValidationError
 from django.core.validators import validate_email
+from django.utils import timezone
 from django.utils.text import slugify
+from django.utils.safestring import mark_safe
 from user_management.models import User
-from doctor_viewer.models import Doctor, DoctorCollateral
+from doctor_viewer.models import Doctor, DoctorCollateral, DoctorEngagement
 from collateral_management.models import Collateral
 from .models import ShareLog
 
@@ -15,63 +19,229 @@ CHANNEL_CHOICES = (
     ("Email",    "Email"),
 )
 
-# ─── One‑off share form ────────────────────────────────────────────────────────
+class DoctorChoiceField(forms.ModelChoiceField):
+    def label_from_instance(self, obj):
+        return f"{obj.name} ({obj.phone or 'No phone'})"
+
 class ShareForm(forms.Form):
+    # Main fields
     collateral = forms.ModelChoiceField(
-        queryset=Collateral.objects.filter(is_active=True),
+        queryset=Collateral.objects.filter(is_active=True).order_by('-created_at'),
         label="Select Collateral",
+        help_text="Most recent collateral is pre-selected",
+        widget=forms.Select(attrs={
+            'class': 'form-select',
+            'hx-get': '/update-doctors-list/',
+            'hx-trigger': 'change',
+            'hx-target': '#doctors-list-container',
+        })
     )
+    
+    # Doctor selection (existing or new)
+    existing_doctor = forms.ModelChoiceField(
+        queryset=Doctor.objects.none(),
+        required=False,
+        label="Select Existing Doctor",
+        widget=forms.Select(attrs={
+            'class': 'form-select select2',
+            'data-placeholder': 'Search for a doctor...',
+            'hx-get': '/update-doctor-status/',
+            'hx-trigger': 'change',
+            'hx-target': '#doctor-status',
+        })
+    )
+    
+    # New doctor fields
+    new_doctor_name = forms.CharField(
+        max_length=100,
+        required=False,
+        label="Or Add New Doctor",
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Doctor Name',
+            'hx-trigger': 'keyup changed',
+            'hx-get': '/check-doctor-exists/',
+            'hx-target': '#doctor-exists-message',
+        })
+    )
+    
     doctor_contact = forms.CharField(
-        max_length=255,
-        label="Phone / E‑mail",
+        max_length=20,
+        required=False,
+        label="Doctor's Contact",
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': '+91XXXXXXXXXX',
+        })
     )
+    
+    # Sharing options
     share_channel = forms.ChoiceField(
         choices=CHANNEL_CHOICES,
         initial="WhatsApp",
+        widget=forms.Select(attrs={
+            'class': 'form-select',
+        })
     )
+    
     message_text = forms.CharField(
-        widget=forms.Textarea,
+        widget=forms.Textarea(attrs={
+            'class': 'form-control',
+            'rows': '3',
+            'placeholder': 'Add a personalized message (optional)',
+        }),
         required=False,
-        label="Custom Message (optional)",
+        label="Message"
+    )
+    
+    # Filtering and search
+    search = forms.CharField(
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Search doctors...',
+            'hx-get': '/doctors/search/',
+            'hx-trigger': 'keyup changed delay:500ms',
+            'hx-target': '#doctors-list',
+        })
+    )
+    
+    status_filter = forms.ChoiceField(
+        choices=[
+            ('all', 'All Doctors'),
+            ('needs_share', 'Needs Sharing'),
+            ('needs_reminder', 'Needs Reminder'),
+            ('shared', 'Already Shared'),
+        ],
+        initial='all',
+        required=False,
+        widget=forms.Select(attrs={
+            'class': 'form-select',
+            'hx-get': '/doctors/filter/',
+            'hx-trigger': 'change',
+            'hx-target': '#doctors-list',
+        })
     )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, user, *args, **kwargs):
         super().__init__(*args, **kwargs)
-
-        # Bootstrap 5 classes
-        self.fields["collateral"].widget.attrs.update({"class": "form-select"})
-        self.fields["doctor_contact"].widget.attrs.update({
-            "class": "form-control",
-            "placeholder": "+91XXXXXXXXXX or doctor@example.com",
-        })
-        self.fields["share_channel"].widget.attrs.update({"class": "form-select"})
-        self.fields["message_text"].widget.attrs.update({
-            "class": "form-control",
-            "rows": "4",
-            "placeholder": "Write a message (optional)",
-        })
-
-    # ── validation ────────────────────────────────────────────────────────────
+        self.user = user
+        
+        # Set initial collateral to the most recent one
+        latest_collateral = Collateral.objects.filter(is_active=True).order_by('-created_at').first()
+        if latest_collateral:
+            self.fields['collateral'].initial = latest_collateral
+        
+        # Update doctor queryset to show only assigned doctors
+        self.fields['existing_doctor'].queryset = self.get_doctors_with_status()
+    
+    def get_doctors_with_status(self):
+        """Get doctors with their sharing status for the selected collateral"""
+        collateral = self.initial.get('collateral') or self.data.get('collateral')
+        
+        # Get all doctors assigned to the current user (field rep)
+        doctors = Doctor.objects.filter(rep=self.user)
+        
+        # Get sharing status for each doctor
+        if collateral:
+            # Get share logs for this collateral
+            shared_doctor_ids = ShareLog.objects.filter(
+                field_rep=self.user,
+                collateral_id=collateral.id if hasattr(collateral, 'id') else collateral
+            ).values_list('doctor_identifier', flat=True)
+            
+            # Get engagement data for this collateral
+            engaged_doctor_ids = DoctorEngagement.objects.filter(
+                short_link__resource_id=collateral.id if hasattr(collateral, 'id') else collateral,
+                short_link__resource_type='collateral'
+            ).values_list('doctor__id', flat=True)
+            
+            # Annotate doctors with their status
+            doctors = doctors.annotate(
+                is_shared=Case(
+                    When(id__in=shared_doctor_ids, then=Value(True)),
+                    default=Value(False),
+                    output_field=BooleanField()
+                ),
+                has_engaged=Case(
+                    When(id__in=engaged_doctor_ids, then=Value(True)),
+                    default=Value(False),
+                    output_field=BooleanField()
+                ),
+                last_shared=Max('share_logs__share_timestamp')
+            )
+        
+        return doctors
+    
     def clean(self):
-        cleaned = super().clean()
-        channel = cleaned.get("share_channel")
-        contact = (cleaned.get("doctor_contact") or "").strip()
-
-        if not contact:
-            raise ValidationError("Please enter the recipient’s phone or e‑mail.")
-
-        if channel == "Email":
-            try:
-                validate_email(contact)
-            except ValidationError:
-                raise ValidationError("Enter a valid e‑mail address.")
-        else:
-            digits = "".join(ch for ch in contact if ch.isdigit() or ch == "+")
+        cleaned_data = super().clean()
+        
+        # Check if either existing doctor or new doctor info is provided
+        existing_doctor = cleaned_data.get('existing_doctor')
+        new_doctor_name = cleaned_data.get('new_doctor_name')
+        doctor_contact = cleaned_data.get('doctor_contact')
+        
+        if not existing_doctor and not (new_doctor_name and doctor_contact):
+            raise ValidationError("Please select an existing doctor or enter new doctor details.")
+        
+        if existing_doctor and (new_doctor_name or doctor_contact):
+            raise ValidationError("Please either select an existing doctor OR enter new doctor details, not both.")
+        
+        # Validate contact if new doctor
+        if new_doctor_name and doctor_contact:
+            if not doctor_contact.strip():
+                raise ValidationError("Please enter a contact number for the new doctor.")
+            
+            # Basic phone validation
+            digits = "".join(ch for ch in doctor_contact if ch.isdigit() or ch == "+")
             if len(digits) < 8:
-                raise ValidationError("Enter a valid phone number.")
-            cleaned["doctor_contact"] = digits
-
-        return cleaned
+                raise ValidationError("Please enter a valid phone number.")
+            
+            cleaned_data['doctor_contact'] = digits
+        
+        return cleaned_data
+    
+    def save(self, commit=True):
+        """Save the form data and create necessary records"""
+        data = self.cleaned_data
+        collateral = data['collateral']
+        share_channel = data['share_channel']
+        message_text = data.get('message_text', '')
+        
+        if data.get('existing_doctor'):
+            # Handle existing doctor
+            doctor = data['existing_doctor']
+            doctor_contact = doctor.phone
+            doctor_name = doctor.name
+        else:
+            # Create new doctor
+            doctor = Doctor.objects.create(
+                name=data['new_doctor_name'],
+                phone=data['doctor_contact'],
+                rep=self.user,
+                source='manual'
+            )
+            doctor_contact = data['doctor_contact']
+            doctor_name = data['new_doctor_name']
+        
+        # Create share log
+        share_log = ShareLog.objects.create(
+            collateral=collateral,
+            field_rep=self.user,
+            doctor_identifier=doctor_contact,
+            share_channel=share_channel,
+            message_text=message_text,
+            doctor_name=doctor_name
+        )
+        
+        # Create or update doctor collateral link
+        DoctorCollateral.objects.get_or_create(
+            doctor=doctor,
+            collateral=collateral,
+            defaults={'last_shared': timezone.now()}
+        )
+        
+        return share_log
 
 
 # ─── Bulk *manual* share (existing) ────────────────────────────────────────────

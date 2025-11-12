@@ -69,6 +69,21 @@ class CollateralForm(forms.ModelForm):
     description = forms.CharField(max_length=255, required=False)
     is_active   = forms.BooleanField(required=False, initial=True, widget=forms.HiddenInput())
 
+    def __init__(self, *args, **kwargs):
+        brand_campaign_id = kwargs.pop('brand_campaign_id', None)
+        super().__init__(*args, **kwargs)
+        
+        # If brand_campaign_id is provided, filter the campaign choices
+        if brand_campaign_id:
+            self.fields['campaign'].queryset = Campaign.objects.filter(brand_campaign_id=brand_campaign_id)
+            # If there's only one campaign, set it as the initial value
+            if self.fields['campaign'].queryset.count() == 1:
+                self.fields['campaign'].initial = self.fields['campaign'].queryset.first()
+                # Optionally make it read-only
+                self.fields['campaign'].widget.attrs['readonly'] = True
+                self.fields['campaign'].widget.attrs['class'] = 'form-control-plaintext'
+                self.fields['campaign'].help_text = 'This field is set based on the selected brand campaign.'
+
     class Meta:
         model  = Collateral
         fields = [
@@ -91,9 +106,17 @@ class CollateralForm(forms.ModelForm):
             if not file_f:
                 raise ValidationError("Upload a PDF file.")
             if file_f.size > MAX_FILE_SIZE_MB * 1024 * 1024:
-                raise ValidationError(f"PDF must be ≤ {MAX_FILE_SIZE_MB} MB.")
+                raise ValidationError(f"PDF must be ≤ {MAX_FILE_SIZE_MB}\u202fMB.")
         elif c_type == 'video' and not url_f:
             raise ValidationError("Provide a Vimeo URL for videos.")
+        elif c_type == 'pdf_video':
+            # Require both
+            if not file_f:
+                raise ValidationError("Upload a PDF file (for PDF + Video).")
+            if file_f.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+                raise ValidationError(f"PDF must be ≤ {MAX_FILE_SIZE_MB}\u202fMB.")
+            if not url_f:
+                raise ValidationError("Provide a Vimeo URL (for PDF + Video).")
         return cleaned
 
 

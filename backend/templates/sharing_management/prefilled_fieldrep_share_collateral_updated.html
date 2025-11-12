@@ -1,0 +1,527 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
+<div class="container-fluid py-4">
+  <div class="row justify-content-center">
+    <!-- Left Sidebar - Collateral Selection -->
+    <div class="col-12 col-lg-4 mb-4 mb-lg-0">
+      <div class="card shadow">
+        <div class="card-header">
+          <h6 class="mb-0">Share Collateral</h6>
+        </div>
+        <div class="card-body">
+          {% if messages %}
+            {% for message in messages %}
+              <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+                {{ message }}
+                <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+              </div>
+            {% endfor %}
+          {% endif %}
+          
+          <form method="post" autocomplete="off" id="shareForm">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label">Field ID:</label>
+              <input type="text" class="form-control" name="fieldrep_id" value="{{ fieldrep_id }}" readonly>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Select Doctor:</label>
+              {% if doctors %}
+                <select class="form-select" name="doctor_id" id="doctorSelect" required>
+                  <option value="">Select Doctor</option>
+                  {% for d in doctors %}
+                  <option value="{{ d.id }}" data-name="{{ d.name }}" data-phone="{{ d.phone }}" data-email="{{ d.email }}">
+                    {{ d.name }} / {{ d.phone }}
+                  </option>
+                  {% endfor %}
+                </select>
+              {% else %}
+                <div class="alert alert-warning">
+                  No doctors found assigned to your account. Please contact support.
+                </div>
+                <select class="form-select" name="doctor_id" id="doctorSelect" disabled>
+                  <option value="">No doctors available</option>
+                </select>
+              {% endif %}
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Doctor Name:</label>
+              <input type="text" class="form-control" id="doctorName" name="doctor_name" readonly>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Contact Information:</label>
+              <div class="input-group">
+                <span class="input-group-text"><i class="fas fa-phone"></i></span>
+                <input type="text" class="form-control" id="doctorPhone" name="doctor_phone" readonly>
+              </div>
+              <div class="input-group mt-2">
+                <span class="input-group-text"><i class="fas fa-envelope"></i></span>
+                <input type="email" class="form-control" id="doctorEmail" name="doctor_email" readonly>
+              </div>
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Select Collateral:</label>
+              {% if collaterals %}
+                <select class="form-select" name="collateral" id="collateralSelect" required>
+                  <option value="">Select Collateral</option>
+                  {% for c in collaterals %}
+                  <option value="{{ c.id }}" 
+                          data-name="{{ c.name }}"
+                          data-description="{{ c.description|default:'' }}"
+                          data-url="{{ c.url|default:'' }}"
+                          {% if c.id == selected_collateral_id|add:0 %}selected{% endif %}>
+                    {{ c.name }}
+                  </option>
+                  {% endfor %}
+                </select>
+              {% else %}
+                <div class="alert alert-warning">
+                  No collaterals found. Please contact support.
+                </div>
+                <select class="form-select" name="collateral" id="collateralSelect" disabled>
+                  <option value="">No collaterals available</option>
+                </select>
+              {% endif %}
+            </div>
+            
+            <div class="mb-3">
+              <label class="form-label">Message:</label>
+              <textarea class="form-control" id="message" name="message" rows="3" required>Hello Doctor, please find the collateral shared with you.</textarea>
+            </div>
+            
+            <div class="d-grid gap-2">
+              <button type="submit" class="btn btn-success" name="share_method" value="gmail">
+                <i class="fab fa-google me-2"></i> Share via Gmail
+              </button>
+              <button type="submit" class="btn btn-primary" name="share_method" value="whatsapp">
+                <i class="fab fa-whatsapp me-2"></i> Share via WhatsApp
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Right Sidebar - Assigned Doctors -->
+    <div class="col-12 col-lg-8">
+      <div class="card shadow">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h6 class="mb-0">Assigned Doctors</h6>
+          <div class="d-flex gap-2">
+            <input type="text" id="doctorSearch" class="form-control form-control-sm" placeholder="Search by name or phone">
+            <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+              <option value="">All</option>
+              <option value="not_shared">Not Shared</option>
+              <option value="shared">Shared</option>
+              <option value="viewed">Viewed</option>
+              <option value="needs_reminder">Needs Reminder</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body p-0">
+          <div class="list-group list-group-flush" id="doctorList">
+            {% for d in doctors %}
+            <div class="list-group-item d-flex justify-content-between align-items-center doctor-row"
+                 data-id="{{ d.id }}"
+                 data-name="{{ d.name|lower }}" 
+                 data-phone="{{ d.phone }}" 
+                 data-status="{{ d.status|default:'not_shared' }}"
+                 data-last-shared="{{ d.last_shared|date:'c'|default:'' }}">
+              <div>
+                <div class="fw-semibold">{{ d.name|default:'Unnamed Doctor' }}</div>
+                <div class="text-muted small">
+                  {{ d.phone|default:'No phone' }}
+                  {% if d.specialty %}| {{ d.specialty }}{% endif %}
+                  {% if d.city %}| {{ d.city }}{% endif %}
+                </div>
+                {% if d.last_shared %}
+                <div class="last-shared-time text-muted small mt-1">
+                  Last shared: <span class="time-ago">{{ d.last_shared|timesince }} ago</span>
+                </div>
+                {% endif %}
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <div class="btn-group" role="group">
+                  <form method="post" class="m-0 share-form" data-doctor-id="{{ d.id }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="doctor_id" value="{{ d.id }}">
+                    <input type="hidden" name="collateral" value="{{ selected_collateral_id }}">
+                    <input type="hidden" name="share_method" value="gmail">
+                    <button type="submit" class="btn btn-sm {% if d.status == 'viewed' %}btn-success{% elif d.status == 'needs_reminder' %}btn-warning{% elif d.status == 'shared' %}btn-info{% else %}btn-outline-primary{% endif %}" 
+                            data-status="{{ d.status|default:'not_shared' }}"
+                            {% if d.status == 'viewed' %}disabled{% endif %}>
+                      <i class="fas fa-envelope"></i>
+                    </button>
+                  </form>
+                  <form method="post" class="m-0 share-form" data-doctor-id="{{ d.id }}">
+                    {% csrf_token %}
+                    <input type="hidden" name="doctor_id" value="{{ d.id }}">
+                    <input type="hidden" name="collateral" value="{{ selected_collateral_id }}">
+                    <input type="hidden" name="share_method" value="whatsapp">
+                    <button type="submit" class="btn btn-sm {% if d.status == 'viewed' %}btn-success{% elif d.status == 'needs_reminder' %}btn-warning{% elif d.status == 'shared' %}btn-info{% else %}btn-outline-success{% endif %}" 
+                            data-status="{{ d.status|default:'not_shared' }}"
+                            {% if d.status == 'viewed' %}disabled{% endif %}>
+                      <i class="fab fa-whatsapp"></i>
+                    </button>
+                  </form>
+                </div>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  /* Button styles for status */
+  .btn[data-status="not_shared"] {
+    opacity: 0.8;
+  }
+  
+  .btn[data-status="shared"] {
+    opacity: 0.9;
+  }
+  
+  .btn[data-status="viewed"] {
+    opacity: 1;
+  }
+  
+  .btn[data-status="needs_reminder"] {
+    animation: pulse 2s infinite;
+  }
+  
+  @keyframes pulse {
+    0% { opacity: 0.7; }
+    50% { opacity: 1; }
+    100% { opacity: 0.7; }
+  }
+  
+  /* WhatsApp green color */
+  .btn-outline-success {
+    color: #25D366;
+    border-color: #25D366;
+  }
+  
+  .btn-outline-success:hover {
+    background-color: #25D366;
+    color: white;
+  }
+  
+  /* Gmail red color */
+  .btn-outline-primary {
+    color: #DB4437;
+    border-color: #DB4437;
+  }
+  
+  .btn-outline-primary:hover {
+    background-color: #DB4437;
+    color: white;
+  }
+</style>
+
+<script>
+  // Auto-fill doctor details when selected from dropdown
+  const doctorSelect = document.getElementById('doctorSelect');
+  const doctorName = document.getElementById('doctorName');
+  const doctorPhone = document.getElementById('doctorPhone');
+  const doctorEmail = document.getElementById('doctorEmail');
+  
+  if (doctorSelect) {
+    doctorSelect.addEventListener('change', function() {
+      const selectedOption = this.options[this.selectedIndex];
+      if (doctorName) doctorName.value = selectedOption.getAttribute('data-name') || '';
+      if (doctorPhone) doctorPhone.value = selectedOption.getAttribute('data-phone') || '';
+      if (doctorEmail) doctorEmail.value = selectedOption.getAttribute('data-email') || '';
+    });
+    
+    // Trigger change event in case there's a pre-selected value
+    if (doctorSelect.value) {
+      doctorSelect.dispatchEvent(new Event('change'));
+    }
+  }
+  
+  // Handle form submissions with loading state and sharing integration
+  function handleFormSubmit(e) {
+    e.preventDefault();
+    const form = e.target;
+    const button = form.querySelector('button[type="submit"]');
+    const doctorId = form.getAttribute('data-doctor-id');
+    const shareMethod = form.querySelector('input[name="share_method"]').value;
+    
+    if (button && !button.disabled) {
+      // Show loading state
+      const originalHTML = button.innerHTML;
+      button.disabled = true;
+      button.innerHTML = '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Sharing...';
+      
+      // Get form data
+      const formData = new FormData(form);
+      
+      // Add share method to form data if not already present
+      if (!formData.has('share_method')) {
+        formData.append('share_method', shareMethod);
+      }
+      
+      // Send AJAX request
+      fetch(form.action || window.location.href, {
+        method: 'POST',
+        body: formData,
+        headers: {
+          'X-Requested-With': 'XMLHttpRequest',
+          'X-CSRFTTOKEN': '{{ csrf_token }}'
+        }
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          // Update UI for the shared doctor
+          const row = document.querySelector(`.doctor-row[data-id="${data.doctor_id}"]`);
+          if (row) {
+            updateDoctorStatus(row, 'shared');
+            
+            // Update the share button for the specific method
+            const shareButton = row.querySelector(`form[data-share-method="${data.share_method}"] button`);
+            if (shareButton) {
+              shareButton.classList.remove('btn-outline-primary', 'btn-outline-success');
+              shareButton.classList.add('btn-info');
+              shareButton.disabled = true;
+            }
+            
+            // Show success message
+            showAlert('success', `Shared successfully via ${data.share_method === 'gmail' ? 'Gmail' : 'WhatsApp'}`);
+            
+            // Redirect to the appropriate app if needed
+            if (data.redirect_url) {
+              window.open(data.redirect_url, '_blank');
+            }
+          }
+        } else {
+          throw new Error(data.message || 'Failed to share');
+        }
+      })
+      .catch(error => {
+        console.error('Error sharing:', error);
+        showAlert('danger', error.message || 'Failed to share. Please try again.');
+      })
+      .finally(() => {
+        // Restore button state
+        button.disabled = false;
+        button.innerHTML = originalHTML;
+      });
+    }
+  }
+  
+  // Update doctor status in the UI
+  function updateDoctorStatus(row, status) {
+    if (!row || !status) return;
+    
+    // Update data attributes
+    row.setAttribute('data-status', status);
+    
+    if (status === 'shared' || status === 'viewed') {
+      const now = new Date().toISOString();
+      row.setAttribute('data-last-shared', now);
+      
+      // Update last shared time display
+      let lastSharedDiv = row.querySelector('.last-shared-time');
+      let timeAgoSpan = row.querySelector('.time-ago');
+      
+      if (!lastSharedDiv) {
+        const infoDiv = row.querySelector('.text-muted');
+        if (infoDiv) {
+          lastSharedDiv = document.createElement('div');
+          lastSharedDiv.className = 'last-shared-time text-muted small mt-1';
+          lastSharedDiv.innerHTML = 'Last shared: <span class="time-ago">just now</span>';
+          infoDiv.parentNode.insertBefore(lastSharedDiv, infoDiv.nextSibling);
+          timeAgoSpan = lastSharedDiv.querySelector('.time-ago');
+        }
+      } else {
+        lastSharedDiv.style.display = 'block';
+        timeAgoSpan = timeAgoSpan || lastSharedDiv.querySelector('.time-ago');
+        if (timeAgoSpan) timeAgoSpan.textContent = 'just now';
+      }
+    }
+    
+    // Update buttons
+    const buttons = row.querySelectorAll('.share-form button');
+    buttons.forEach(button => {
+      button.setAttribute('data-status', status);
+      
+      // Update button classes based on status
+      button.classList.remove('btn-success', 'btn-warning', 'btn-info', 'btn-outline-primary', 'btn-outline-success');
+      
+      if (status === 'viewed') {
+        button.classList.add('btn-success');
+        button.disabled = true;
+      } else if (status === 'needs_reminder') {
+        button.classList.add('btn-warning');
+      } else if (status === 'shared') {
+        button.classList.add('btn-info');
+      } else {
+        // Not shared - set appropriate outline color based on button type
+        if (button.querySelector('.fa-envelope')) {
+          button.classList.add('btn-outline-primary');
+        } else if (button.querySelector('.fa-whatsapp')) {
+          button.classList.add('btn-outline-success');
+        }
+      }
+    });
+  }
+  
+  // Show alert message
+  function showAlert(type, message) {
+    const alertDiv = document.createElement('div');
+    alertDiv.className = `alert alert-${type} alert-dismissible fade show mt-3`;
+    alertDiv.role = 'alert';
+    alertDiv.innerHTML = `
+      ${message}
+      <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+    `;
+    
+    // Add to the top of the form
+    const form = document.getElementById('shareForm');
+    if (form) {
+      form.prepend(alertDiv);
+      
+      // Auto-dismiss after 5 seconds
+      setTimeout(() => {
+        const bsAlert = new bootstrap.Alert(alertDiv);
+        bsAlert.close();
+      }, 5000);
+    }
+  }
+  
+  // Check for reminders (6 days after sharing)
+  function checkForReminders() {
+    const now = new Date();
+    
+    document.querySelectorAll('.doctor-row[data-last-shared]').forEach(row => {
+      const lastShared = row.getAttribute('data-last-shared');
+      const status = row.getAttribute('data-status');
+      
+      if (!lastShared || status !== 'shared') return;
+      
+      const lastDate = new Date(lastShared);
+      const diffDays = (now - lastDate) / (1000 * 60 * 60 * 24);
+      
+      if (diffDays >= 6) {
+        updateDoctorStatus(row, 'needs_reminder');
+      } else {
+        // Update time display
+        updateTimeAgo(row);
+      }
+    });
+  }
+  
+  // Update time ago for a row
+  function updateTimeAgo(row) {
+    const lastShared = row.getAttribute('data-last-shared');
+    const timeAgoSpan = row.querySelector('.time-ago');
+    
+    if (!lastShared || !timeAgoSpan) return;
+    
+    const lastDate = new Date(lastShared);
+    const now = new Date();
+    const diffMs = now - lastDate;
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+    
+    let timeAgo;
+    if (diffSecs < 60) {
+      timeAgo = 'just now';
+    } else if (diffMins < 60) {
+      timeAgo = `${diffMins} minute${diffMins === 1 ? '' : 's'} ago`;
+    } else if (diffHours < 24) {
+      timeAgo = `${diffHours} hour${diffHours === 1 ? '' : 's'} ago`;
+    } else {
+      timeAgo = `${diffDays} day${diffDays === 1 ? '' : 's'} ago`;
+    }
+    
+    timeAgoSpan.textContent = timeAgo;
+  }
+  
+  // Apply search and filter
+  function applyFilters() {
+    const searchTerm = (document.getElementById('doctorSearch')?.value || '').toLowerCase();
+    const statusFilterValue = (document.getElementById('statusFilter')?.value || '').toLowerCase();
+    
+    document.querySelectorAll('.doctor-row').forEach(row => {
+      const name = (row.getAttribute('data-name') || '').toLowerCase();
+      const phone = (row.getAttribute('data-phone') || '').toLowerCase();
+      const status = (row.getAttribute('data-status') || '').toLowerCase();
+      
+      const matchesSearch = !searchTerm || 
+                          name.includes(searchTerm) || 
+                          phone.includes(searchTerm);
+      
+      const matchesStatus = !statusFilterValue || 
+                          (statusFilterValue === 'not_shared' && (!status || status === 'not_shared')) ||
+                          status.includes(statusFilterValue);
+      
+      row.style.display = (matchesSearch && matchesStatus) ? '' : 'none';
+    });
+  }
+  
+  // Initialize event listeners
+  document.addEventListener('DOMContentLoaded', function() {
+    // Add submit handlers to all share forms
+    document.querySelectorAll('.share-form').forEach(form => {
+      form.addEventListener('submit', handleFormSubmit);
+      
+      // Add data-share-method attribute to identify the sharing method
+      const shareMethod = form.querySelector('input[name="share_method"]');
+      if (shareMethod) {
+        form.setAttribute('data-share-method', shareMethod.value);
+      }
+    });
+    
+    // Add search and filter event listeners
+    const searchInput = document.getElementById('doctorSearch');
+    const statusFilter = document.getElementById('statusFilter');
+    
+    if (searchInput) searchInput.addEventListener('input', applyFilters);
+    if (statusFilter) statusFilter.addEventListener('change', applyFilters);
+    
+    // Check for reminders on page load and every hour
+    checkForReminders();
+    setInterval(checkForReminders, 60 * 60 * 1000);
+    
+    // Update all time-ago displays every minute
+    setInterval(() => {
+      document.querySelectorAll('.doctor-row[data-last-shared]').forEach(updateTimeAgo);
+    }, 60000);
+    
+    // Auto-submit the form if we have a doctor_id and collateral in the URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const doctorId = urlParams.get('doctor_id');
+    const collateralId = urlParams.get('collateral');
+    const shareMethod = urlParams.get('share_method') || 'gmail'; // Default to Gmail
+    
+    if (doctorId && collateralId) {
+      // Find the form for this doctor and sharing method
+      const form = document.querySelector(`form[data-doctor-id="${doctorId}"][data-share-method="${shareMethod}"]`);
+      if (form) {
+        // Set the collateral value
+        const collateralInput = form.querySelector('input[name="collateral"]');
+        if (collateralInput) {
+          collateralInput.value = collateralId;
+        }
+        
+        // Submit the form after a short delay
+        setTimeout(() => form.dispatchEvent(new Event('submit')), 500);
+      }
+    }
+  });
+</script>
+{% endblock %}

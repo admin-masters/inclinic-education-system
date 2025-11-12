@@ -1,5 +1,5 @@
 from django.shortcuts import render, redirect, get_object_or_404
-from django.urls import reverse_lazy
+from django.urls import reverse_lazy, reverse
 from django.utils.decorators import method_decorator
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from django.contrib import messages
@@ -17,8 +17,42 @@ class CollateralListView(ListView):
     ordering = ['-created_at']
     
     def get_queryset(self):
-        """Return only active collaterals"""
-        return Collateral.objects.filter(is_active=True)
+        """Return collaterals, optionally filtered by brand campaign"""
+        queryset = Collateral.objects.filter(is_active=True)
+        
+        # Check for campaign filter in query parameters
+        campaign_filter = self.request.GET.get('campaign')
+        if campaign_filter:
+            # Filter collaterals that are linked to the specified brand campaign
+            queryset = queryset.filter(
+                campaign__brand_campaign_id=campaign_filter
+            )
+            
+        return queryset.select_related('campaign')
+    
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        
+        # Get the current campaign filter
+        campaign_id = self.request.GET.get('campaign', '')
+        campaign = None
+        
+        if campaign_id:
+            try:
+                campaign = Campaign.objects.get(brand_campaign_id=campaign_id)
+            except Campaign.DoesNotExist:
+                pass
+                
+        context['campaign_filter'] = campaign  # Now passing the campaign object
+        
+        # Get all unique campaigns that have collaterals
+        context['available_campaigns'] = Campaign.objects.filter(
+            id__in=Collateral.objects.filter(is_active=True)
+                                   .values_list('campaign', flat=True)
+                                   .distinct()
+        ).order_by('brand_campaign_id')
+        
+        return context
 
 
 class CollateralDetailView(DetailView):
@@ -90,12 +124,27 @@ def unlink_collateral_from_campaign(request, pk):
 
 
 # @admin_required
-def add_collateral_with_campaign(request):
+def add_collateral_with_campaign(request, brand_campaign_id=None):
     """
     One-page “Add Collateral” wizard that also links it to a Brand-Campaign.
+    If brand_campaign_id is provided, filter campaigns to show only that brand's campaigns.
     """
+    selected_campaign = None
+    
+    # If brand_campaign_id is provided, get the campaign and filter choices
+    if brand_campaign_id:
+        try:
+            selected_campaign = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
+        except Campaign.DoesNotExist:
+            messages.error(request, f"Campaign with Brand Campaign ID '{brand_campaign_id}' not found.")
+            return redirect("collateral_list")
+    
     if request.method == "POST":
-        form = CollateralForm(request.POST, request.FILES)
+        form = CollateralForm(
+            request.POST, 
+            request.FILES, 
+            brand_campaign_id=brand_campaign_id
+        )
         if form.is_valid():
             with transaction.atomic():
                 collateral = form.save(commit=False)
@@ -103,21 +152,45 @@ def add_collateral_with_campaign(request):
                 collateral.is_active = True  # Ensure collateral is active by default
                 # Correct: read from the proper purpose field
                 collateral.purpose = form.cleaned_data.get('purpose')
+                
+                # If we have a selected campaign, ensure it's set on the collateral
+                if selected_campaign:
+                    collateral.campaign = selected_campaign
+                
                 collateral.save()
+                
+                # Create the campaign collateral link
                 CampaignCollateral.objects.create(
-                    campaign=collateral.campaign,  # Use campaign from form
+                    campaign=collateral.campaign,
                     collateral=collateral,
                 )
-            messages.success(request, "Collateral created & linked ✔︎")
-            return redirect("collateral_list")
+                
+                # Get the brand campaign ID for the success message
+                brand_id = collateral.campaign.brand_campaign_id if collateral.campaign else 'unknown'
+                messages.success(
+                    request, 
+                    f"Collateral created & linked to campaign {brand_id} ✔︎"
+                )
+                
+                # Redirect to the sharing dashboard with the brand filter
+                if brand_campaign_id:
+                    return redirect(f"/share/dashboard/?campaign={brand_campaign_id}")
+                return redirect("fieldrep_dashboard")
     else:
-        form = CollateralForm()
+        # Initialize the form with the brand_campaign_id
+        form = CollateralForm(brand_campaign_id=brand_campaign_id)
+        
+        # If we have a selected campaign, set the initial value
+        if selected_campaign:
+            form.fields['campaign'].initial = selected_campaign
 
     return render(
         request,
         "collateral_management/add_collateral_combined.html",
         {
             "collateral_form": form,
+            "selected_campaign": selected_campaign,
+            "brand_campaign_id": brand_campaign_id,
         },
     )
 def edit_campaign_collateral_dates(request, pk):
@@ -137,60 +210,34 @@ def edit_campaign_collateral_dates(request, pk):
     })
 
 def replace_collateral(request, pk):
-    # First try to get from campaign_management.Collateral
+    # First try to get from collateral_management.Collateral
     try:
-        from campaign_management.models import Collateral as CampaignCollateral
-        import pandas as pd
-        import os
+        from collateral_management.models import Collateral
+        collateral = get_object_or_404(Collateral, pk=pk)
         
-        # Check if this is a CSV ID (from submissions.csv)
-        csv_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))), 'submissions.csv')
-        try:
-            df = pd.read_csv(csv_path)
-        except FileNotFoundError:
-            # If file not found, create an empty DataFrame to avoid errors
-            df = pd.DataFrame(columns=['id', 'ItemName', 'Brand_Campaign_ID'])
-            print(f"Warning: submissions.csv not found at {csv_path}")
-        except Exception as e:
-            # For any other error, create an empty DataFrame
-            df = pd.DataFrame(columns=['id', 'ItemName', 'Brand_Campaign_ID'])
-            print(f"Error reading submissions.csv: {e}")
-        
-        # Try to find the collateral by CSV ID first
-        csv_row = df[df['id'] == pk]
-        if not csv_row.empty:
-            # Found CSV ID, now find the corresponding Campaign Management collateral
-            item_name = csv_row.iloc[0]['ItemName']
-            brand_campaign_id = csv_row.iloc[0]['Brand_Campaign_ID']
+        # Get the campaign information for this collateral if it exists
+        campaign_id = None
+        if hasattr(collateral, 'campaign') and collateral.campaign:
+            campaign_id = collateral.campaign.brand_campaign_id if hasattr(collateral.campaign, 'brand_campaign_id') else None
             
-            # Find the campaign first
-            from campaign_management.models import Campaign
-            campaign = Campaign.objects.filter(brand_campaign_id=brand_campaign_id).first()
-            
-            if campaign:
-                # Find the collateral in Campaign Management table
-                collateral = CampaignCollateral.objects.filter(item_name=item_name).first()
-                if collateral:
-                    # Found the collateral, continue with the rest of the function
-                    pass
-                else:
-                    # Fallback to direct ID lookup
-                    collateral = get_object_or_404(CampaignCollateral, pk=pk)
-            else:
-                # Fallback to direct ID lookup
-                collateral = get_object_or_404(CampaignCollateral, pk=pk)
-        else:
-            # Not a CSV ID, try direct lookup
-            collateral = get_object_or_404(CampaignCollateral, pk=pk)
-        
-        # Get the campaign information for this collateral
-        from campaign_management.models import CampaignCollateral as CampaignCollateralLink
-        campaign_link = CampaignCollateralLink.objects.filter(collateral=collateral).first()
-        campaign_id = campaign_link.campaign.brand_campaign_id if campaign_link else 'Unknown'
-        
-        # Define the form class once
+        # Define the form class
         from django import forms
         class SimpleCollateralForm(forms.ModelForm):
+            class Meta:
+                model = Collateral
+                fields = ['title', 'type', 'vimeo_url', 'content_id', 'banner_1', 'banner_2', 'description', 'is_active', 'file']
+                widgets = {
+                    'title': forms.TextInput(attrs={'class': 'form-control'}),
+                    'type': forms.Select(attrs={'class': 'form-select'}),
+                    'vimeo_url': forms.URLInput(attrs={'class': 'form-control'}),
+                    'content_id': forms.TextInput(attrs={'class': 'form-control'}),
+                    'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+                    'banner_1': forms.FileInput(attrs={'class': 'form-control'}),
+                    'banner_2': forms.FileInput(attrs={'class': 'form-control'}),
+                    'file': forms.FileInput(attrs={'class': 'form-control'}),
+                    'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'})
+                }
+            
             # Add extra fields to match the original form
             campaign = forms.CharField(
                 max_length=255,
@@ -198,84 +245,285 @@ def replace_collateral(request, pk):
                 widget=forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
                 label="Brand Campaign ID"
             )
-            title = forms.ChoiceField(
-                choices=[('', 'Select Purpose of the Collateral')] + [
-                    ('Doctor education short', 'Doctor education short'),
-                    ('Doctor education long', 'Doctor education long'),
-                    ('Patient education compliance', 'Patient education compliance'),
-                    ('Patient education general', 'Patient education general'),
-                ],
-                widget=forms.Select(attrs={'class': 'form-select'}),
-                required=True,
-                label="Purpose of the Collateral"
-            )
-            type = forms.ChoiceField(
-                choices=[('', 'Select Type')] + [
-                    ('pdf', 'PDF'),
-                    ('video', 'Video'),
-                ],
-                widget=forms.Select(attrs={'class': 'form-select'}),
-                required=True,
-                label="Item Type"
-            )
-            vimeo_url = forms.URLField(
-                required=False,
-                widget=forms.URLInput(attrs={'class': 'form-control'}),
-                label="Video URL"
-            )
-            content_id = forms.CharField(
-                max_length=100,
-                required=False,
-                widget=forms.TextInput(attrs={'class': 'form-control'}),
-                label="Item Name"
-            )
-            banner_1 = forms.ImageField(
-                required=False,
-                widget=forms.FileInput(attrs={'class': 'form-control'}),
-                label="Banner 1"
-            )
-            banner_2 = forms.ImageField(
-                required=False,
-                widget=forms.FileInput(attrs={'class': 'form-control'}),
-                label="Banner 2"
-            )
-            is_active = forms.BooleanField(
-                required=False,
-                initial=True,
-                widget=forms.CheckboxInput(attrs={'class': 'form-check-input'}),
-                label="Is Active"
-            )
             
-            class Meta:
-                model = CampaignCollateral
-                fields = ['item_name', 'description', 'file']
-                widgets = {
-                    'item_name': forms.TextInput(attrs={'class': 'form-control'}),
-                    'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-                    'file': forms.FileInput(attrs={'class': 'form-control'}),
-                }
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                # Set initial values
+                if self.instance and self.instance.pk:
+                    self.fields['campaign'].initial = getattr(self.instance, 'campaign.brand_campaign_id', '')
         
         # Set initial values for the form fields
         initial_data = {
             'campaign': campaign_id,
-            'title': 'Doctor education short',  # Default value
-            'type': 'pdf',  # Default value
-            'content_id': collateral.item_name,  # Use item_name as content_id
-            'description': collateral.description,
-            'is_active': True,
+            'title': getattr(collateral, 'title', ''),
+            'type': getattr(collateral, 'type', ''),
+            'content_id': getattr(collateral, 'content_id', ''),
+            'description': getattr(collateral, 'description', ''),
+            'is_active': getattr(collateral, 'is_active', True),
+            'vimeo_url': getattr(collateral, 'vimeo_url', ''),
+            'banner_1': getattr(collateral, 'banner_1', None),
+            'banner_2': getattr(collateral, 'banner_2', None),
+        }
+        
+        # Get the campaign information for this collateral if it exists through CampaignCollateral
+        campaign_id = None
+        campaign_link = None
+        try:
+            # First try to get campaign directly from collateral
+            if hasattr(collateral, 'campaign') and collateral.campaign:
+                campaign_id = collateral.campaign.brand_campaign_id if hasattr(collateral.campaign, 'brand_campaign_id') else 'Unknown'
+            else:
+                # Fallback to CampaignCollateral link
+                from campaign_management.models import CampaignCollateral as CampaignCollateralLink
+                campaign_link = CampaignCollateralLink.objects.filter(collateral_id=collateral.id).select_related('campaign').first()
+                if campaign_link and campaign_link.campaign:
+                    campaign_id = getattr(campaign_link.campaign, 'brand_campaign_id', 'Unknown')
+                else:
+                    campaign_id = 'Unknown'
+        except Exception as e:
+            print(f"Error getting campaign link: {str(e)}")
+            campaign_id = 'Unknown'
+        
+        # Define the form class
+        from django import forms
+        class SimpleCollateralForm(forms.ModelForm):
+            class Meta:
+                model = Collateral
+                fields = ['title', 'type', 'vimeo_url', 'content_id', 'banner_1', 'banner_2', 'description', 'is_active', 'file']
+                widgets = {
+                    'title': forms.TextInput(attrs={'class': 'form-control'}),
+                    'type': forms.Select(attrs={'class': 'form-select'}),
+                    'vimeo_url': forms.URLInput(attrs={'class': 'form-control'}),
+                    'content_id': forms.TextInput(attrs={'class': 'form-control'}),
+                    'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
+                    'banner_1': forms.FileInput(attrs={'class': 'form-control'}),
+                    'banner_2': forms.FileInput(attrs={'class': 'form-control'}),
+                    'file': forms.FileInput(attrs={'class': 'form-control'}),
+                    'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'})
+                }
+            
+            # Add extra fields to match the original form
+            campaign = forms.CharField(
+                max_length=255,
+                required=False,
+                widget=forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
+                label="Brand Campaign ID"
+            )
+            
+            # Collateral title field (readonly)
+            collateral_title = forms.CharField(
+                required=False,
+                widget=forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
+                label="Collateral Title"
+            )
+            
+            # Update Purpose of the Collateral field to match Add Collateral form
+            PURPOSE_CHOICES = [
+                ('', 'Select Purpose of the Collateral (Optional)'),
+                ('Doctor education short', 'Doctor education short'),
+                ('Doctor education long', 'Doctor education long'),
+                ('Patient education compliance', 'Patient education compliance'),
+                ('Patient education general', 'Patient education general'),
+            ]
+            
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                
+                # Make title field optional and hidden since we're using it for the collateral name
+                if 'title' in self.fields:
+                    self.fields['title'].required = False
+                    self.fields['title'].widget = forms.HiddenInput()
+                
+                # Set choices for the purpose field
+                self.fields['purpose'] = forms.ChoiceField(
+                    choices=self.PURPOSE_CHOICES,
+                    required=False,
+                    label="Purpose of the Collateral",
+                    widget=forms.Select(attrs={'class': 'form-select'})
+                )
+                
+                # Set initial values
+                if self.instance and self.instance.pk:
+                    self.fields['campaign'].initial = campaign_id
+                    self.fields['collateral_title'].initial = self.instance.title
+                    # Set initial title to avoid validation errors
+                    self.initial['title'] = self.instance.title
+                    self.fields['purpose'].initial = getattr(self.instance, 'purpose', '')
+            
+            def save(self, commit=True):
+                instance = super().save(commit=False)
+                # Map purpose field if it exists
+                if 'purpose' in self.cleaned_data:
+                    instance.purpose = self.cleaned_data['purpose']
+                if commit:
+                    instance.save()
+                return instance
+        
+        # Get the current collateral title with multiple fallbacks
+        current_title = (
+            getattr(collateral, 'title', None) or 
+            getattr(collateral, 'name', None) or 
+            getattr(collateral, 'item_name', None) or 
+            'Untitled Collateral'
+        )
+
+        # Set initial values for the form fields
+        initial_data = {
+            'campaign': campaign_id,
+            'title': current_title,  # Use the determined title
+            'type': getattr(collateral, 'type', ''),  # Get existing type
+            'content_id': getattr(collateral, 'content_id', ''),  # Get content_id
+            'description': getattr(collateral, 'description', ''),
+            'is_active': getattr(collateral, 'is_active', True),
+            'vimeo_url': getattr(collateral, 'vimeo_url', ''),
+            'banner_1': getattr(collateral, 'banner_1', None),
+            'banner_2': getattr(collateral, 'banner_2', None),
+            'collateral_title': current_title,  # Also set the display field
         }
         
         if request.method == 'POST':
-            form = SimpleCollateralForm(request.POST, request.FILES, instance=collateral, initial=initial_data)
+            # Create a mutable copy of the POST data
+            post_data = request.POST.copy()
+            
+            # Handle file uploads
+            files = request.FILES
+            
+            # Initialize form with POST data and FILES
+            form = SimpleCollateralForm(post_data, files, instance=collateral)
+            
             if form.is_valid():
-                form.save()
-                messages.success(request, 'Collateral replaced successfully!')
-                return redirect('fieldrep_dashboard')
-        else:
-            form = SimpleCollateralForm(instance=collateral, initial=initial_data)
+                try:
+                    # Get the instance but don't save yet
+                    instance = form.save(commit=False)
+                    
+                    # Preserve the original title
+                    if not instance.title or instance.title.strip() == '':
+                        instance.title = current_title
+                    
+                    # First save the instance to get an ID if it's a new instance
+                    instance.save()
+                    
+                    # Handle file uploads
+                    if 'file' in files and files['file']:
+                        # Get the file and its extension
+                        new_file = files['file']
+                        file_extension = os.path.splitext(new_file.name)[1].lower()
+                        
+                        # Only allow PDF files
+                        if file_extension != '.pdf':
+                            messages.error(request, 'Only PDF files are allowed for replacement.')
+                            return redirect('replace_collateral', pk=instance.pk)
+                            
+                        # Delete old file if it exists
+                        if instance.file:
+                            try:
+                                storage, path = instance.file.storage, instance.file.path
+                                storage.delete(path)
+                            except Exception as e:
+                                print(f"Error deleting old file: {str(e)}")
+                        
+                        # Set new file with original filename but new content
+                        original_filename = os.path.basename(instance.file.name) if instance.file else new_file.name
+                        instance.file.save(
+                            original_filename,
+                            new_file,
+                            save=False
+                        )
+                    
+                    # Handle banner uploads
+                    if 'banner_1' in files and files['banner_1']:
+                        if instance.banner_1:
+                            instance.banner_1.delete(save=False)
+                        instance.banner_1.save(
+                            files['banner_1'].name,
+                            files['banner_1'],
+                            save=False
+                        )
+                        
+                    if 'banner_2' in files and files['banner_2']:
+                        if instance.banner_2:
+                            instance.banner_2.delete(save=False)
+                        instance.banner_2.save(
+                            files['banner_2'].name,
+                            files['banner_2'],
+                            save=False
+                        )
+                    
+                    # Save the instance with the new files
+                    instance.save()
+                    
+                    # Save many-to-many fields if any
+                    form.save_m2m()
+                    
+                    messages.success(request, 'Collateral updated successfully!')
+                    # Redirect back to the same page instead of dashboard
+                    return redirect('replace_collateral', pk=instance.pk)
+                    
+                except Exception as e:
+                    # Log the error for debugging
+                    print(f"Error saving collateral: {str(e)}")
+                    messages.error(request, f'Error updating collateral: {str(e)}')
+            else:
+                # Log form errors for debugging
+                print("Form errors:", form.errors)
+                for field, errors in form.errors.items():
+                    for error in errors:
+                        messages.error(request, f"{field}: {error}")
         
-        return render(request, 'collateral_management/replace_collateral_simple.html', {'form': form, 'collateral': collateral})
-    except:
+        # For GET requests or if form is invalid, render the form
+        form = SimpleCollateralForm(instance=collateral, initial=initial_data)
+        form.fields['campaign'].initial = campaign_id
+        
+        # Debug: Print all attributes of the collateral object
+        print("Collateral object attributes:")
+        for attr in dir(collateral):
+            if not attr.startswith('_'):  # Skip private attributes
+                try:
+                    value = getattr(collateral, attr)
+                    print(f"  {attr}: {value}")
+                except Exception as e:
+                    print(f"  {attr}: <error accessing>")
+        
+        # Get the title with multiple fallbacks
+        collateral_title = (
+            getattr(collateral, 'title', None) or 
+            getattr(collateral, 'name', None) or 
+            getattr(collateral, 'item_name', None) or 
+            'Untitled Collateral'
+        )
+        
+        # Set initial values for form fields
+        form.fields['collateral_title'].initial = collateral_title
+        form.fields['purpose'].initial = getattr(collateral, 'purpose', '')
+        
+        # Remove the title field since we're using it for the collateral name
+        if 'title' in form.fields:
+            form.fields.pop('title')
+        
+        # Debug output
+        print(f"Final collateral title: {collateral_title}")
+        print(f"Collateral ID: {getattr(collateral, 'id', 'N/A')}")
+        print(f"Collateral type: {type(collateral)}")
+        print(f"Form fields: {form.fields.keys()}")
+        
+        # Create a simple dictionary with the collateral data
+        collateral_data = {
+            'title': collateral_title,
+            'id': getattr(collateral, 'id', ''),
+            'file': getattr(collateral, 'file', None),
+            'type': getattr(collateral, 'type', ''),
+            'description': getattr(collateral, 'description', '')
+        }
+        
+        context = {
+            'form': form,
+            'collateral': collateral_data,
+            'debug_collateral': str(collateral)  # For template debugging
+        }
+        
+        return render(request, 'collateral_management/replace_collateral_simple_updated.html', context)
+    except Exception as e:
+        print(f"Error in replace_collateral: {str(e)}")
         # Fallback to collateral_management.Collateral
         collateral = get_object_or_404(Collateral, pk=pk)
         if request.method == 'POST':
@@ -286,7 +534,7 @@ def replace_collateral(request, pk):
                 return redirect('collateral_list')
         else:
             form = CollateralForm(instance=collateral)
-        return render(request, 'collateral_management/replace_collateral.html', {'form': form, 'collateral': collateral})
+        return render(request, 'collateral_management/replace_collateral_simple_updated.html', {'form': form, 'collateral': collateral})
 
 def dashboard_delete_collateral(request, pk):
     from django.shortcuts import get_object_or_404, redirect

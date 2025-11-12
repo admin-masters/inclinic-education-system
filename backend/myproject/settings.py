@@ -105,7 +105,7 @@ TEMPLATES = [
         },
     },
 ]
-
+WSGI_APPLICATION = 'myproject.wsgi.application'
 # ──────────────────────────────────────────────────────────────
 # 6   Database
 # ──────────────────────────────────────────────────────────────
@@ -180,7 +180,7 @@ SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
 RECAPTCHA_SITE_KEY   = os.getenv("RECAPTCHA_SITE_KEY")
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
 
-LOGIN_REDIRECT_URL  = "/"
+LOGIN_REDIRECT_URL = '/campaigns/manage-data/'
 LOGOUT_REDIRECT_URL = "/"
 SOCIAL_AUTH_URL_NAMESPACE = "social"
 

@@ -121,46 +121,46 @@ def doctor_collateral_verify(request):
                     pdf_preview_url = None
                     pdf_preview_image = None
                     if collateral.type == 'pdf' and collateral.file:
-                        # Build absolute URL using current host + MEDIA_URL to avoid embedded 127.0.0.1
                         from django.conf import settings
                         import os
-                        media_path = collateral.file.name  # path relative to MEDIA_ROOT
+                        media_path = collateral.file.name
                         absolute_pdf = request.build_absolute_uri(f"{settings.MEDIA_URL}{media_path}")
-                        
-                        # Check if file exists
+
                         file_path = os.path.join(settings.MEDIA_ROOT, media_path)
                         if os.path.exists(file_path):
-                            # Try simple URL first
                             pdf_preview_url = absolute_pdf
-                            print(f"DEBUG: PDF preview URL: {pdf_preview_url}")
-                            
-                            # Try to create a preview image
                             try:
                                 import fitz  # PyMuPDF
                                 doc = fitz.open(file_path)
-                                page = doc[0]  # First page
-                                mat = fitz.Matrix(2, 2)  # 2x zoom
+                                page = doc[0]
+                                mat = fitz.Matrix(2, 2)
                                 pix = page.get_pixmap(matrix=mat)
                                 img_data = pix.tobytes("png")
-                                
-                                # Save preview image
+                                doc.close()
+                            except Exception:
+                                try:
+                                    from PyPDF2 import PdfReader
+                                    from pdf2image import convert_from_path
+                                    images = convert_from_path(file_path, first_page=1, last_page=1)
+                                    if images:
+                                        from io import BytesIO
+                                        buffer = BytesIO()
+                                        images[0].save(buffer, format="PNG")
+                                        img_data = buffer.getvalue()
+                                    else:
+                                        img_data = None
+                                except Exception:
+                                    img_data = None
+
+                            if img_data:
                                 preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
                                 os.makedirs(preview_dir, exist_ok=True)
                                 preview_filename = f"preview_{collateral.id}.png"
                                 preview_path = os.path.join(preview_dir, preview_filename)
-                                
                                 with open(preview_path, 'wb') as f:
                                     f.write(img_data)
-                                
                                 pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
-                                print(f"DEBUG: PDF preview image created: {pdf_preview_image}")
-                                
-                                doc.close()
-                            except Exception as e:
-                                print(f"DEBUG: Could not create preview image: {e}")
-                                pdf_preview_image = None
                         else:
-                            print(f"DEBUG: File not found at {file_path}")
                             pdf_preview_url = None
                     
                     return render(request, 'doctor_viewer/doctor_collateral_verify.html', {

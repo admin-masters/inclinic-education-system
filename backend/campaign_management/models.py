@@ -1,6 +1,8 @@
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+import uuid
+import re
 
 STATUS_CHOICES = (
     ('Draft', 'Draft'),
@@ -23,13 +25,26 @@ class Campaign(models.Model):
     brand_name = models.CharField(max_length=255)
 
     brand_campaign_id = models.CharField(
-        max_length=64, null=False, blank=False,
+        max_length=64, unique=True, db_index=True, blank=True,
         help_text="ID used by marketing / brand team"
     )
 
     start_date = models.DateTimeField()
     end_date = models.DateTimeField()
     description = models.TextField(blank=True)
+
+    # ——— NEW fields for the Brand Campaign Form ———
+    company_name = models.CharField(max_length=255, blank=True)
+    incharge_name = models.CharField(max_length=255, blank=True)
+    incharge_contact = models.CharField(max_length=20, blank=True)       # phone, keep string for flexibility
+    incharge_designation = models.CharField(max_length=255, blank=True)
+    num_doctors = models.PositiveIntegerField(default=0)
+    items_per_clinic_per_year = models.PositiveIntegerField(default=0)
+    contract = models.FileField(upload_to="campaigns/contracts/", blank=True, null=True)
+    brand_logo = models.ImageField(upload_to="campaigns/logos/brand/", blank=True, null=True)
+    company_logo = models.ImageField(upload_to="campaigns/logos/company/", blank=True, null=True)
+    printing_required = models.BooleanField(default=False)
+    printing_excel = models.FileField(upload_to="campaigns/printing/", blank=True, null=True)
 
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -42,8 +57,20 @@ class Campaign(models.Model):
     created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
 
+    def _generate_bcid(self):
+        base = re.sub(r'[^A-Za-z0-9]+', '-', (self.brand_name or self.name or 'CMP')).strip('-').upper()[:12]
+        return f"{base}-{uuid.uuid4().hex[:6].upper()}"
+
+    def save(self, *args, **kwargs):
+        if not self.brand_campaign_id:
+            self.brand_campaign_id = self._generate_bcid()
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return f"{self.name} ({self.status})"
+
+# ✅ Add legacy alias so old forms keep working:
+Campaign.STATUS_CHOICES = Campaign._meta.get_field("status").choices
 
 # ✅ CampaignMessage - New model for message templates
 class CampaignMessage(models.Model):

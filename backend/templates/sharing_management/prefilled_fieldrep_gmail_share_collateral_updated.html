@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block extra_css %}
+<style>
+  .btn-purple {
+    background-color: #6f42c1;
+    border-color: #6f42c1;
+    color: white;
+  }
+  .btn-purple:hover {
+    background-color: #5e3a9f;
+    border-color: #5e3a9f;
+    color: white;
+  }
+  .doctor-row { transition: all 0.3s ease; }
+  .doctor-row:hover { background-color: #f8f9fa; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container py-4">
+  <div class="row">
+    <!-- Left Column - Form -->
+    <div class="col-12 col-lg-4 mb-4">
+      <div class="card shadow">
+        <div class="card-header text-center">
+          <h5 class="mb-0">Share Collaterals</h5>
+          <div class="small text-muted">Campaign: {{ campaign_id }}</div>
+        </div>
+        <div class="card-body p-4">
+          {% if messages %}
+          {% for message in messages %}
+          <div class="alert alert-{{ message.tags }}" role="alert">{{ message }}</div>
+          {% endfor %}
+          {% endif %}
+          <form method="post" autocomplete="off" id="shareForm">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label">Field Rep ID:</label>
+              <input type="text" class="form-control" name="fieldrep_id" value="{{ fieldrep_id }}" readonly>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Select Doctor:</label>
+              <select class="form-select" name="doctor_id" id="doctorSelect" required>
+                <option value="">Select Doctor</option>
+                {% for d in doctors %}
+                <option value="{{ d.id }}" data-name="{{ d.name }}" data-phone="{{ d.phone }}">{{ d.name }} / {{ d.phone }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Name of Doctor:</label>
+              <input type="text" class="form-control" id="doctorName" name="doctor_name" readonly>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Doctor Phone Number:</label>
+              <input type="text" class="form-control" id="doctorPhone" name="doctor_phone" readonly>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Select Collateral:</label>
+              <select class="form-select" name="collateral" id="collateralSelect" required>
+                <option value="">Select Collateral</option>
+                {% for c in collaterals %}
+                <option value="{{ c.id }}" {% if c.id|stringformat:"s" == selected_collateral_id %}selected{% endif %}>{{ c.name }}</option>
+                {% endfor %}
+              </select>
+            </div>
+            <button type="submit" class="btn btn-primary w-100">Submit</button>
+          </form>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right Column - Assigned Doctors -->
+    <div class="col-12 col-lg-8">
+      <div class="card shadow">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h6 class="mb-0">Assigned Doctors</h6>
+          <div class="d-flex gap-2">
+            <input type="text" id="doctorSearch" class="form-control form-control-sm" placeholder="Search by name or phone">
+            <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+              <option value="">All</option>
+              <option value="not_sent">Needs Sending</option>
+              <option value="sent">Sent</option>
+              <option value="reminder">Reminder Due</option>
+              <option value="opened">Opened</option>
+            </select>
+          </div>
+        </div>
+        <div class="card-body p-0">
+          <div class="list-group list-group-flush" id="doctorList">
+            {% for d in doctors %}
+            <div class="list-group-item d-flex justify-content-between align-items-center doctor-row"
+                 data-name="{{ d.name|lower }}" data-phone="{{ d.phone }}" data-status="{{ d.status }}">
+              <div>
+                <div class="fw-semibold">{{ d.name }}</div>
+                <div class="text-muted small">{{ d.phone }}</div>
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <form method="post" class="m-0">
+                  {% csrf_token %}
+                  <input type="hidden" name="doctor_id" value="{{ d.id }}">
+                  <input type="hidden" name="collateral" value="{{ selected_collateral_id }}">
+                  {% if d.status == 'opened' %}
+                    <button class="btn btn-success btn-sm" disabled>Opened</button>
+                  {% elif d.status == 'reminder' %}
+                    <button class="btn btn-purple btn-sm">Send Reminder</button>
+                  {% elif d.status == 'sent' %}
+                    <button class="btn btn-warning btn-sm">Sent</button>
+                  {% else %}
+                    <button class="btn btn-danger btn-sm">Send Message</button>
+                  {% endif %}
+                </form>
+              </div>
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% block extra_js %}
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const doctorSelect = document.getElementById('doctorSelect');
+    const doctorName = document.getElementById('doctorName');
+    const doctorPhone = document.getElementById('doctorPhone');
+    const doctorSearch = document.getElementById('doctorSearch');
+    const statusFilter = document.getElementById('statusFilter');
+    const doctorRows = document.querySelectorAll('.doctor-row');
+    const collateralSelect = document.getElementById('collateralSelect');
+
+    if (doctorSelect) {
+      doctorSelect.addEventListener('change', function() {
+        const selected = doctorSelect.options[doctorSelect.selectedIndex];
+        doctorName.value = selected.getAttribute('data-name') || '';
+        doctorPhone.value = selected.getAttribute('data-phone') || '';
+      });
+    }
+
+    doctorSearch.addEventListener('input', filterDoctors);
+    statusFilter.addEventListener('change', filterDoctors);
+
+    function filterDoctors() {
+      const searchTerm = (doctorSearch.value || '').toLowerCase();
+      const statusFilterValue = statusFilter.value;
+
+      doctorRows.forEach(row => {
+        const name = (row.getAttribute('data-name') || '');
+        const phone = (row.getAttribute('data-phone') || '');
+        const status = row.getAttribute('data-status') || '';
+        const matchesSearch = name.includes(searchTerm) || phone.includes(searchTerm);
+        const matchesStatus = !statusFilterValue || status === statusFilterValue;
+        row.style.display = (matchesSearch && matchesStatus) ? '' : 'none';
+      });
+    }
+
+    if (collateralSelect) {
+      collateralSelect.addEventListener('change', function() {
+        const val = this.value;
+        document.querySelectorAll('input[name="collateral"]').forEach(inp => { inp.value = val; });
+      });
+    }
+  });
+</script>
+{% endblock %}
+
+{% endblock %}

@@ -1,9 +1,14 @@
 {% extends "base.html" %}
 {% load static %}
 
+{% block extra_css %}
+<!-- Flatpickr CSS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+{% endblock %}
+
 {% block content %}
 <div class="container mt-4">
-  <div class="card mx-auto" style="max-width: 600px;">
+  <div class="card mx-auto" style="max-width: 800px;">
     <div class="card-header text-center">
       <h2 class="mb-0">Edit Collateral Dates</h2>
     </div>
@@ -13,24 +18,51 @@
         <!-- Brand Campaign ID -->
         <div class="mb-3">
           <label class="form-label">Brand Campaign ID:</label>
-          <input type="text" id="brand-campaign-id" class="form-control" value="{{ form.campaign.value|default:'' }}"
-            readonly>
+          {{ form.campaign }}
         </div>
         <!-- Select Collateral -->
         <div class="mb-3">
-          <label class="form-label">Select Collateral:</label>
-          {{ form.collateral }}
-          <small class="text-muted">ID: {{ form.collateral.id_for_label }}</small>
+          <label class="form-label">Collateral Name:</label>
+          {% if collateral %}
+            <p class="form-control-static">{{ collateral.title }}</p>
+            <input type="hidden" name="collateral" value="{{ collateral.id }}">
+          {% else %}
+            {% if form.collateral.field.queryset.exists %}
+              {{ form.collateral }}
+            {% else %}
+              <div class="alert alert-warning">No collaterals found for this campaign.</div>
+            {% endif %}
+          {% endif %}
+          {% if form.collateral.help_text %}
+            <small class="form-text text-muted">{{ form.collateral.help_text }}</small>
+          {% endif %}
+          {% if form.collateral.errors %}
+            <div class="invalid-feedback d-block">
+              {{ form.collateral.errors }}
+            </div>
+          {% endif %}
         </div>
         <!-- Start Date -->
         <div class="mb-3">
           <label class="form-label">Start Date:</label>
-          {{ form.start_date }}
+          <input type="text" 
+                 name="start_date" 
+                 id="id_start_date" 
+                 class="form-control datepicker" 
+                 placeholder="Select start date"
+                 value="{{ form.start_date.value|default:'' }}"
+                 required>
         </div>
         <!-- End Date -->
         <div class="mb-3">
           <label class="form-label">End Date:</label>
-          {{ form.end_date }}
+          <input type="text" 
+                 name="end_date" 
+                 id="id_end_date" 
+                 class="form-control datepicker" 
+                 placeholder="Select end date"
+                 value="{{ form.end_date.value|default:'' }}"
+                 required>
         </div>
         <button type="submit" class="btn btn-primary">Update Dates</button>
         <a href="{% url 'fieldrep_dashboard' %}" class="btn btn-secondary ms-2">Cancel</a>
@@ -39,12 +71,45 @@
   </div>
 </div>
 
+<!-- Flatpickr JS -->
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
+    // Initialize date picker
+    flatpickr(".datepicker", {
+      dateFormat: "Y-m-d",
+      minDate: "today",
+      allowInput: true,
+      defaultDate: "today",
+      onReady: function(selectedDates, dateStr, instance) {
+        // Set minimum end date based on start date
+        if (instance.element.id === 'id_start_date') {
+          instance.config.onChange = function(selectedDates) {
+            const endDatePicker = document.getElementById('id_end_date')._flatpickr;
+            if (endDatePicker) {
+              endDatePicker.set('minDate', selectedDates[0] || 'today');
+            }
+          };
+        }
+      }
+    });
+    
+    // Set minimum end date based on start date
+    const startDatePicker = document.getElementById('id_start_date');
+    const endDatePicker = document.getElementById('id_end_date');
+    
+    if (startDatePicker && endDatePicker) {
+      startDatePicker.addEventListener('change', function() {
+        const startDate = this._flatpickr.selectedDates[0];
+        if (endDatePicker._flatpickr) {
+          endDatePicker._flatpickr.set('minDate', startDate || 'today');
+        }
+      });
+    }
     console.log('DOM loaded, setting up collateral selection handler...');
 
     const collateralSelect = document.getElementById('id_collateral');
-    const brandCampaignIdField = document.getElementById('brand-campaign-id');
+    const brandCampaignIdField = document.getElementById('id_campaign');
     const startDateField = document.getElementById('id_start_date');
     const endDateField = document.getElementById('id_end_date');
 
@@ -59,7 +124,11 @@
       // Set initial value if editing existing record
       if (collateralSelect.value) {
         console.log('Initial collateral value:', collateralSelect.value);
-        updateCollateralData(collateralSelect.value);
+        // Only update collateral data if not editing an existing record
+        // When editing, the form is already correctly populated by Django
+        if (!document.querySelector('input[name="id"]') && !window.location.search.includes('id=')) {
+          updateCollateralData(collateralSelect.value);
+        }
       }
 
       // Add change event listener
@@ -118,4 +187,14 @@
     }
   });
 </script>
+
+<style>
+  .flatpickr-input[readonly] {
+    background-color: white !important;
+    cursor: pointer;
+  }
+  .form-control.datepicker {
+    background-color: white;
+  }
+</style>
 {% endblock %}

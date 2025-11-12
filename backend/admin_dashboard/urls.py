@@ -1,10 +1,14 @@
-from django.urls import path
+from django.urls import path, reverse
 from django.shortcuts import redirect
 from . import views
 
 app_name = "admin_dashboard"
 
 def redirect_to_fieldreps(request):
+    # Check if we have a brand_campaign_id in the session
+    brand_campaign_id = request.session.get('brand_campaign_id')
+    if brand_campaign_id:
+        return redirect(f'{reverse("admin_dashboard:fieldrep_list")}?brand_campaign_id={brand_campaign_id}')
     return redirect('admin_dashboard:fieldrep_list')
 
 urlpatterns = [

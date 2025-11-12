@@ -1,19 +1,28 @@
 {% extends "base.html" %}
 {% load static %}
-{% load custom_filters %} 
 {% block title %}Field Reps · Inditech{% endblock %}
 
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2 class="mb-0">Field Reps</h2>
-  <a href="{% url 'admin_dashboard:fieldrep_add' %}" class="btn btn-success">
+  <a href="{% url 'admin_dashboard:fieldrep_add' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-success">
      Add Field Rep
   </a>
 </div>
 
+{% if campaign_filter %}
+<div class="alert alert-info">
+  Showing field reps assigned to Brand Campaign ID <strong>{{ campaign_filter }}</strong>.
+  <a href="{% url 'admin_dashboard:fieldrep_list' %}" class="ms-2">Clear filter</a>
+</div>
+{% endif %}
+
 <form class="input-group mb-3" method="get">
   <input type="text" name="q" value="{{ q }}"
          class="form-control" placeholder="Search by Field ID, Gmail ID …">
+  {% if campaign_filter %}
+    <input type="hidden" name="campaign" value="{{ campaign_filter }}">
+  {% endif %}
   <button class="btn btn-primary" type="submit">Search</button>
 </form>
 
@@ -36,11 +45,11 @@
       <td>{{ r.field_id|default_if_none:"—" }}</td>
       <td>{{ r.email|default_if_none:"—" }}</td>
       <td>{{ r.phone_number|default_if_none:"—" }}</td>
-      <td>{{ brand_map|get_item:r.id|default:"—" }}</td>
+      <td>{{ r.brand_campaigns }}</td>
       <td>
-        <a href="{% url 'admin_dashboard:fieldrep_edit' r.id %}" class="btn btn-sm btn-primary">Edit</a>
+        <a href="{% url 'admin_dashboard:fieldrep_edit' r.id %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-sm btn-primary">Edit</a>
 
-        <form action="{% url 'admin_dashboard:fieldrep_delete' r.id %}" method="post" style="display:inline">
+        <form action="{% url 'admin_dashboard:fieldrep_delete' r.id %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" method="post" style="display:inline">
           {% csrf_token %}
           <button class="btn btn-sm btn-danger"
                   onclick="return confirm('Delete this field-rep?')">

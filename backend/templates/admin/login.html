@@ -164,7 +164,13 @@
     {% endfor %}
     {% endif %}
 
-    <form method="post" id="login-form">
+    {% if request.GET.campaign or request.GET.brand_campaign_id %}
+      {% with campaign=request.GET.campaign|default:request.GET.brand_campaign_id %}
+      <form method="post" id="login-form" action="{% url 'admin_login' %}?campaign={{ campaign }}">
+      {% endwith %}
+    {% else %}
+      <form method="post" id="login-form" action="{% url 'admin_login' %}">
+    {% endif %}
       {% csrf_token %}
 
       <div class="form-group">
@@ -191,7 +197,17 @@
         {% endif %}
       </div>
 
-      <input type="hidden" name="next" value="/admin-dashboard/fieldreps/" />
+      {% if request.GET.campaign %}
+        <input type="hidden" name="next" value="{% url 'admin-dashboard:fieldrep_list' %}?campaign={{ request.GET.campaign }}" />
+        <input type="hidden" name="campaign" value="{{ request.GET.campaign }}" />
+      {% elif request.GET.brand_campaign_id %}
+        <input type="hidden" name="next" value="{% url 'admin-dashboard:fieldrep_list' %}?brand_campaign_id={{ request.GET.brand_campaign_id }}" />
+        <input type="hidden" name="brand_campaign_id" value="{{ request.GET.brand_campaign_id }}" />
+      {% elif request.session.brand_campaign_id %}
+        <input type="hidden" name="next" value="{% url 'admin-dashboard:fieldrep_list' %}?brand_campaign_id={{ request.session.brand_campaign_id }}" />
+      {% else %}
+        <input type="hidden" name="next" value="{% url 'admin-dashboard:fieldrep_list' %}" />
+      {% endif %}
 
       <button type="submit" class="login-btn">Sign In</button>
 

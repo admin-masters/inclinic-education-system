@@ -4,6 +4,6 @@
 <form method="post">
   {% csrf_token %}
   <button class="btn btn-danger">Yes – delete</button>
-  <a href="{% url 'admin_dashboard:fieldrep_list' %}" class="btn btn-secondary">Cancel</a>
+  <a href="{% url 'admin_dashboard:fieldrep_list' %}{% if request.GET.campaign %}?campaign={{ request.GET.campaign }}{% elif request.GET.campaign_id %}?campaign_id={{ request.GET.campaign_id }}{% elif request.GET.brand_campaign_id %}?brand_campaign_id={{ request.GET.brand_campaign_id }}{% endif %}" class="btn btn-secondary">Cancel</a>
 </form>
 {% endblock %}

@@ -1,9 +1,17 @@
 {% extends "base.html" %}
 
 {% block content %}
-<h2>Campaign Detail</h2>
-<p><strong>Name:</strong> {{ campaign.name }}</p>
-<p><strong>Brand:</strong> {{ campaign.brand_name }}</p>
+<h2 class="mb-1">{{ campaign.name }}</h2>
+<p class="text-muted mb-1">{{ campaign.brand_name }}</p>
+<p class="mb-3">
+  <small class="text-secondary">Brand–Campaign ID:</small>
+  <code id="bcid">{{ campaign.brand_campaign_id }}</code>
+  <button type="button" class="btn btn-sm btn-outline-secondary"
+          onclick="navigator.clipboard.writeText(document.getElementById('bcid').innerText)">
+    Copy
+  </button>
+</p>
+
 <p><strong>Description:</strong> {{ campaign.description }}</p>
 <p><strong>Start:</strong> {{ campaign.start_date }}</p>
 <p><strong>End:</strong> {{ campaign.end_date }}</p>
@@ -11,6 +19,6 @@
 
 <a href="{% url 'campaign_update' campaign.id %}">Edit</a> |
 <a href="{% url 'campaign_delete' campaign.id %}">Delete</a> |
-<a href="{% url 'assign_field_reps' campaign.id %}">Assign Field Reps</a>
+<!-- Assign Field Reps option removed per request -->
 
 {% endblock %}

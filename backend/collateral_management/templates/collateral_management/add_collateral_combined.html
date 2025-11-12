@@ -97,7 +97,12 @@
     <div class="row mb-3 align-items-center">
       <label class="col-sm-3 col-form-label fw-semibold text-end">Brand Campaign ID :</label>
       <div class="col-sm-6">
-        {{ collateral_form.campaign }}
+        {% if brand_campaign_id %}
+          <input type="text" class="form-control" value="{{ selected_campaign.brand_campaign_id }}" readonly>
+          <input type="hidden" name="campaign" value="{{ selected_campaign.id }}">
+        {% else %}
+          {{ collateral_form.campaign }}
+        {% endif %}
         {{ collateral_form.campaign.errors }}
       </div>
     </div>
@@ -257,8 +262,11 @@
 
     function toggleFields() {
       const type = typeField.value;
-      pdfGroup.classList.toggle('d-none', type !== 'pdf');
-      videoGroup.classList.toggle('d-none', type !== 'video');
+      const isPdf = type === 'pdf';
+      const isVideo = type === 'video';
+      const isBoth = type === 'pdf_video';
+      pdfGroup.classList.toggle('d-none', !(isPdf || isBoth));
+      videoGroup.classList.toggle('d-none', !(isVideo || isBoth));
     }
 
     typeField.addEventListener("change", toggleFields);

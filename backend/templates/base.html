@@ -118,6 +118,14 @@
 
     <!-- Main Content -->
     <main class="container">
+        <div class="d-flex gap-2 mb-3">
+            <a href="javascript:history.back()" class="btn btn-outline-secondary">
+                <i class="bi bi-arrow-left"></i> Back
+            </a>
+            <a href="{% url 'manage_data_panel' %}" class="btn btn-outline-primary">
+                <i class="bi bi-house"></i> Home
+            </a>
+        </div>
         {% block content %}{% endblock %}
     </main>
 

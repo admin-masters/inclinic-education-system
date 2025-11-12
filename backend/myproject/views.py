@@ -1,14 +1,11 @@
 from django.shortcuts import render, redirect
 
+
 def home_view(request):
     """
-    Landing page that redirects users based on their role
+    Landing page that shows home.html for unauthenticated users 
+    and redirects to manage data panel after login.
     """
     if request.user.is_authenticated:
-        if request.user.role == 'admin':
-            return redirect('admin_dashboard:dashboard')
-        else:  # field_rep
-            return redirect('fieldrep_dashboard')
-    else:
-        # Show a public landing page for unauthenticated users
-        return render(request, 'home.html')
+        return redirect('manage_data_panel')
+    return render(request, 'home.html')

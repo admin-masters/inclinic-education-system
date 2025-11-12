@@ -17,6 +17,9 @@
 
       <form method="post" autocomplete="off">
         {% csrf_token %}
+        {% if brand_campaign_id %}
+        <input type="hidden" name="brand_campaign_id" value="{{ brand_campaign_id }}">
+        {% endif %}
         <div class="mb-3">
           <label class="form-label">Field ID:</label>
           <input type="text" class="form-control" name="field_id" placeholder="Enter your Field ID" required>
@@ -27,6 +30,11 @@
             pattern="^[a-zA-Z0-9._%+-]+@gmail\.com$" required>
           <small class="form-text text-muted">Only Gmail addresses are allowed (e.g., example@gmail.com).</small>
         </div>
+        {% if brand_campaign_id %}
+        <div class="alert alert-info">
+          <small>Campaign: {{ brand_campaign_id }}</small>
+        </div>
+        {% endif %}
         <button type="submit" name="register" class="btn btn-primary w-100 mb-2"
           style="background:#1877f2; border:none;">Register</button>
         <button type="submit" name="login" class="btn btn-secondary w-100" style="background:#6c757d; border:none;">Login</button>

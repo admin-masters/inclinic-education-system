@@ -102,26 +102,123 @@ class FieldRepListView(StaffRequiredMixin, ListView):
     paginate_by = 25
 
     def get_queryset(self):
-        qs = User.objects.filter(role="field_rep").order_by("-id")
-        q  = self.request.GET.get("q", "")
+        # Base queryset - only active field reps
+        qs = User.objects.filter(role="field_rep", is_active=True).order_by("-id")
+        
+        # Get search query if any
+        q = self.request.GET.get("q", "")
+        
+        # Get campaign filter from URL parameters
+        campaign_param = self.request.GET.get("campaign") or self.request.GET.get("campaign_id")
+        brand_campaign_id = self.request.GET.get("brand_campaign_id")
+
+        # If no campaign parameter in URL, check session
+        if not campaign_param and not brand_campaign_id and hasattr(self.request, 'session'):
+            brand_campaign_id = self.request.session.get('brand_campaign_id')
+
+        # If we have a campaign filter
+        if campaign_param or brand_campaign_id:
+            # If we have a brand_campaign_id, use it directly
+            if brand_campaign_id:
+                rep_ids = list(FieldRepCampaign.objects.filter(
+                    campaign__brand_campaign_id=brand_campaign_id,
+                    field_rep__is_active=True
+                ).values_list("field_rep_id", flat=True))
+            else:
+                # Try to interpret as campaign ID
+                try:
+                    campaign_pk = int(campaign_param)
+                    rep_ids = list(FieldRepCampaign.objects.filter(
+                        campaign_id=campaign_pk,
+                        field_rep__is_active=True
+                    ).values_list("field_rep_id", flat=True))
+                except (TypeError, ValueError):
+                    # If not a number, try as brand_campaign_id
+                    rep_ids = list(FieldRepCampaign.objects.filter(
+                        campaign__brand_campaign_id=campaign_param,
+                        field_rep__is_active=True
+                    ).values_list("field_rep_id", flat=True))
+            
+            # If we found matching field reps, filter the queryset
+            if rep_ids:
+                qs = qs.filter(id__in=rep_ids)
+            else:
+                # If no field reps found for the campaign, return empty queryset
+                return User.objects.none()
+
+        # Apply search filter if any
         if q:
             qs = qs.filter(
                 Q(field_id__icontains=q) |
-                Q(email__icontains=q)    |
-                Q(phone_number__icontains=q)
+                Q(email__icontains=q) |
+                Q(phone_number__icontains=q) |
+                Q(first_name__icontains=q) |
+                Q(last_name__icontains=q)
             )
-        return qs
+            
+        return qs.distinct()
 
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
         rep_ids = [r.id for r in ctx["reps"]]
-        brands  = FieldRepCampaign.objects.filter(field_rep_id__in=rep_ids)\
-                     .values_list("field_rep_id", "campaign__name")
-        brand_map = {}
-        for rep_id, brand in brands:
-            brand_map.setdefault(rep_id, set()).add(brand)
-        ctx["brand_map"] = {k: ", ".join(v) for k, v in brand_map.items()}
+        
+        # Get the current campaign filter
+        campaign_id = self.request.GET.get("campaign_id")
+        campaign = self.request.GET.get("campaign")
+        brand_campaign_id = self.request.GET.get("brand_campaign_id")
+        campaign_filter = campaign_id or campaign or brand_campaign_id
+        
+        # Get campaign data - if filtered by campaign, only show that campaign
+        if campaign_filter:
+            # If we have a campaign filter, only show campaigns that match the filter
+            if campaign_id:
+                # Filter by numeric campaign ID
+                campaign_data = FieldRepCampaign.objects.filter(
+                    field_rep_id__in=rep_ids,
+                    campaign_id=campaign_id
+                ).values("field_rep_id", "campaign__brand_campaign_id")
+            elif brand_campaign_id:
+                # Filter by brand campaign ID
+                campaign_data = FieldRepCampaign.objects.filter(
+                    field_rep_id__in=rep_ids,
+                    campaign__brand_campaign_id=brand_campaign_id
+                ).values("field_rep_id", "campaign__brand_campaign_id")
+            else:
+                # Filter by campaign parameter (could be either)
+                try:
+                    # Try as numeric ID first
+                    campaign_pk = int(campaign)
+                    campaign_data = FieldRepCampaign.objects.filter(
+                        field_rep_id__in=rep_ids,
+                        campaign_id=campaign_pk
+                    ).values("field_rep_id", "campaign__brand_campaign_id")
+                except (ValueError, TypeError):
+                    # Try as brand campaign ID
+                    campaign_data = FieldRepCampaign.objects.filter(
+                        field_rep_id__in=rep_ids,
+                        campaign__brand_campaign_id=campaign
+                    ).values("field_rep_id", "campaign__brand_campaign_id")
+        else:
+            # No filter - show all campaigns for each rep
+            campaign_data = FieldRepCampaign.objects.filter(field_rep_id__in=rep_ids).values(
+                "field_rep_id", "campaign__brand_campaign_id"
+            )
+        
+        # Create a dictionary to map rep_id to a list of brand_campaign_ids
+        rep_campaigns = {}
+        for item in campaign_data:
+            rep_id = item["field_rep_id"]
+            brand_campaign_id = item["campaign__brand_campaign_id"]
+            if rep_id not in rep_campaigns:
+                rep_campaigns[rep_id] = []
+            rep_campaigns[rep_id].append(brand_campaign_id)
+            
+        # Add the brand_campaigns to each rep object
+        for rep in ctx["reps"]:
+            rep.brand_campaigns = ", ".join(rep_campaigns.get(rep.id, []))
+            
         ctx["q"] = self.request.GET.get("q", "")
+        ctx["campaign_filter"] = campaign_filter
         return ctx
 
 class FieldRepCreateView(StaffRequiredMixin, CreateView):
@@ -130,9 +227,48 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
     template_name = "admin_dashboard/fieldrep_form.html"
     success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
     
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        if campaign_param:
+            ctx["campaign_param"] = campaign_param
+        return ctx
+
     def form_valid(self, form):
+        # Save the new field rep
+        response = super().form_valid(form)
         messages.success(self.request, "Field representative created successfully!")
-        return super().form_valid(form)
+
+        # If a campaign context is present, create the assignment
+        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        if campaign_param:
+            campaign = None
+            try:
+                # Try to get campaign by numeric PK
+                campaign_pk = int(campaign_param)
+                campaign = get_object_or_404(Campaign, pk=campaign_pk)
+            except (ValueError, TypeError):
+                # If not a numeric PK, treat as brand_campaign_id
+                campaign = get_object_or_404(Campaign, brand_campaign_id=campaign_param)
+            
+            if campaign:
+                FieldRepCampaign.objects.get_or_create(field_rep=self.object, campaign=campaign)
+                messages.success(self.request, f"Successfully assigned to campaign '{campaign.name}'.")
+
+        return response
+
+    def get_success_url(self):
+        # preserve campaign filter from the incoming querystring so the list stays filtered
+        base = reverse("admin_dashboard:fieldrep_list")
+        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        if not campaign_param:
+            return base
+        # if numeric, use campaign_id, otherwise use brand_campaign_id
+        try:
+            int(campaign_param)
+            return f"{base}?campaign_id={campaign_param}"
+        except (TypeError, ValueError):
+            return f"{base}?brand_campaign_id={campaign_param}"
 
 class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
     model         = User
@@ -140,9 +276,27 @@ class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
     template_name = "admin_dashboard/fieldrep_form.html"
     success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
     
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        if campaign_param:
+            ctx["campaign_param"] = campaign_param
+        return ctx
+    
     def form_valid(self, form):
         messages.success(self.request, "Field representative updated successfully!")
         return super().form_valid(form)
+
+    def get_success_url(self):
+        base = reverse("admin_dashboard:fieldrep_list")
+        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        if not campaign_param:
+            return base
+        try:
+            int(campaign_param)
+            return f"{base}?campaign_id={campaign_param}"
+        except (TypeError, ValueError):
+            return f"{base}?brand_campaign_id={campaign_param}"
 
 class FieldRepDeleteView(StaffRequiredMixin, DeleteView):
     model         = User
@@ -153,6 +307,18 @@ class FieldRepDeleteView(StaffRequiredMixin, DeleteView):
         self.object = self.get_object()
         DoctorEngagement.objects.filter(short_link__created_by=self.object).delete()
         return super().delete(request, *args, **kw)
+
+    def get_success_url(self):
+        # preserve campaign filter on delete as well
+        base = reverse("admin_dashboard:fieldrep_list")
+        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        if not campaign_param:
+            return base
+        try:
+            int(campaign_param)
+            return f"{base}?campaign_id={campaign_param}"
+        except (TypeError, ValueError):
+            return f"{base}?brand_campaign_id={campaign_param}"
 
 # ─────────────────────────────────────────────────────────
 # DOCTOR CRUD (list/create, edit, delete) – now using pk

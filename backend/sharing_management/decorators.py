@@ -10,6 +10,5 @@ def field_rep_required(view_func):
         if user.is_authenticated and user.role == 'field_rep':
             return view_func(request, *args, **kwargs)
         else:
-            messages.error(request, "Only field reps can access this page.")
             return redirect('share_logs')  # or some other page
     return _wrapped_view

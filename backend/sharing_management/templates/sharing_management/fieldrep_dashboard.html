@@ -192,8 +192,16 @@
 <h2 class="dashboard-title">Manage Collateral Panel</h2>
 
 <div class="btn-group-wrap">
+    {% if campaign_filter %}
+    <a href="{% url 'collaterals_add_branded' campaign_filter %}" class="btn btn-primary">Add Collaterals</a>
+    {% else %}
     <a href="{% url 'collaterals_add' %}" class="btn btn-primary">Add Collaterals</a>
+    {% endif %}
+    {% if campaign_filter %}
+    <a href="{% url 'edit_campaign_calendar' %}?brand={{ campaign_filter }}" class="btn btn-primary">Edit Calendar</a>
+    {% else %}
     <a href="{% url 'edit_campaign_calendar' %}" class="btn btn-primary">Edit Calendar</a>
+    {% endif %}
     <a href="{% url 'bulk_manual_upload' %}" class="btn btn-primary">Bulk Registration for Manual Collateral
         Sharing</a>
     <a href="{% url 'bulk_pre_mapped_upload' %}" class="btn btn-primary">Bulk Registration for Pre-mapped
@@ -215,13 +223,12 @@
             Field Rep Management ▼
         </button>
         <div class="dropdown-menu">
-            <a href="{% url 'fieldrep_email_registration' %}" class="dropdown-item">Field Rep Register</a>
-            <a href="{% url 'fieldrep_gmail_login' %}" class="dropdown-item">Field Rep Gmail Login</a>
-            <a href="{% url 'fieldrep_whatsapp_login' %}" class="dropdown-item">Field Rep WhatsApp Login</a>
-            <a href="{% url 'prefilled_fieldrep_registration' %}" class="dropdown-item">Pre-filled Field Rep
-                Register</a>
-            <a href="{% url 'prefilled_fieldrep_gmail_login' %}" class="dropdown-item">Pre-filled Gmail Login</a>
-            <a href="{% url 'prefilled_fieldrep_whatsapp_login' %}" class="dropdown-item">Pre-filled WhatsApp Login</a>
+            <a href="{% url 'fieldrep_email_registration' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}" class="dropdown-item">Field Rep Register</a>
+            <a href="{% url 'fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}" class="dropdown-item">Field Rep Gmail Login</a>
+            <a href="{% url 'fieldrep_whatsapp_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}" class="dropdown-item">Field Rep WhatsApp Login</a>
+            <a href="{% url 'prefilled_fieldrep_registration' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}" class="dropdown-item">Pre-filled Field Rep Register</a>
+            <a href="{% url 'prefilled_fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}" class="dropdown-item">Pre-filled Gmail Login</a>
+            <a href="{% if campaign_id %}{% url 'prefilled_fieldrep_whatsapp_login_campaign' campaign_id %}{% else %}{% url 'prefilled_fieldrep_whatsapp_login' %}{% endif %}" class="dropdown-item">Pre-filled WhatsApp Login</a>
             <a href="{% url 'admin-dashboard:fieldrep_list' %}" class="dropdown-item">Admin Field Reps Management</a>
         </div>
     </div>
@@ -232,6 +239,9 @@
 <!-- Add search bar here -->
 <div class="search-container">
     <form method="GET" action="{% url 'fieldrep_dashboard' %}">
+        {% if campaign_filter %}
+        <input type="hidden" name="campaign" value="{{ campaign_filter }}">
+        {% endif %}
         <label class="search-label">Search by Brand Campaign ID:</label>
         <div class="search-box">
             <input type="text" name="search" placeholder="Enter Brand Campaign ID..." value="{{ search_query }}"
@@ -271,7 +281,9 @@
                         href="{% url 'edit_campaign_calendar' %}?id={{ collateral.campaign_collateral_id }}">Edit
                         Dates</a>
                     {% else %}
-                    <span class="text-muted">N/A</span>
+                    <a class="btn btn-primary"
+                       href="{% url 'edit_campaign_calendar' %}?collateral_id={{ collateral.id }}&brand={{ collateral.brand_id }}">Edit
+                       Dates</a>
                     {% endif %}
                 </td>
                 <td>
@@ -284,10 +296,12 @@
                 </td>
                 <td>
                     {% if collateral.id %}
-                    <form method="post" action="{% url 'dashboard_delete_collateral' collateral.id %}"
-                        style="display:inline;">
+                    <form method="post" action="{% url 'dashboard_delete_collateral' collateral.id %}" style="display:inline;">
                         {% csrf_token %}
-                        <button type="submit" class="btn btn-danger btn-sm">Delete</button>
+                        {% if request.GET.campaign %}
+                        <input type="hidden" name="campaign" value="{{ request.GET.campaign }}">
+                        {% endif %}
+                        <button type="submit" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to delete this collateral?')">Delete</button>
                     </form>
                     {% else %}
                     <span class="text-muted">N/A</span>

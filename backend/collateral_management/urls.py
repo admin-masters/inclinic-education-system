@@ -10,6 +10,7 @@ from .views import (
 urlpatterns = [
     # NEW: add‑collateral route – keep this first
     path("add/", views.add_collateral_with_campaign, name="collaterals_add"),
+    path("add/<str:brand_campaign_id>/", views.add_collateral_with_campaign, name="collaterals_add_branded"),
 
     # standard CRUD
     path("",                CollateralListView.as_view(),  name="collateral_list"),

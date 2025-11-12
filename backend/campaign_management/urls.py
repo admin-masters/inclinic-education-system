@@ -18,4 +18,5 @@ urlpatterns = [
     path('<int:pk>/assign/', assign_field_reps, name='assign_field_reps'),
     path('<int:pk>/unassign/<int:assignment_id>/', remove_field_rep, name='remove_field_rep'),
     path('collaterals/edit/<int:pk>/', views.edit_collateral_dates, name='edit_collateral_dates'),
+    path('manage-data/', views.manage_data_panel, name='manage_data_panel'),
 ]

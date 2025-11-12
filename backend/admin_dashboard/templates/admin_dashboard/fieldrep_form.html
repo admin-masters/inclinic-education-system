@@ -10,6 +10,9 @@
 
 <form method="post" class="needs-validation" novalidate>
   {% csrf_token %}
+  {% if campaign_param %}
+    <input type="hidden" name="campaign" value="{{ campaign_param }}">
+  {% endif %}
   {{ form.non_field_errors }}
 
   {% for field in form %}
@@ -25,6 +28,6 @@
   <button class="btn btn-success">
     {% if view.object %}Update{% else %}Add{% endif %}
   </button>
-  <a href="{% url 'admin_dashboard:fieldrep_list' %}" class="btn btn-secondary ms-2">Back</a>
+  <a href="{% url 'admin_dashboard:fieldrep_list' %}{% if campaign_param %}?campaign={{ campaign_param }}{% endif %}" class="btn btn-secondary ms-2">Back</a>
 </form>
 {% endblock %}

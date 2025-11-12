@@ -6,8 +6,7 @@
   <div class="card-body">
     <p class="text-muted">
       Upload a CSV with header:
-      <code>doctor_name,whatsapp_number,fieldrep_id,collateral_id</code>
-      (No messages are sent; doctors will access via login/OTP.)
+      <code>Doctor Name,Gmail ID,Field Rep ID</code>
     </p>
     {% for m in messages %}<div class="alert alert-{{ m.tags }}">{{ m }}</div>{% endfor %}
     <form method="post" enctype="multipart/form-data">

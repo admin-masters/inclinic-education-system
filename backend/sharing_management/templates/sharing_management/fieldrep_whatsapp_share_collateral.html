@@ -1,14 +1,29 @@
 {% extends "base.html" %}
 {% load static %}
 
+{% block extra_css %}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #f8f9fa;">
-  <div class="card shadow" style="width: 100%; max-width: 400px;">
+  <div class="card shadow" style="width: 100%; max-width: 900px;">
     <div class="card-header text-center">
       <h5 class="mb-0">Share Collaterals Form</h5>
       <div class="small text-muted">Brand Campaign ID: {{ brand_campaign_id }}</div>
     </div>
     <div class="card-body p-4">
+      {% if messages %}
+      <div class="mb-3">
+        {% for message in messages %}
+          <div class="alert alert-{{ message.tags|default:'info' }} alert-dismissible fade show" role="alert">
+            {{ message }}
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endfor %}
+      </div>
+      {% endif %}
+      <!-- Original Form -->
       <form method="post" autocomplete="off">
         {% csrf_token %}
         <div class="mb-3">
@@ -17,26 +32,175 @@
         </div>
         <div class="mb-3">
           <label class="form-label">Name of Doctor:</label>
-          <input type="text" class="form-control" name="doctor_name" placeholder="Doctor Name" required>
+          <input type="text" class="form-control" name="doctor_name" placeholder="Doctor Name" required id="doctorName">
         </div>
         <div class="mb-3">
           <label class="form-label">Doctor WhatsApp Number:</label>
           <input type="text" class="form-control" name="doctor_whatsapp" placeholder="Enter 10 digit mobile number"
-            maxlength="10" pattern="\d{10}" required>
+            maxlength="10" pattern="\d{10}" required id="doctorPhone">
           <small class="form-text text-muted">Enter 10 digit mobile number</small>
+        </div>
+        <div class="row mb-3">
+          <div class="col-md-6">
+            <label class="form-label">Start Date of the Campaign</label>
+            <input type="text" class="form-control datepicker" id="startDate" name="start_date" placeholder="Select start date" required>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label">End Date of the Campaign</label>
+            <input type="text" class="form-control datepicker" id="endDate" name="end_date" placeholder="Select end date" required>
+          </div>
         </div>
         <div class="mb-3">
           <label class="form-label">Select Collaterals:</label>
-          <select class="form-select" name="collateral" required>
+          <select class="form-select" name="collateral" required id="collateralSelect">
             <option value="">Select Collateral</option>
             {% for c in collaterals %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
+            <option value="{{ c.id }}" 
+                    data-name="{{ c.name|default:'' }}"
+                    data-url="{{ c.link|default:'' }}"
+                    {% if c.id == selected_collateral_id %}selected{% endif %}>
+              {{ c.name }}
+            </option>
             {% endfor %}
           </select>
         </div>
-        <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Submit</button>
+        <div class="d-grid gap-2">
+          <button type="submit" name="action" value="share" class="btn btn-primary" style="background:#1877f2; border:none;">Submit</button>
+          <button type="submit" name="action" value="add_doctor" class="btn btn-secondary">Add Doctor</button>
+        </div>
       </form>
+
+      <!-- Assigned Doctors Section -->
+      {% if doctors %}
+      <div class="mt-5">
+        <hr>
+        <div class="card shadow">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h6 class="mb-0">Assigned Doctors ({{ doctors|length }})</h6>
+            <div class="d-flex gap-2">
+              <input type="text" id="doctorSearch" class="form-control form-control-sm" placeholder="Search by name or phone">
+              <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+                <option value="">All</option>
+                <option value="not_shared">Needs Sending</option>
+                <option value="shared">Sent</option>
+                <option value="needs_reminder">Reminder Due</option>
+                <option value="viewed">Opened</option>
+              </select>
+            </div>
+          </div>
+          <div class="card-body p-0">
+            <div class="list-group list-group-flush" id="doctorList">
+              {% for d in doctors %}
+              <div class="list-group-item d-flex justify-content-between align-items-center doctor-row"
+                   data-name="{{ d.name|lower }}" data-phone="{{ d.phone }}" data-status="{{ d.status }}">
+                <div>
+                  <div class="fw-semibold">{{ d.name }}</div>
+                  <div class="text-muted small">{{ d.phone }}</div>
+                </div>
+                <div class="d-flex align-items-center gap-2">
+                  <form method="post" class="m-0">
+                    {% csrf_token %}
+                    <input type="hidden" name="doctor_id" value="{{ d.id }}">
+                    <input type="hidden" name="collateral" value="{{ selected_collateral_id }}">
+                    {% if d.status == 'viewed' %}
+                      <button class="btn btn-success btn-sm" disabled>Opened</button>
+                    {% elif d.status == 'needs_reminder' %}
+                      <button class="btn btn-purple btn-sm" style="background:#6f42c1;border:none;color:#fff;">Send Reminder</button>
+                    {% elif d.status == 'shared' %}
+                      <button class="btn btn-warning btn-sm">Sent</button>
+                    {% else %}
+                      <button class="btn btn-danger btn-sm" name="action" value="share">Send Message</button>
+                    {% endif %}
+                  </form>
+                </div>
+              </div>
+              {% endfor %}
+            </div>
+          </div>
+        </div>
+      </div>
+      {% endif %}
     </div>
   </div>
 </div>
+
+<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<script>
+  // Initialize date picker
+  document.addEventListener('DOMContentLoaded', function() {
+    const today = new Date();
+    const nextMonth = new Date();
+    nextMonth.setMonth(today.getMonth() + 1);
+    
+    const startDatePicker = flatpickr('#startDate', {
+      minDate: 'today',
+      dateFormat: 'Y-m-d',
+      onChange: function(selectedDates, dateStr) {
+        endDatePicker.set('minDate', dateStr);
+      }
+    });
+    
+    const endDatePicker = flatpickr('#endDate', {
+      minDate: 'today',
+      dateFormat: 'Y-m-d'
+    });
+  });
+
+  // Search and filter functionality for assigned doctors
+  const searchInput = document.getElementById('doctorSearch');
+  const statusFilter = document.getElementById('statusFilter');
+  const rows = document.querySelectorAll('#doctorList .doctor-row');
+  
+  function applyFilters(){
+    const q = (searchInput?.value || '').toLowerCase();
+    const st = statusFilter?.value || '';
+    rows.forEach(r => {
+      const name = r.getAttribute('data-name');
+      const phone = r.getAttribute('data-phone');
+      const s = r.getAttribute('data-status');
+      const matchText = !q || name.includes(q) || phone.includes(q);
+      const matchStatus = !st || s === st;
+      r.style.display = (matchText && matchStatus) ? '' : 'none';
+    })
+  }
+  
+  searchInput && searchInput.addEventListener('input', applyFilters);
+  statusFilter && statusFilter.addEventListener('change', applyFilters);
+  applyFilters();
+
+  // Disable auto-adding doctors to the list; rely on Add Doctor submit
+
+  // Auto-fill form when clicking on a doctor from the list
+  document.addEventListener('click', function(e) {
+    if (e.target.closest('.doctor-row')) {
+      const row = e.target.closest('.doctor-row');
+      const doctorName = row.querySelector('.fw-semibold').textContent;
+      const doctorPhone = row.querySelector('.text-muted').textContent;
+      
+      document.getElementById('doctorName').value = doctorName;
+      document.getElementById('doctorPhone').value = doctorPhone;
+    }
+  });
+
+  // Collateral selection change - update all forms
+  document.getElementById('collateralSelect').addEventListener('change', function() {
+    const collateralId = this.value;
+    const hiddenInputs = document.querySelectorAll('input[name="collateral"]');
+    hiddenInputs.forEach(input => {
+      input.value = collateralId;
+    });
+  });
+</script>
+
+<style>
+.btn-purple {
+  background: #6f42c1;
+  border: none;
+  color: #fff;
+}
+.btn-purple:hover {
+  background: #5a32a3;
+  color: #fff;
+}
+</style>
 {% endblock %}
