@@ -352,7 +352,8 @@ class CampaignAssignmentForm(forms.ModelForm):
         return cleaned_data
 
 
-from collateral_management.models import Collateral
+from collateral_management.models import Collateral as CMCollateral
+from collateral_management.models import CampaignCollateral as CMCampaignCollateral
 # Collateral Assignment Form
 class CampaignCollateralForm(forms.ModelForm):
     campaign = forms.CharField(
@@ -367,13 +368,14 @@ class CampaignCollateralForm(forms.ModelForm):
         disabled=True
     )
     collateral = forms.ModelChoiceField(
-        queryset=Collateral.objects.none(),  # Will be set in __init__
+        queryset=CMCollateral.objects.none(),  # Will be set in __init__
         label="Select Collateral",
         widget=forms.Select(attrs={'class': 'form-select'})
     )
     
     class Meta:
-        model = CampaignCollateral
+        # Use the bridging model from collateral_management to align with Collateral
+        model = CMCampaignCollateral
         fields = ['collateral', 'start_date', 'end_date']
         widgets = {
             'start_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
@@ -388,7 +390,7 @@ class CampaignCollateralForm(forms.ModelForm):
         from campaign_management.models import Campaign
         
         # Initialize an empty queryset
-        collaterals = Collateral.objects.none()
+        collaterals = CMCollateral.objects.none()
         
         # Get the campaign if brand_campaign_id is provided
         campaign = None
@@ -407,10 +409,10 @@ class CampaignCollateralForm(forms.ModelForm):
         # If we have a campaign, filter collaterals for that campaign
         if campaign:
             # Get collaterals from direct relationship (campaign field on Collateral)
-            direct_collaterals = Collateral.objects.filter(campaign=campaign)
+            direct_collaterals = CMCollateral.objects.filter(campaign=campaign)
             
             # Get collaterals from many-to-many relationship (through CampaignCollateral)
-            m2m_collaterals = Collateral.objects.filter(campaign_collaterals__campaign=campaign)
+            m2m_collaterals = CMCollateral.objects.filter(campaign_collaterals__campaign=campaign)
             
             # Combine both querysets
             collaterals = (direct_collaterals | m2m_collaterals).distinct()
@@ -419,10 +421,10 @@ class CampaignCollateralForm(forms.ModelForm):
             if self.instance and self.instance.pk:
                 current_collateral = self.instance.collateral
                 if current_collateral and not collaterals.filter(pk=current_collateral.pk).exists():
-                    collaterals = collaterals | Collateral.objects.filter(pk=current_collateral.pk)
+                    collaterals = collaterals | CMCollateral.objects.filter(pk=current_collateral.pk)
         else:
             # If no campaign is specified, show all collaterals
-            collaterals = Collateral.objects.all()
+            collaterals = CMCollateral.objects.all()
         
         # Set the filtered queryset
         self.fields['collateral'].queryset = collaterals.order_by('title')
@@ -461,7 +463,7 @@ class CampaignCollateralForm(forms.ModelForm):
         
         # For existing instances, preserve the original campaign
         if self.instance and self.instance.pk:
-            original = CampaignCollateral.objects.get(pk=self.instance.pk)
+            original = CMCampaignCollateral.objects.get(pk=self.instance.pk)
             instance.campaign = original.campaign
         else:
             # For new instances, set campaign from the form data
@@ -475,6 +477,16 @@ class CampaignCollateralForm(forms.ModelForm):
                     # This should have been caught in clean(), but handle gracefully
                     if commit:
                         raise ValidationError(f"Campaign with Brand Campaign ID '{campaign_brand_id}' not found.")
+
+        # Normalize start/end into DateTime for the collateral_management.CampaignCollateral model
+        # If date objects are provided (from <input type="date">), convert to start-of-day and end-of-day
+        start_date_val = self.cleaned_data.get('start_date')
+        end_date_val = self.cleaned_data.get('end_date')
+        if start_date_val and not hasattr(start_date_val, 'hour'):
+            instance.start_date = timezone.make_aware(datetime.combine(start_date_val, time.min))
+        if end_date_val and not hasattr(end_date_val, 'hour'):
+            # Use end of the day, drop microseconds for consistency
+            instance.end_date = timezone.make_aware(datetime.combine(end_date_val, time.max.replace(microsecond=0)))
         
         if commit:
             instance.save()

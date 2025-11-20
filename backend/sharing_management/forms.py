@@ -10,6 +10,8 @@ from django.utils.safestring import mark_safe
 from user_management.models import User
 from doctor_viewer.models import Doctor, DoctorCollateral, DoctorEngagement
 from collateral_management.models import Collateral
+from collateral_management.models import CampaignCollateral as CMCampaignCollateral
+from campaign_management.models import Campaign
 from .models import ShareLog
 
 # ─── Common constants ──────────────────────────────────────────────────────────
@@ -198,50 +200,114 @@ class ShareForm(forms.Form):
                 raise ValidationError("Please enter a valid phone number.")
             
             cleaned_data['doctor_contact'] = digits
-        
-        return cleaned_data
-    
-    def save(self, commit=True):
-        """Save the form data and create necessary records"""
-        data = self.cleaned_data
-        collateral = data['collateral']
-        share_channel = data['share_channel']
-        message_text = data.get('message_text', '')
-        
-        if data.get('existing_doctor'):
-            # Handle existing doctor
-            doctor = data['existing_doctor']
-            doctor_contact = doctor.phone
-            doctor_name = doctor.name
+
+
+# ─── Calendar update form for Campaign ↔ Collateral (bridging in collateral_management) ───
+class CalendarCampaignCollateralForm(forms.ModelForm):
+    campaign = forms.CharField(
+        max_length=255,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'readonly': 'readonly',
+            'style': 'background-color: #e9ecef; cursor: not-allowed;'
+        }),
+        label="Brand Campaign ID",
+        disabled=True
+    )
+    collateral = forms.ModelChoiceField(
+        queryset=Collateral.objects.none(),
+        label="Select Collateral",
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+
+    class Meta:
+        model = CMCampaignCollateral
+        fields = ['collateral', 'start_date', 'end_date']
+        widgets = {
+            'start_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+            'end_date': forms.DateInput(attrs={'type': 'date', 'class': 'form-control'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        brand_campaign_id = kwargs.pop('brand_campaign_id', None)
+        super().__init__(*args, **kwargs)
+
+        # Determine campaign context
+        campaign_obj = None
+        if brand_campaign_id:
+            try:
+                campaign_obj = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
+                self.fields['campaign'].initial = campaign_obj.brand_campaign_id
+            except Campaign.DoesNotExist:
+                pass
+
+        if self.instance and self.instance.pk and not campaign_obj:
+            campaign_obj = self.instance.campaign
+            if campaign_obj:
+                self.fields['campaign'].initial = campaign_obj.brand_campaign_id
+
+        # Build collateral queryset
+        collaterals = Collateral.objects.none()
+        if campaign_obj:
+            direct = Collateral.objects.filter(campaign=campaign_obj)
+            via_bridge = Collateral.objects.filter(campaign_collaterals__campaign=campaign_obj)
+            collaterals = (direct | via_bridge).distinct()
+            if self.instance and self.instance.pk and self.instance.collateral:
+                current = self.instance.collateral
+                if not collaterals.filter(pk=current.pk).exists():
+                    collaterals = collaterals | Collateral.objects.filter(pk=current.pk)
         else:
-            # Create new doctor
-            doctor = Doctor.objects.create(
-                name=data['new_doctor_name'],
-                phone=data['doctor_contact'],
-                rep=self.user,
-                source='manual'
-            )
-            doctor_contact = data['doctor_contact']
-            doctor_name = data['new_doctor_name']
-        
-        # Create share log
-        share_log = ShareLog.objects.create(
-            collateral=collateral,
-            field_rep=self.user,
-            doctor_identifier=doctor_contact,
-            share_channel=share_channel,
-            message_text=message_text,
-            doctor_name=doctor_name
-        )
-        
-        # Create or update doctor collateral link
-        DoctorCollateral.objects.get_or_create(
-            doctor=doctor,
-            collateral=collateral,
-            defaults={'last_shared': timezone.now()}
-        )
-        
-        return share_log
+            collaterals = Collateral.objects.all()
+
+        self.fields['collateral'].queryset = collaterals.order_by('title')
+        if self.instance and self.instance.pk and self.instance.collateral:
+            self.fields['collateral'].initial = self.instance.collateral
+
+    def clean(self):
+        cleaned_data = super().clean()
+        start_date = cleaned_data.get('start_date')
+        end_date = cleaned_data.get('end_date')
+
+        if start_date and end_date and end_date < start_date:
+            raise ValidationError("End date cannot be earlier than start date.")
+
+        # Validate campaign presence for new records
+        if not self.instance.pk:
+            bcid = cleaned_data.get('campaign') or self.fields['campaign'].initial
+            if not bcid:
+                raise ValidationError("Brand Campaign ID is required for new campaign collateral.")
+            try:
+                Campaign.objects.get(brand_campaign_id=bcid)
+            except Campaign.DoesNotExist:
+                raise ValidationError(f"Campaign with Brand Campaign ID '{bcid}' not found.")
+        return cleaned_data
+
+    def save(self, commit=True):
+        instance = super().save(commit=False)
+
+        # Preserve or set campaign by brand_campaign_id
+        if self.instance and self.instance.pk:
+            instance.campaign = self.instance.campaign
+        else:
+            bcid = self.cleaned_data.get('campaign') or self.fields['campaign'].initial
+            if bcid:
+                try:
+                    instance.campaign = Campaign.objects.get(brand_campaign_id=bcid)
+                except Campaign.DoesNotExist:
+                    raise ValidationError(f"Campaign with Brand Campaign ID '{bcid}' not found.")
+
+        # Convert date inputs to DateTime at start/end of day
+        sd = self.cleaned_data.get('start_date')
+        ed = self.cleaned_data.get('end_date')
+        if sd and not hasattr(sd, 'hour'):
+            instance.start_date = timezone.make_aware(datetime.combine(sd, datetime.min.time()))
+        if ed and not hasattr(ed, 'hour'):
+            instance.end_date = timezone.make_aware(datetime.combine(ed, datetime.max.time().replace(microsecond=0)))
+
+        if commit:
+            instance.save()
+        return instance
 
 
 # ─── Bulk *manual* share (existing) ────────────────────────────────────────────

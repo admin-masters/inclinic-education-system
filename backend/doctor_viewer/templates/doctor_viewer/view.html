@@ -107,10 +107,8 @@
 
   {% else %}
   <!-- Vimeo Video Viewer -->
-  {% with collateral.vimeo_url|cut:"https://vimeo.com/" as vid %}
-  <iframe id="vimeoPlayer" src="https://player.vimeo.com/video/{{ vid }}?playsinline=1&title=0&byline=0&portrait=0"
+  <iframe id="vimeoPlayer" src="{{ collateral.vimeo_url }}"
     allow="autoplay; fullscreen; picture-in-picture" allowfullscreen></iframe>
-  {% endwith %}
 
   <script src="https://player.vimeo.com/api/player.js"></script>
   <script>

@@ -229,9 +229,17 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
     
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        # Allow preselection via GET or POST
+        campaign_param = (
+            self.request.POST.get("campaign")
+            or self.request.GET.get("campaign_id")
+            or self.request.GET.get("campaign")
+            or self.request.GET.get("brand_campaign_id")
+        )
         if campaign_param:
             ctx["campaign_param"] = campaign_param
+        # Supply all campaigns for dropdown
+        ctx["campaigns"] = Campaign.objects.all().order_by("name")
         return ctx
 
     def form_valid(self, form):
@@ -240,7 +248,12 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
         messages.success(self.request, "Field representative created successfully!")
 
         # If a campaign context is present, create the assignment
-        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        campaign_param = (
+            self.request.POST.get("campaign")
+            or self.request.GET.get("campaign_id")
+            or self.request.GET.get("campaign")
+            or self.request.GET.get("brand_campaign_id")
+        )
         if campaign_param:
             campaign = None
             try:
@@ -260,7 +273,12 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
     def get_success_url(self):
         # preserve campaign filter from the incoming querystring so the list stays filtered
         base = reverse("admin_dashboard:fieldrep_list")
-        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        campaign_param = (
+            self.request.POST.get("campaign")
+            or self.request.GET.get("campaign_id")
+            or self.request.GET.get("campaign")
+            or self.request.GET.get("brand_campaign_id")
+        )
         if not campaign_param:
             return base
         # if numeric, use campaign_id, otherwise use brand_campaign_id

@@ -45,7 +45,7 @@ from shortlink_management.models import ShortLink
 from shortlink_management.utils import generate_short_code
 from utils.recaptcha import recaptcha_required
 from .forms import CollateralForm
-from campaign_management.forms import CampaignCollateralForm
+from sharing_management.forms import CalendarCampaignCollateralForm
 from .utils.db_operations import (
     register_field_representative, 
     validate_forgot_password, 
@@ -212,7 +212,10 @@ def list_share_logs(request):
     return render(request, 'sharing_management/share_logs.html', {'logs': logs})
 
 
+from django.views.decorators.cache import never_cache
+
 @field_rep_required
+@never_cache
 def fieldrep_dashboard(request):
     rep = request.user
     assigned = CampaignAssignment.objects.filter(field_rep=rep).select_related('campaign')
@@ -297,24 +300,11 @@ def fieldrep_dashboard(request):
         all_collaterals = filtered
     
     collaterals = []
-    # Map Edit Dates to campaign_management CampaignCollateral while keeping replace/delete intact
-    from campaign_management.models import Collateral as CMItemCollateral
-    from campaign_management.models import CampaignCollateral as CMCampaignMgmtCollateral
+    # Map Edit Dates to collateral_management CampaignCollateral to align with edit_calendar view
     for c in all_collaterals:
         cc = CMCampaignCollateral.objects.filter(collateral=c).select_related('campaign').first()
         # Get campaign through collateral_management CampaignCollateral relationship
         campaign = cc.campaign if cc else None
-
-        # Find matching campaign_management Collateral by item_name/title or content_id
-        cm_item = None
-        title_or_name = getattr(c, 'title', None) or getattr(c, 'content_id', None)
-        if title_or_name:
-            cm_item = CMItemCollateral.objects.filter(item_name=title_or_name).first()
-
-        # If found, get corresponding campaign_management CampaignCollateral
-        cm_cc = None
-        if cm_item and campaign:
-            cm_cc = CMCampaignMgmtCollateral.objects.filter(campaign=campaign, collateral=cm_item).first()
 
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',
@@ -323,14 +313,14 @@ def fieldrep_dashboard(request):
             'url': c.file.url if getattr(c, 'file', None) else (getattr(c, 'vimeo_url', '') or ''),
             # Use collateral_management.Collateral id for Replace/Delete actions
             'id': getattr(c, 'id', None),
-            # Use campaign_management CampaignCollateral id for Edit Dates button
-            'campaign_collateral_id': cm_cc.pk if cm_cc else None,
+            # Use collateral_management CampaignCollateral id for Edit Dates button
+            'campaign_collateral_id': cc.pk if cc else None,
         })
     
     # Get campaign_id from URL parameter or use campaign_filter
     campaign_id = request.GET.get('campaign', campaign_filter)
     
-    return render(request, 'sharing_management/fieldrep_dashboard.html', {
+    response = render(request, 'sharing_management/fieldrep_dashboard.html', {
         'stats': stats, 
         'collaterals': collaterals,
         'search_query': search_query,
@@ -338,6 +328,10 @@ def fieldrep_dashboard(request):
         'brand_campaign_id': campaign_filter,  # For backward compatibility
         'campaign_id': campaign_id  # Pass campaign_id to template for field rep management
     })
+    # Extra safety: ensure no caching on this page
+    response['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+    response['Pragma'] = 'no-cache'
+    return response
 
 
 @field_rep_required
@@ -638,31 +632,48 @@ def edit_collateral_dates(request, pk):
     return render(request, 'collaterals/edit_collateral_dates.html', {'form': form, 'collateral': collateral})
 
 def edit_campaign_calendar(request):
-    from campaign_management.models import CampaignCollateral
+    from django.http import JsonResponse
+    # Use bridging model aligned with collateral_management.Collateral
+    from collateral_management.models import CampaignCollateral as CMCampaignCollateral
+    # Ensure collateral_object is defined across all branches
+    collateral_object = None
     
     # Optional filter by Brand Campaign ID
     brand_filter = request.GET.get('brand') or request.GET.get('campaign')
     if brand_filter:
-        campaign_collaterals = CampaignCollateral.objects.select_related('campaign', 'collateral')\
+        campaign_collaterals = CMCampaignCollateral.objects.select_related('campaign', 'collateral')\
             .filter(campaign__brand_campaign_id=brand_filter)
     else:
-        campaign_collaterals = CampaignCollateral.objects.select_related('campaign', 'collateral').all()
+        campaign_collaterals = CMCampaignCollateral.objects.select_related('campaign', 'collateral').all()
     
     # Check if we're editing an existing record
     edit_id = request.GET.get('id')
     print(f"Edit ID from URL: {edit_id}")
     if edit_id:
         try:
-            existing_record = CampaignCollateral.objects.get(id=edit_id)
+            existing_record = CMCampaignCollateral.objects.get(id=edit_id)
+            # Set collateral_object for template usage when editing existing record
+            collateral_object = existing_record.collateral
             if request.method == 'POST':
                 print(f"POST data: {request.POST}")
-                form = CampaignCollateralForm(request.POST, instance=existing_record)
+                form = CalendarCampaignCollateralForm(request.POST, instance=existing_record)
                 print(f"Form is valid: {form.is_valid()}")
                 if form.is_valid():
                     print(f"Form cleaned_data: {form.cleaned_data}")
                     saved_instance = form.save()
                     print(f"Saved instance: {saved_instance}")
                     print(f"Start date: {saved_instance.start_date}, End date: {saved_instance.end_date}")
+                    # If AJAX, return JSON instead of redirect
+                    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                        return JsonResponse({
+                            'success': True,
+                            'id': saved_instance.id,
+                            'brand_campaign_id': saved_instance.campaign.brand_campaign_id,
+                            'collateral_id': saved_instance.collateral_id,
+                            'collateral_name': str(saved_instance.collateral),
+                            'start_date': saved_instance.start_date.strftime('%Y-%m-%d') if saved_instance.start_date else '',
+                            'end_date': saved_instance.end_date.strftime('%Y-%m-%d') if saved_instance.end_date else ''
+                        })
                     messages.success(request, 'Calendar dates updated successfully.')
                     return redirect(f'/share/edit-calendar/?id={edit_id}')
                 else:
@@ -671,9 +682,11 @@ def edit_campaign_calendar(request):
                     for field, errors in form.errors.items():
                         for error in errors:
                             messages.error(request, f'{field}: {error}')
+                    if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                        return JsonResponse({'success': False, 'errors': form.errors}, status=400)
             else:
-                form = CampaignCollateralForm(instance=existing_record)
-        except CampaignCollateral.DoesNotExist:
+                form = CalendarCampaignCollateralForm(instance=existing_record)
+        except CMCampaignCollateral.DoesNotExist:
             messages.error(request, 'Record not found.')
             return redirect('edit_campaign_calendar')
     else:
@@ -682,19 +695,35 @@ def edit_campaign_calendar(request):
             collateral_id = request.POST.get('collateral')
             start_date = request.POST.get('start_date')
             end_date = request.POST.get('end_date')
+            brand_campaign_id = request.POST.get('campaign', '').strip()
             
             print(f"POST data - Collateral ID: {collateral_id}, Start: {start_date}, End: {end_date}")
             
             if collateral_id:
                 # Find existing CampaignCollateral record with this collateral
-                existing_record = CampaignCollateral.objects.filter(collateral_id=collateral_id).first()
+                existing_qs = CMCampaignCollateral.objects.filter(collateral_id=collateral_id)
+                # Prefer record within the selected brand campaign if provided
+                if brand_campaign_id:
+                    existing_qs = existing_qs.filter(campaign__brand_campaign_id=brand_campaign_id)
+                existing_record = existing_qs.first()
                 
                 if existing_record:
                     # Update existing record
-                    form = CampaignCollateralForm(request.POST, instance=existing_record)
+                    form = CalendarCampaignCollateralForm(request.POST, instance=existing_record)
                     if form.is_valid():
                         print(f"Updating existing record: {existing_record}")
-                        form.save()
+                        saved_instance = form.save()
+                        # If AJAX, return JSON success
+                        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                            return JsonResponse({
+                                'success': True,
+                                'id': saved_instance.id,
+                                'brand_campaign_id': saved_instance.campaign.brand_campaign_id,
+                                'collateral_id': saved_instance.collateral_id,
+                                'collateral_name': str(saved_instance.collateral),
+                                'start_date': saved_instance.start_date.strftime('%Y-%m-%d') if saved_instance.start_date else '',
+                                'end_date': saved_instance.end_date.strftime('%Y-%m-%d') if saved_instance.end_date else ''
+                            })
                         messages.success(request, 'Calendar dates updated successfully!')
                         return redirect('edit_campaign_calendar')
                     else:
@@ -702,18 +731,29 @@ def edit_campaign_calendar(request):
                         for field, errors in form.errors.items():
                             for error in errors:
                                 messages.error(request, f'{field}: {error}')
+                        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                            return JsonResponse({'success': False, 'errors': form.errors}, status=400)
                 else:
                     # Create new record - but we need to find the campaign from the brand_campaign_id
-                    brand_campaign_id = request.POST.get('campaign', '').strip()
                     if brand_campaign_id:
                         from campaign_management.models import Campaign
                         try:
                             campaign = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
-                            form = CampaignCollateralForm(request.POST)
+                            form = CalendarCampaignCollateralForm(request.POST)
                             if form.is_valid():
                                 instance = form.save(commit=False)
                                 instance.campaign = campaign
                                 instance.save()
+                                if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                                    return JsonResponse({
+                                        'success': True,
+                                        'id': instance.id,
+                                        'brand_campaign_id': instance.campaign.brand_campaign_id,
+                                        'collateral_id': instance.collateral_id,
+                                        'collateral_name': str(instance.collateral),
+                                        'start_date': instance.start_date.strftime('%Y-%m-%d') if instance.start_date else '',
+                                        'end_date': instance.end_date.strftime('%Y-%m-%d') if instance.end_date else ''
+                                    })
                                 messages.success(request, 'New campaign collateral created successfully!')
                                 return redirect('edit_campaign_calendar')
                             else:
@@ -721,12 +761,20 @@ def edit_campaign_calendar(request):
                                 for field, errors in form.errors.items():
                                     for error in errors:
                                         messages.error(request, f'{field}: {error}')
+                                if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                                    return JsonResponse({'success': False, 'errors': form.errors}, status=400)
                         except Campaign.DoesNotExist:
                             messages.error(request, f'Campaign with Brand Campaign ID "{brand_campaign_id}" not found.')
+                            if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                                return JsonResponse({'success': False, 'error': 'Campaign not found.'}, status=404)
                     else:
                         messages.error(request, 'Brand Campaign ID is required to create a new campaign collateral.')
+                        if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                            return JsonResponse({'success': False, 'error': 'Brand Campaign ID is required.'}, status=400)
             else:
                 messages.error(request, 'Please select a collateral.')
+                if request.headers.get('x-requested-with') == 'XMLHttpRequest':
+                    return JsonResponse({'success': False, 'error': 'Please select a collateral.'}, status=400)
         
         # Show form with optional initial values from query params
         initial = {}
@@ -744,7 +792,11 @@ def edit_campaign_calendar(request):
                 pass
             # If there is an existing record, prefill dates too
             try:
-                existing_record = CampaignCollateral.objects.filter(collateral_id=prefill_collateral_id).first()
+                # Prefer record within the selected brand campaign if provided
+                record_qs = CMCampaignCollateral.objects.filter(collateral_id=prefill_collateral_id)
+                if prefill_brand:
+                    record_qs = record_qs.filter(campaign__brand_campaign_id=prefill_brand)
+                existing_record = record_qs.first()
                 if existing_record:
                     if existing_record.start_date:
                         initial['start_date'] = existing_record.start_date.date()
@@ -760,7 +812,7 @@ def edit_campaign_calendar(request):
         elif collateral_object and collateral_object.campaign_collaterals.exists():
             form_kwargs['brand_campaign_id'] = collateral_object.campaign_collaterals.first().campaign.brand_campaign_id
             
-        form = CampaignCollateralForm(**form_kwargs)
+        form = CalendarCampaignCollateralForm(**form_kwargs)
     
     return render(request, 'sharing_management/edit_calendar.html', {
         'form': form,

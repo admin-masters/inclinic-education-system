@@ -69,10 +69,17 @@ class CollateralForm(forms.ModelForm):
     description = forms.CharField(max_length=255, required=False)
     is_active   = forms.BooleanField(required=False, initial=True, widget=forms.HiddenInput())
 
+    # Accept Vimeo embed code instead of direct URL
+    vimeo_embed_code = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '<iframe src="https://player.vimeo.com/video/123456789" ...></iframe>'}),
+        label="Vimeo Embed Code"
+    )
+
     def __init__(self, *args, **kwargs):
         brand_campaign_id = kwargs.pop('brand_campaign_id', None)
         super().__init__(*args, **kwargs)
-        
+
         # If brand_campaign_id is provided, filter the campaign choices
         if brand_campaign_id:
             self.fields['campaign'].queryset = Campaign.objects.filter(brand_campaign_id=brand_campaign_id)
@@ -84,11 +91,15 @@ class CollateralForm(forms.ModelForm):
                 self.fields['campaign'].widget.attrs['class'] = 'form-control-plaintext'
                 self.fields['campaign'].help_text = 'This field is set based on the selected brand campaign.'
 
+        # Hide the underlying vimeo_url field; we drive it from embed code
+        if 'vimeo_url' in self.fields:
+            self.fields['vimeo_url'].widget = forms.HiddenInput()
+
     class Meta:
         model  = Collateral
         fields = [
             'campaign', 'purpose', 'title', 'content_id', 'type',
-            'file', 'vimeo_url',
+            'file', 'vimeo_url',  # stored URL populated from embed code
             'banner_1', 'banner_2',
             'description', 'doctor_name',
             'webinar_title', 'webinar_description', 'webinar_url', 'webinar_date',
@@ -101,6 +112,28 @@ class CollateralForm(forms.ModelForm):
         c_type = cleaned.get('type')
         file_f = cleaned.get('file')
         url_f  = cleaned.get('vimeo_url')
+        embed  = cleaned.get('vimeo_embed_code', '').strip()
+
+        # If embed code is provided, extract Vimeo video ID or src
+        if embed:
+            import re
+            # Try to extract src from iframe
+            src_match = re.search(r'src\s*=\s*"([^"]+)"', embed)
+            candidate = src_match.group(1) if src_match else embed
+            # Extract numeric ID from common Vimeo patterns
+            id_match = re.search(r'(?:player\.vimeo\.com\/video\/|vimeo\.com\/)(\d+)', candidate)
+            if id_match:
+                video_id = id_match.group(1)
+                # Normalize to player embed URL
+                cleaned['vimeo_url'] = f"https://player.vimeo.com/video/{video_id}"
+                url_f = cleaned['vimeo_url']
+            else:
+                # If no ID found but src looks like a player URL, accept it
+                if 'player.vimeo.com' in candidate:
+                    cleaned['vimeo_url'] = candidate
+                    url_f = candidate
+                else:
+                    raise ValidationError("Could not parse Vimeo embed code. Please paste the full iframe code.")
 
         if c_type == 'pdf':
             if not file_f:
@@ -108,7 +141,7 @@ class CollateralForm(forms.ModelForm):
             if file_f.size > MAX_FILE_SIZE_MB * 1024 * 1024:
                 raise ValidationError(f"PDF must be ≤ {MAX_FILE_SIZE_MB}\u202fMB.")
         elif c_type == 'video' and not url_f:
-            raise ValidationError("Provide a Vimeo URL for videos.")
+            raise ValidationError("Provide a Vimeo embed code for videos.")
         elif c_type == 'pdf_video':
             # Require both
             if not file_f:
@@ -116,7 +149,7 @@ class CollateralForm(forms.ModelForm):
             if file_f.size > MAX_FILE_SIZE_MB * 1024 * 1024:
                 raise ValidationError(f"PDF must be ≤ {MAX_FILE_SIZE_MB}\u202fMB.")
             if not url_f:
-                raise ValidationError("Provide a Vimeo URL (for PDF + Video).")
+                raise ValidationError("Provide a Vimeo embed code (for PDF + Video).")
         return cleaned
 
 

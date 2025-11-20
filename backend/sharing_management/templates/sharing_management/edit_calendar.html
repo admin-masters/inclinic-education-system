@@ -2,8 +2,7 @@
 {% load static %}
 
 {% block extra_css %}
-<!-- Flatpickr CSS -->
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<!-- Custom styles (if any) -->
 {% endblock %}
 
 {% block content %}
@@ -13,12 +12,15 @@
       <h2 class="mb-0">Edit Collateral Dates</h2>
     </div>
     <div class="card-body">
-      <form method="post">
+      <div id="saveStatus" class="alert d-none" role="alert"></div>
+      <form method="post" id="editCalendarForm" data-ajax="true" data-editing="{{ editing|yesno:'true,false' }}">
         {% csrf_token %}
         <!-- Brand Campaign ID -->
         <div class="mb-3">
           <label class="form-label">Brand Campaign ID:</label>
           {{ form.campaign }}
+          <!-- Hidden field to ensure campaign is submitted even if visible input is disabled -->
+          <input type="hidden" name="campaign" id="id_campaign_hidden" value="{{ form.initial.campaign|default:'' }}">
         </div>
         <!-- Select Collateral -->
         <div class="mb-3">
@@ -45,73 +47,31 @@
         <!-- Start Date -->
         <div class="mb-3">
           <label class="form-label">Start Date:</label>
-          <input type="text" 
-                 name="start_date" 
-                 id="id_start_date" 
-                 class="form-control datepicker" 
-                 placeholder="Select start date"
-                 value="{{ form.start_date.value|default:'' }}"
-                 required>
+          {{ form.start_date }}
         </div>
         <!-- End Date -->
         <div class="mb-3">
           <label class="form-label">End Date:</label>
-          <input type="text" 
-                 name="end_date" 
-                 id="id_end_date" 
-                 class="form-control datepicker" 
-                 placeholder="Select end date"
-                 value="{{ form.end_date.value|default:'' }}"
-                 required>
+          {{ form.end_date }}
         </div>
-        <button type="submit" class="btn btn-primary">Update Dates</button>
+        <button type="submit" id="updateBtn" class="btn btn-primary">Update Dates</button>
         <a href="{% url 'fieldrep_dashboard' %}" class="btn btn-secondary ms-2">Cancel</a>
       </form>
     </div>
   </div>
 </div>
 
-<!-- Flatpickr JS -->
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
 <script>
   document.addEventListener('DOMContentLoaded', function () {
-    // Initialize date picker
-    flatpickr(".datepicker", {
-      dateFormat: "Y-m-d",
-      minDate: "today",
-      allowInput: true,
-      defaultDate: "today",
-      onReady: function(selectedDates, dateStr, instance) {
-        // Set minimum end date based on start date
-        if (instance.element.id === 'id_start_date') {
-          instance.config.onChange = function(selectedDates) {
-            const endDatePicker = document.getElementById('id_end_date')._flatpickr;
-            if (endDatePicker) {
-              endDatePicker.set('minDate', selectedDates[0] || 'today');
-            }
-          };
-        }
-      }
-    });
-    
-    // Set minimum end date based on start date
-    const startDatePicker = document.getElementById('id_start_date');
-    const endDatePicker = document.getElementById('id_end_date');
-    
-    if (startDatePicker && endDatePicker) {
-      startDatePicker.addEventListener('change', function() {
-        const startDate = this._flatpickr.selectedDates[0];
-        if (endDatePicker._flatpickr) {
-          endDatePicker._flatpickr.set('minDate', startDate || 'today');
-        }
-      });
-    }
+    const isEditing = (document.getElementById('editCalendarForm')?.dataset?.editing === 'true');
+    const startDateField = document.getElementById('id_start_date');
+    const endDateField = document.getElementById('id_end_date');
     console.log('DOM loaded, setting up collateral selection handler...');
 
     const collateralSelect = document.getElementById('id_collateral');
     const brandCampaignIdField = document.getElementById('id_campaign');
-    const startDateField = document.getElementById('id_start_date');
-    const endDateField = document.getElementById('id_end_date');
+    const brandCampaignHiddenField = document.getElementById('id_campaign_hidden');
+    // isEditing already computed above
 
     console.log('Collateral select element:', collateralSelect);
     console.log('Brand campaign ID field:', brandCampaignIdField);
@@ -121,12 +81,12 @@
     if (collateralSelect && brandCampaignIdField) {
       console.log('Required elements found, setting up event listeners...');
 
-      // Set initial value if editing existing record
+      // Set initial value if present
       if (collateralSelect.value) {
         console.log('Initial collateral value:', collateralSelect.value);
-        // Only update collateral data if not editing an existing record
-        // When editing, the form is already correctly populated by Django
-        if (!document.querySelector('input[name="id"]') && !window.location.search.includes('id=')) {
+        // Only update collateral data if not editing AND dates are empty
+        const hasPrefilledDates = (startDateField?.value || endDateField?.value);
+        if (!isEditing && !hasPrefilledDates) {
           updateCollateralData(collateralSelect.value);
         }
       }
@@ -162,6 +122,9 @@
           if (data.success) {
             // Update brand campaign ID
             brandCampaignIdField.value = data.brand_campaign_id;
+            if (brandCampaignHiddenField) {
+              brandCampaignHiddenField.value = data.brand_campaign_id;
+            }
             console.log('Updated brand campaign ID to:', data.brand_campaign_id);
             
             // Update start date if available
@@ -183,18 +146,92 @@
         .catch(error => {
           console.error('Fetch error:', error);
           brandCampaignIdField.value = 'Error loading campaign ID';
+          if (brandCampaignHiddenField) {
+            brandCampaignHiddenField.value = '';
+          }
         });
+    }
+
+    // AJAX form submit without page reload
+    const formEl = document.getElementById('editCalendarForm');
+    const updateBtn = document.getElementById('updateBtn');
+    const statusEl = document.getElementById('saveStatus');
+
+    function getCsrfToken() {
+      const tokenInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+      return tokenInput ? tokenInput.value : '';
+    }
+
+    if (formEl) {
+      formEl.addEventListener('submit', function (e) {
+        e.preventDefault();
+
+        const formData = new FormData(formEl);
+        const payload = new URLSearchParams();
+        for (const [k, v] of formData.entries()) {
+          payload.append(k, v);
+        }
+
+        // UI: disable button, clear status
+        if (updateBtn) {
+          updateBtn.disabled = true;
+          updateBtn.textContent = 'Saving...';
+        }
+        if (statusEl) {
+          statusEl.classList.add('d-none');
+          statusEl.classList.remove('alert-success', 'alert-danger');
+          statusEl.textContent = '';
+        }
+
+        fetch(window.location.href, {
+          method: 'POST',
+          headers: {
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-CSRFToken': getCsrfToken(),
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: payload.toString(),
+        })
+          .then(async (res) => {
+            const data = await res.json().catch(() => ({}));
+            if (res.ok && data && data.success) {
+              // Update fields with saved values
+              if (data.start_date && startDateField) startDateField.value = data.start_date;
+              if (data.end_date && endDateField) endDateField.value = data.end_date;
+              if (brandCampaignIdField && data.brand_campaign_id) brandCampaignIdField.value = data.brand_campaign_id;
+
+              // Show success
+              if (statusEl) {
+                statusEl.textContent = 'Updated successfully.';
+                statusEl.classList.remove('d-none');
+                statusEl.classList.add('alert', 'alert-success');
+              }
+            } else {
+              // Show errors
+              const errText = (data && data.errors) ? JSON.stringify(data.errors) : 'Save failed.';
+              if (statusEl) {
+                statusEl.textContent = errText;
+                statusEl.classList.remove('d-none');
+                statusEl.classList.add('alert', 'alert-danger');
+              }
+            }
+          })
+          .catch((err) => {
+            console.error('Save error', err);
+            if (statusEl) {
+              statusEl.textContent = 'Error while saving.';
+              statusEl.classList.remove('d-none');
+              statusEl.classList.add('alert', 'alert-danger');
+            }
+          })
+          .finally(() => {
+            if (updateBtn) {
+              updateBtn.disabled = false;
+              updateBtn.textContent = 'Update Dates';
+            }
+          });
+      });
     }
   });
 </script>
-
-<style>
-  .flatpickr-input[readonly] {
-    background-color: white !important;
-    cursor: pointer;
-  }
-  .form-control.datepicker {
-    background-color: white;
-  }
-</style>
 {% endblock %}

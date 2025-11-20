@@ -13,6 +13,17 @@
   {% if campaign_param %}
     <input type="hidden" name="campaign" value="{{ campaign_param }}">
   {% endif %}
+  <div class="mb-3">
+    <label class="form-label" for="campaignSelect">Assign to Campaign (optional)</label>
+    <select class="form-select" id="campaignSelect" name="campaign">
+      <option value="">Select campaign</option>
+      {% for c in campaigns %}
+        <option value="{{ c.brand_campaign_id }}" {% if campaign_param == c.brand_campaign_id %}selected{% endif %}>
+          {{ c.name }} ({{ c.brand_campaign_id }})
+        </option>
+      {% endfor %}
+    </select>
+  </div>
   {{ form.non_field_errors }}
 
   {% for field in form %}

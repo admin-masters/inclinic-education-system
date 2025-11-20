@@ -16,24 +16,35 @@ from doctor_viewer.models         import DoctorEngagement
 @permission_classes([IsAuthenticated])
 def get_collateral_campaign(request, collateral_id):
     """
-    Get the brand campaign ID, start date, and end date for a selected collateral
+    Get the brand campaign ID, start date, and end date for a selected collateral.
+    Prefer dates from the bridging table in collateral_management (DateTime fields),
+    falling back to campaign_management (Date fields), and finally direct collateral → campaign.
     """
     try:
-        from campaign_management.models import CampaignCollateral
-        from collateral_management.models import Collateral
-        
-        # First try to get from CampaignCollateral relationship
-        campaign_collateral = CampaignCollateral.objects.select_related('campaign').filter(collateral_id=collateral_id).first()
-        
-        if campaign_collateral:
+        from collateral_management.models import CampaignCollateral as CMBridge, Collateral
+        from campaign_management.models import CampaignCollateral as CMCampaign
+
+        # 1) Prefer bridging record from collateral_management
+        bridge = CMBridge.objects.select_related('campaign').filter(collateral_id=collateral_id).order_by('-updated_at').first()
+        if bridge:
             return Response({
                 'success': True,
-                'brand_campaign_id': campaign_collateral.campaign.brand_campaign_id,
-                'start_date': campaign_collateral.start_date.strftime('%Y-%m-%d') if campaign_collateral.start_date else '',
-                'end_date': campaign_collateral.end_date.strftime('%Y-%m-%d') if campaign_collateral.end_date else ''
+                'brand_campaign_id': bridge.campaign.brand_campaign_id,
+                'start_date': bridge.start_date.strftime('%Y-%m-%d') if bridge.start_date else '',
+                'end_date': bridge.end_date.strftime('%Y-%m-%d') if bridge.end_date else ''
             })
-        
-        # If not found in CampaignCollateral, check direct campaign relationship
+
+        # 2) Fall back to campaign_management CampaignCollateral
+        cm_cc = CMCampaign.objects.select_related('campaign').filter(collateral_id=collateral_id).first()
+        if cm_cc:
+            return Response({
+                'success': True,
+                'brand_campaign_id': cm_cc.campaign.brand_campaign_id,
+                'start_date': cm_cc.start_date.strftime('%Y-%m-%d') if cm_cc.start_date else '',
+                'end_date': cm_cc.end_date.strftime('%Y-%m-%d') if cm_cc.end_date else ''
+            })
+
+        # 3) Finally, use direct collateral → campaign relationship
         collateral = Collateral.objects.select_related('campaign').filter(id=collateral_id).first()
         if collateral and collateral.campaign:
             return Response({
@@ -42,16 +53,10 @@ def get_collateral_campaign(request, collateral_id):
                 'start_date': '',
                 'end_date': ''
             })
-        
-        return Response({
-            'success': False,
-            'error': 'No campaign found for this collateral'
-        })
+
+        return Response({'success': False, 'error': 'No campaign found for this collateral'})
     except Exception as e:
-        return Response({
-            'success': False,
-            'error': str(e)
-        })
+        return Response({'success': False, 'error': str(e)})
 
 class IsAdmin(permissions.BasePermission):
     def has_permission(self, request, view):

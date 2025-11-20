@@ -189,6 +189,21 @@
 {% endblock %}
 
 {% block content %}
+<script>
+  // Force refresh when returning via back/forward cache
+  window.addEventListener('pageshow', function (event) {
+    if (event.persisted) {
+      window.location.reload();
+    }
+  });
+  // As a fallback, refresh if page becomes visible after being hidden
+  document.addEventListener('visibilitychange', function () {
+    if (document.visibilityState === 'visible' && performance && performance.navigation && performance.navigation.type === 2) {
+      // type 2 = back_forward
+      window.location.reload();
+    }
+  });
+</script>
 <h2 class="dashboard-title">Manage Collateral Panel</h2>
 
 <div class="btn-group-wrap">

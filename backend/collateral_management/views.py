@@ -229,7 +229,7 @@ def replace_collateral(request, pk):
                 widgets = {
                     'title': forms.TextInput(attrs={'class': 'form-control'}),
                     'type': forms.Select(attrs={'class': 'form-select'}),
-                    'vimeo_url': forms.URLInput(attrs={'class': 'form-control'}),
+                    'vimeo_url': forms.HiddenInput(),
                     'content_id': forms.TextInput(attrs={'class': 'form-control'}),
                     'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
                     'banner_1': forms.FileInput(attrs={'class': 'form-control'}),
@@ -245,12 +245,43 @@ def replace_collateral(request, pk):
                 widget=forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
                 label="Brand Campaign ID"
             )
+
+            # New: accept Vimeo embed code
+            vimeo_embed_code = forms.CharField(
+                required=False,
+                widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '<iframe src="https://player.vimeo.com/video/123456789" ...></iframe>'}),
+                label="Vimeo Embed Code"
+            )
             
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
                 # Set initial values
                 if self.instance and self.instance.pk:
                     self.fields['campaign'].initial = getattr(self.instance, 'campaign.brand_campaign_id', '')
+
+            def clean(self):
+                cleaned = super().clean()
+                embed = cleaned.get('vimeo_embed_code', '').strip()
+                c_type = cleaned.get('type')
+                url_f = cleaned.get('vimeo_url')
+                import re
+                if embed:
+                    src_match = re.search(r'src\s*=\s*"([^"]+)"', embed)
+                    candidate = src_match.group(1) if src_match else embed
+                    id_match = re.search(r'(?:player\.vimeo\.com\/video\/|vimeo\.com\/)(\d+)', candidate)
+                    if id_match:
+                        video_id = id_match.group(1)
+                        cleaned['vimeo_url'] = f"https://player.vimeo.com/video/{video_id}"
+                    elif 'player.vimeo.com' in candidate:
+                        cleaned['vimeo_url'] = candidate
+                    else:
+                        self.add_error('vimeo_embed_code', 'Could not parse Vimeo embed code. Paste the full iframe code.')
+                # Require video URL for video types
+                if c_type == 'video' and not cleaned.get('vimeo_url'):
+                    self.add_error('vimeo_embed_code', 'Provide a Vimeo embed code for videos.')
+                if c_type == 'pdf_video' and not cleaned.get('vimeo_url'):
+                    self.add_error('vimeo_embed_code', 'Provide a Vimeo embed code (for PDF + Video).')
+                return cleaned
         
         # Set initial values for the form fields
         initial_data = {
@@ -293,7 +324,7 @@ def replace_collateral(request, pk):
                 widgets = {
                     'title': forms.TextInput(attrs={'class': 'form-control'}),
                     'type': forms.Select(attrs={'class': 'form-select'}),
-                    'vimeo_url': forms.URLInput(attrs={'class': 'form-control'}),
+                    'vimeo_url': forms.HiddenInput(),
                     'content_id': forms.TextInput(attrs={'class': 'form-control'}),
                     'description': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
                     'banner_1': forms.FileInput(attrs={'class': 'form-control'}),
@@ -315,6 +346,13 @@ def replace_collateral(request, pk):
                 required=False,
                 widget=forms.TextInput(attrs={'class': 'form-control', 'readonly': 'readonly'}),
                 label="Collateral Title"
+            )
+
+            # New: accept Vimeo embed code
+            vimeo_embed_code = forms.CharField(
+                required=False,
+                widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '<iframe src="https://player.vimeo.com/video/123456789" ...></iframe>'}),
+                label="Vimeo Embed Code"
             )
             
             # Update Purpose of the Collateral field to match Add Collateral form
@@ -349,6 +387,30 @@ def replace_collateral(request, pk):
                     # Set initial title to avoid validation errors
                     self.initial['title'] = self.instance.title
                     self.fields['purpose'].initial = getattr(self.instance, 'purpose', '')
+
+            def clean(self):
+                cleaned = super().clean()
+                embed = cleaned.get('vimeo_embed_code', '').strip()
+                c_type = cleaned.get('type')
+                url_f = cleaned.get('vimeo_url')
+                import re
+                if embed:
+                    src_match = re.search(r'src\s*=\s*"([^"]+)"', embed)
+                    candidate = src_match.group(1) if src_match else embed
+                    id_match = re.search(r'(?:player\.vimeo\.com\/video\/|vimeo\.com\/)(\d+)', candidate)
+                    if id_match:
+                        video_id = id_match.group(1)
+                        cleaned['vimeo_url'] = f"https://player.vimeo.com/video/{video_id}"
+                    elif 'player.vimeo.com' in candidate:
+                        cleaned['vimeo_url'] = candidate
+                    else:
+                        self.add_error('vimeo_embed_code', 'Could not parse Vimeo embed code. Paste the full iframe code.')
+                # Require video URL for video types
+                if c_type == 'video' and not cleaned.get('vimeo_url'):
+                    self.add_error('vimeo_embed_code', 'Provide a Vimeo embed code for videos.')
+                if c_type == 'pdf_video' and not cleaned.get('vimeo_url'):
+                    self.add_error('vimeo_embed_code', 'Provide a Vimeo embed code (for PDF + Video).')
+                return cleaned
             
             def save(self, commit=True):
                 instance = super().save(commit=False)
@@ -455,14 +517,12 @@ def replace_collateral(request, pk):
                     # Save many-to-many fields if any
                     form.save_m2m()
                     
-                    messages.success(request, 'Collateral updated successfully!')
                     # Redirect back to the same page instead of dashboard
                     return redirect('replace_collateral', pk=instance.pk)
                     
                 except Exception as e:
                     # Log the error for debugging
                     print(f"Error saving collateral: {str(e)}")
-                    messages.error(request, f'Error updating collateral: {str(e)}')
             else:
                 # Log form errors for debugging
                 print("Form errors:", form.errors)
