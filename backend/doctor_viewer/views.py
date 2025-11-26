@@ -8,6 +8,8 @@ from shortlink_management.models import ShortLink
 from collateral_management.models import Collateral
 from collateral_management.models import CampaignCollateral as CollateralCampaignLink
 from .models import DoctorEngagement
+from sharing_management.models import ShareLog
+from sharing_management.services.transactions import mark_viewed, mark_pdf_progress, mark_downloaded_pdf
 
 # ──────────────────────────────────────────────────────────────
 # Safe page count helper – works with local + remote storage
@@ -37,6 +39,22 @@ def resolve_view(request, code: str):
         return render(request, 'doctor_viewer/error.html', {'msg': 'Collateral unavailable'})
 
     engagement = DoctorEngagement.objects.create(short_link=short_link)
+
+    # Tiny, safe hook: mark transaction viewed if share_id is present
+    share_id = request.GET.get('share_id') or request.GET.get('s')
+    if share_id:
+        try:
+            sl = ShareLog.objects.get(id=share_id)
+            mark_viewed(sl, sm_engagement_id=None)
+        except ShareLog.DoesNotExist:
+            pass
+    else:
+        try:
+            sl = ShareLog.objects.filter(short_link=short_link).order_by('-share_timestamp').first()
+            if sl:
+                mark_viewed(sl, sm_engagement_id=None)
+        except Exception:
+            pass
 
     context = {
         'collateral': collateral,
@@ -87,6 +105,35 @@ def log_engagement(request):
         'status',
         'updated_at'
     ])
+    # Tiny, safe hook: reflect PDF progress into CollateralTransaction
+    share_id = (
+        request.GET.get('share_id')
+        or request.POST.get('share_id')
+        or request.session.get('share_id')
+    )
+    if share_id:
+        try:
+            sl = ShareLog.objects.get(id=share_id)
+            mark_pdf_progress(
+                sl,
+                last_page=engagement.last_page_scrolled,
+                completed=bool(engagement.pdf_completed),
+                dv_engagement_id=engagement.id,
+            )
+        except ShareLog.DoesNotExist:
+            pass
+    else:
+        try:
+            sl = ShareLog.objects.filter(short_link=engagement.short_link).order_by('-share_timestamp').first()
+            if sl:
+                mark_pdf_progress(
+                    sl,
+                    last_page=engagement.last_page_scrolled,
+                    completed=bool(engagement.pdf_completed),
+                    dv_engagement_id=engagement.id,
+                )
+        except Exception:
+            pass
     return JsonResponse({'status': 'ok'})
 
 # ──────────────────────────────────────────────────────────────
@@ -201,6 +248,12 @@ def doctor_collateral_verify(request):
                     # Grant download access
                     from sharing_management.utils.db_operations import grant_download_access
                     grant_success = grant_download_access(short_link_id)
+                    try:
+                        sl = ShareLog.objects.filter(short_link_id=short_link_id).order_by('-share_timestamp').first()
+                        if sl:
+                            mark_downloaded_pdf(sl)
+                    except Exception:
+                        pass
                     
                     if grant_success:
                         # Get short link and collateral info
@@ -318,13 +371,31 @@ def doctor_collateral_view(request):
                 if success:
                     # Grant download access
                     grant_success = grant_download_access(short_link_id)
+                    try:
+                        sl = ShareLog.objects.filter(short_link_id=short_link_id).order_by('-share_timestamp').first()
+                        if sl:
+                            mark_downloaded_pdf(sl)
+                    except Exception:
+                        pass
                     
                     if grant_success:
                         # Get short link and collateral info
                         short_link = get_object_or_404(ShortLink, id=short_link_id)
                         collateral = short_link.get_collateral()
-                        
+
                         if collateral:
+                            # Tiny, safe hook: mark transaction as viewed using share_id
+                            share_id = (
+                                request.GET.get('share_id')
+                                or request.GET.get('s')
+                                or request.POST.get('share_id')
+                            )
+                            if share_id:
+                                try:
+                                    sl = ShareLog.objects.get(id=share_id)
+                                    mark_viewed(sl, sm_engagement_id=None)
+                                except ShareLog.DoesNotExist:
+                                    pass
                             # === NEW: Build Archives list ===
                             campaign_id = None
                             # Prefer direct FK if present

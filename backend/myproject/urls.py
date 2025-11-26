@@ -22,6 +22,7 @@ from django.contrib.auth import views as auth_views
 from django.conf.urls.static import static
 from django.conf import settings
 from user_management.views_custom import CustomAdminLoginView
+from sharing_management.views_transactions_page import collateral_transactions_dashboard
 
 urlpatterns = [
     path('', home_view, name='home'),
@@ -37,6 +38,7 @@ urlpatterns = [
     path('admin-dashboard/', include(('admin_dashboard.urls', 'admin_dashboard'), namespace='admin-dashboard')),
     path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('shortlinks/', include('shortlink_management.urls')),
+    path("reports/collateral-transactions/<str:brand_campaign_id>/", collateral_transactions_dashboard, name="collateral_transactions_dashboard"),
     
     # Custom admin login with campaign support
     path('admin/login/', CustomAdminLoginView.as_view(), name='admin_login'),

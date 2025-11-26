@@ -38,6 +38,7 @@ from .forms import (
     BulkPreMappedByLoginForm,
 )
 from campaign_management.models import CampaignAssignment
+from sharing_management.services.transactions import upsert_from_sharelog, mark_video_event
 from collateral_management.models import Collateral
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
 from doctor_viewer.models import DoctorEngagement
@@ -179,6 +180,17 @@ def share_content(request):
                 share_timestamp=timezone.now(),
                 message_text=message_text
             )
+            # Tiny, safe hook: upsert transaction row for this send
+            try:
+                upsert_from_sharelog(
+                    share_log,
+                    brand_campaign_id=str(brand_campaign_id),
+                    doctor_name=None,
+                    field_rep_unique_id=getattr(request.user, "employee_code", None),
+                    sent_at=share_log.share_timestamp,
+                )
+            except Exception:
+                pass
 
             return redirect("share_success", share_log_id=share_log.id)
     else:
@@ -2389,6 +2401,17 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                         share_channel='WhatsApp',
                         message_text=f"Shared collateral: {collateral.title}"
                     )
+                    # Tiny, safe hook: upsert transaction row for this send
+                    try:
+                        upsert_from_sharelog(
+                            share_log,
+                            brand_campaign_id=str(brand_campaign_id),
+                            doctor_name=getattr(doctor, 'name', None),
+                            field_rep_unique_id=getattr(field_rep_user, "employee_code", None),
+                            sent_at=share_log.share_timestamp,
+                        )
+                    except Exception:
+                        pass
 
                     # --- Generate WhatsApp share URL ---
                     from urllib.parse import quote
@@ -2489,7 +2512,7 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                             is_active=True
                         )
 
-                        ShareLog.objects.create(
+                        share_log = ShareLog.objects.create(
                             short_link=short_link,
                             collateral=collateral,
                             field_rep=field_rep_user,
@@ -2497,6 +2520,17 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                             share_channel='WhatsApp',
                             message_text=f"Shared collateral: {collateral.title}"
                         )
+                        # Tiny, safe hook: upsert transaction row for this send
+                        try:
+                            upsert_from_sharelog(
+                                share_log,
+                                brand_campaign_id=str(brand_campaign_id),
+                                doctor_name=getattr(doctor, 'name', None),
+                                field_rep_unique_id=getattr(field_rep_user, "employee_code", None),
+                                sent_at=share_log.share_timestamp,
+                            )
+                        except Exception:
+                            pass
 
                         messages.success(request, 'Collateral shared successfully!')
                         
@@ -3780,13 +3814,26 @@ def video_tracking(request):
     ).exists()
 
     if not exists:
-        VideoTrackingLog.objects.create(
+        video_log = VideoTrackingLog.objects.create(
             share_log=share_log,
             user_id=user_id,
             video_status=video_status,
             video_percentage=video_percentage,
             comment=comment
         )
+        # Tiny, safe hook: record transaction-level video event
+        try:
+            sl = ShareLog.objects.get(id=video_log.share_log_id)
+            pct = int(float(video_log.video_percentage)) if video_log.video_percentage else 0
+            mark_video_event(
+                sl,
+                status=int(video_log.video_status),
+                percentage=pct,
+                event_id=video_log.id,
+                when=getattr(video_log, 'created_at', timezone.now()),
+            )
+        except ShareLog.DoesNotExist:
+            pass
         return JsonResponse({"status": "success", "msg": "New video tracking log inserted successfully."})
     else:
         return JsonResponse({"status": "exists", "msg": "This video progress state has already been recorded."})

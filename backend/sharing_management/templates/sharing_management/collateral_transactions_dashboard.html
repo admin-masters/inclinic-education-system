@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-4">
+  <h4 class="mb-3">Collateral Transactions – Brand {{ brand_campaign_id }}</h4>
+
+  <!-- Summary cards -->
+  <div class="row g-3 mb-4">
+    {% for title, value in summary_items %}
+      <div class="col-6 col-md-3">
+        <div class="card shadow-sm">
+          <div class="card-body text-center">
+            <div class="fw-semibold">{{ title }}</div>
+            <div class="display-6">{{ value }}</div>
+          </div>
+        </div>
+      </div>
+    {% endfor %}
+  </div>
+
+  <!-- Filters -->
+  <div class="d-flex gap-2 mb-2">
+    <input class="form-control" id="search" placeholder="Search doctor name/number">
+    <select class="form-select" id="statusFilter" style="max-width:220px">
+      <option value="">All</option>
+      <option value="not_clicked">Needs Click</option>
+      <option value="clicked">Clicked</option>
+      <option value="downloaded">PDF Downloaded</option>
+      <option value="last_page">Viewed Last Page</option>
+      <option value="video_lt_50">Video &lt; 50%</option>
+      <option value="video_gt_50">Video ≥ 50%</option>
+      <option value="video_100">Video 100%</option>
+    </select>
+    <select class="form-select" id="collateralFilter" style="max-width:320px">
+      <option value="">All Collaterals</option>
+      {% for c in collaterals %}
+        <option value="{{ c.id }}" {% if selected_collateral_id and c.id == selected_collateral_id %}selected{% endif %}>{{ c.title }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <!-- Table -->
+  <div class="table-responsive">
+    <table class="table table-sm align-middle" id="txTable">
+      <thead class="table-light">
+        <tr>
+          <th>Transaction ID</th>
+          <th>Doctor</th>
+          <th>Phone</th>
+          <th>Collateral</th>
+          <th>Clicked</th>
+          <th>PDF Download</th>
+          <th>Last Page</th>
+          <th>Video %</th>
+          <th>Video Events</th>
+          <th>Tx Date</th>
+          <th>Updated</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for r in rows %}
+          <tr data-name="{{ r.doctor_name|default:''|lower }}" data-phone="{{ r.doctor_number }}"
+              data-state="{% if r.has_viewed %}clicked{% else %}not_clicked{% endif %}{% if r.has_downloaded_pdf %} downloaded{% endif %}{% if r.has_viewed_last_page %} last_page{% endif %}{% if r.video_view_lt_50 %} video_lt_50{% endif %}{% if r.video_view_gt_50 %} video_gt_50{% endif %}{% if r.video_view_100 %} video_100{% endif %}"
+          >
+            <td>{{ r.transaction_id_display }}</td>
+            <td>{{ r.doctor_name }}</td>
+            <td>{{ r.doctor_number }}</td>
+            <td>{{ r.collateral_id }}</td>
+            <td>{% if r.has_viewed %}✅{% else %}—{% endif %}</td>
+            <td>{% if r.has_downloaded_pdf %}✅{% else %}—{% endif %}</td>
+            <td>
+              {% if r.has_viewed_last_page %}✅{% else %}—{% endif %}
+              {% if r.last_page_scrolled %}<small class="text-muted"> ({{ r.last_page_scrolled }})</small>{% endif %}
+            </td>
+            <td>
+              {{ r.last_video_percentage }}%
+              {% if r.video_view_100 %}<span class="badge bg-success ms-1">100%</span>
+              {% elif r.video_view_gt_50 %}<span class="badge bg-warning text-dark ms-1">≥50%</span>
+              {% elif r.video_view_lt_50 %}<span class="badge bg-secondary ms-1">&lt;50%</span>{% endif %}
+            </td>
+            <td>{{ r.total_video_events }}</td>
+            <td>{{ r.transaction_date }}</td>
+            <td>{{ r.updated_at|date:"Y-m-d H:i" }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+  const $q = s => document.querySelector(s);
+  const rows = Array.from(document.querySelectorAll('#txTable tbody tr'));
+  function filter() {
+    const term = ($q('#search').value || '').toLowerCase();
+    const state = $q('#statusFilter').value;
+    rows.forEach(tr => {
+      const name = tr.dataset.name || '';
+      const phone = tr.dataset.phone || '';
+      const matchesText = !term || name.includes(term) || phone.includes(term);
+      const states = (tr.dataset.state || '').split(' ').filter(Boolean);
+      const matchesState = !state || states.includes(state);
+      tr.style.display = (matchesText && matchesState) ? '' : 'none';
+    });
+  }
+  ['input','change'].forEach(ev => {
+    $q('#search').addEventListener(ev, filter);
+    $q('#statusFilter').addEventListener(ev, filter);
+  });
+  const collSel = $q('#collateralFilter');
+  if (collSel) {
+    collSel.addEventListener('change', function() {
+      const val = this.value;
+      const qs = val ? ('?collateral_id=' + encodeURIComponent(val)) : '';
+      const base = window.location.origin + window.location.pathname;
+      window.location.href = base + qs;
+    });
+  }
+})();
+</script>
+{% endblock %}

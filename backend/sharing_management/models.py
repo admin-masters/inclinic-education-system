@@ -84,3 +84,69 @@ class VideoTrackingLog(models.Model):
 
     def __str__(self):
         return f"{self.user_id} - {self.share_log_id} - {self.video_percentage}"
+
+
+# ---- NEW MODEL ----
+class CollateralTransaction(models.Model):
+    """
+    One row per (field_rep_id, doctor_number, collateral_id, transaction_date).
+    'transaction_id' is a business key (rep*phone*collateral) for easy lookups.
+    All *_at fields are optional timestamps for auditing each event.
+    """
+    # identity
+    transaction_id = models.CharField(max_length=128, db_index=True)  # "field_rep_id*doctor_number*collateral_id"
+    brand_campaign_id = models.CharField(max_length=64, db_index=True)  # can be int-like or string
+    field_rep_id = models.CharField(max_length=64, db_index=True)      # from FIELD_REP_CAMPAIGN
+    field_rep_unique_id = models.CharField(max_length=64, blank=True, null=True)
+
+    doctor_name = models.CharField(max_length=255, blank=True, null=True)
+    doctor_number = models.CharField(max_length=15, db_index=True)
+    doctor_unique_id = models.CharField(max_length=64, blank=True, null=True)
+
+    collateral_id = models.BigIntegerField(db_index=True)
+    transaction_date = models.DateField(db_index=True)  # “day-bucket” that decides row uniqueness
+
+    # derived booleans
+    has_viewed = models.BooleanField(default=False)             # from link open / verification
+    has_downloaded_pdf = models.BooleanField(default=False)     # from download_timestamp
+    has_viewed_last_page = models.BooleanField(default=False)   # from last_page_scrolled
+
+    video_view_lt_50 = models.BooleanField(default=False)
+    video_view_gt_50 = models.BooleanField(default=False)
+    video_view_100 = models.BooleanField(default=False)
+
+    total_video_events = models.PositiveIntegerField(default=0)
+    last_video_percentage = models.PositiveSmallIntegerField(default=0)
+    last_page_scrolled = models.PositiveIntegerField(default=0)
+
+    # references to last/representative engagement rows (optional, for drill-down)
+    doctor_viewer_engagement_id = models.BigIntegerField(blank=True, null=True)
+    share_management_engagement_id = models.BigIntegerField(blank=True, null=True)
+    video_tracking_last_event_id = models.BigIntegerField(blank=True, null=True)
+
+    # timestamps (mirror existing)
+    created_at = models.DateTimeField(default=timezone.now)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    # event timestamps (requested: “Every single activity must have a timestamp stored”)
+    sent_at = models.DateTimeField(blank=True, null=True)
+    viewed_at = models.DateTimeField(blank=True, null=True)
+    downloaded_pdf_at = models.DateTimeField(blank=True, null=True)
+    viewed_last_page_at = models.DateTimeField(blank=True, null=True)
+    video_lt_50_at = models.DateTimeField(blank=True, null=True)
+    video_gt_50_at = models.DateTimeField(blank=True, null=True)
+    video_100_at = models.DateTimeField(blank=True, null=True)
+    last_video_event_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["brand_campaign_id", "transaction_date"]),
+            models.Index(fields=["doctor_number", "collateral_id"]),
+        ]
+        unique_together = (
+            # guarantees SCENARIO rules: same rep+doctor+collateral+same day → single row
+            ("field_rep_id", "doctor_number", "collateral_id", "transaction_date"),
+        )
+
+    def __str__(self):
+        return f"{self.transaction_id} @ {self.transaction_date}"
