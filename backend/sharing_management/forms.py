@@ -313,13 +313,18 @@ class CalendarCampaignCollateralForm(forms.ModelForm):
 # ─── Bulk *manual* share (existing) ────────────────────────────────────────────
 class BulkManualShareForm(forms.Form):
     """
-    Expects a small CSV (< 2 MB) with six columns **without** a header row:
-
+    Expects a CSV with header row:
+    
+    Option 1: For field reps only (2 columns):
+      Field Rep ID, Gmail ID
+    
+    Option 2: Full format (6 columns):
       field_rep_email, doctor_name, doctor_contact, collateral_id,
       share_channel (WhatsApp/SMS/Email), message_text(optional)
     """
     csv_file = forms.FileField(
-        help_text=("CSV: field_rep_email,doctor_name,doctor_contact,"
+        help_text=("CSV Format 1: Field Rep ID, Gmail ID<br>"
+                   "CSV Format 2: field_rep_email,doctor_name,doctor_contact,"
                    "collateral_id,share_channel,message_text"),
     )
 
@@ -339,23 +344,69 @@ class BulkManualShareForm(forms.Form):
         returns tuple (created_count, errors[list]).
         """
         from django.contrib.auth import get_user_model
-        from shortlink_management.models import ShortLink
-        from shortlink_management.utils import generate_short_code
+        from django.contrib.auth import get_user_model
         from django.utils import timezone
         from datetime import timedelta
 
         data = self.cleaned_data["csv_file"].read().decode()
         file_obj = io.StringIO(data)
 
-        # Auto-detect header
+        # Auto-detect header and format
         peek = next(csv.reader(io.StringIO(data)), [])
-        header_keys = {"field_rep_email", "doctor_name", "doctor_contact", "collateral_id", "share_channel", "message_text"}
-        has_header = any((c or "").strip().lower() in header_keys for c in peek)
-
+        header_keys_2 = {"field rep id", "gmail id", "field_rep_id", "gmail_id"}
+        header_keys_6 = {"field_rep_email", "doctor_name", "doctor_contact", "collateral_id", "share_channel", "message_text"}
+        
+        # Detect format
+        is_2_col_format = any((c or "").strip().lower() in header_keys_2 for c in peek[:2])
+        is_6_col_format = any((c or "").strip().lower() in header_keys_6 for c in peek)
+        
         created, errors = 0, []
         UserModel = get_user_model()
 
-        if has_header:
+        if is_2_col_format:
+            # Handle 2-column format: Field Rep ID, Gmail ID
+            file_obj.seek(0)
+            reader = csv.DictReader(file_obj)
+            rows_iter = (
+                (
+                    r.get("Field Rep ID", "").strip() or r.get("field_rep_id", "").strip(),
+                    r.get("Gmail ID", "").strip() or r.get("gmail_id", "").strip(),
+                )
+                for r in reader
+            )
+            start_row = 2  # header is row 1
+            
+            for row_no, (field_rep_id, gmail_id) in enumerate(rows_iter, start=start_row):
+                try:
+                    # Skip empty rows
+                    if not field_rep_id and not gmail_id:
+                        continue
+                    
+                    # For 2-column format, we're just validating the field reps exist
+                    # No actual sharing is performed
+                    if field_rep_id:
+                        # Check if field rep exists by field_id
+                        rep = UserModel.objects.filter(role="field_rep", field_id=field_rep_id).first()
+                        if not rep:
+                            # Try by email
+                            rep = UserModel.objects.filter(role="field_rep", email=gmail_id).first()
+                            if not rep:
+                                errors.append(f"Row {row_no}: Field Rep with ID '{field_rep_id}' or email '{gmail_id}' not found")
+                                continue
+                    elif gmail_id:
+                        # Check by email
+                        rep = UserModel.objects.filter(role="field_rep", email=gmail_id).first()
+                        if not rep:
+                            errors.append(f"Row {row_no}: Field Rep with email '{gmail_id}' not found")
+                            continue
+                    
+                    created += 1
+                    
+                except Exception as exc:
+                    errors.append(f"Row {row_no}: {exc}")
+        
+        elif is_6_col_format:
+            # Handle original 6-column format
             file_obj.seek(0)
             reader = csv.DictReader(file_obj)
             rows_iter = (
@@ -370,101 +421,108 @@ class BulkManualShareForm(forms.Form):
                 for r in reader
             )
             start_row = 2  # header is row 1
-        else:
-            file_obj.seek(0)
-            reader = csv.reader(file_obj)
-            rows_iter = (
-                tuple([c.strip() for c in (row + [""] * 6)[:6]])
-                for row in reader if row and not row[0].strip().startswith("#")
-            )
-            start_row = 1
 
-        for row_no, row in enumerate(rows_iter, start=start_row):
-            try:
-                rep_email, doctor_name, doctor_contact, col_id, share_channel, message_text = row
-
-                # field rep
+            for row_no, row in enumerate(rows_iter, start=start_row):
                 try:
-                    rep = UserModel.objects.get(email=rep_email, role="field_rep")
-                except UserModel.DoesNotExist:
-                    # Try to find any field rep or use current user as fallback
-                    rep = UserModel.objects.filter(role="field_rep").first()
-                    if not rep:
-                        rep = user_request
-                    if not rep:
-                        raise ValueError(f"No field representatives available in system")
+                    rep_email, doctor_name, doctor_contact, col_id, share_channel, message_text = row
 
-                # collateral
-                try:
-                    col = Collateral.objects.get(id=int(col_id))
-                except Collateral.DoesNotExist:
-                    # Check if it exists in the other Collateral model
-                    from campaign_management.models import Collateral as CampaignCollateral
+                    # Skip empty rows
+                    if not any(row):
+                        continue
+
+                    # field rep
                     try:
-                        campaign_col = CampaignCollateral.objects.get(id=int(col_id))
-                        raise ValueError(f"Invalid collateral_id «{col_id}». This ID exists in Campaign Management but not in Collateral Management. Please use a collateral from the Collateral Management system.")
-                    except CampaignCollateral.DoesNotExist:
-                        pass
-                    
-                    # Provide helpful error with available IDs
-                    available_ids = list(Collateral.objects.filter(is_active=True).values_list('id', flat=True)[:10])
-                    if available_ids:
-                        raise ValueError(f"Invalid collateral_id «{col_id}». Available active IDs: {available_ids}")
+                        rep = UserModel.objects.get(email=rep_email, role="field_rep")
+                    except UserModel.DoesNotExist:
+                        # Try to find any field rep or use current user as fallback
+                        rep = UserModel.objects.filter(role="field_rep").first()
+                        if not rep:
+                            rep = user_request
+                        if not rep:
+                            raise ValueError(f"No field representatives available in system")
+
+                    # collateral
+                    if col_id:
+                        try:
+                            col = Collateral.objects.get(id=int(col_id))
+                        except Collateral.DoesNotExist:
+                            # Check if it exists in the other Collateral model
+                            from campaign_management.models import Collateral as CampaignCollateral
+                            try:
+                                campaign_col = CampaignCollateral.objects.get(id=int(col_id))
+                                raise ValueError(f"Invalid collateral_id «{col_id}». This ID exists in Campaign Management but not in Collateral Management. Please use a collateral from the Collateral Management system.")
+                            except CampaignCollateral.DoesNotExist:
+                                pass
+                            
+                            # Provide helpful error with available IDs
+                            available_ids = list(Collateral.objects.filter(is_active=True).values_list('id', flat=True)[:10])
+                            if available_ids:
+                                raise ValueError(f"Invalid collateral_id «{col_id}». Available active IDs: {available_ids}")
+                            else:
+                                raise ValueError(f"Invalid collateral_id «{col_id}». No active collaterals found in database.")
                     else:
-                        raise ValueError(f"Invalid collateral_id «{col_id}». No active collaterals found in database.")
+                        col = None
 
-                # phone / e‑mail quick check
-                if share_channel == "Email":
-                    validate_email(doctor_contact)
-                else:
-                    # Handle scientific notation from Excel (e.g., 9.19812E+11)
-                    try:
-                        if 'E' in doctor_contact.upper() or 'e' in doctor_contact:
-                            # Convert scientific notation to regular number
-                            doctor_contact = str(int(float(doctor_contact)))
-                    except:
-                        pass  # If conversion fails, use original value
-                    
-                    digits = "".join(ch for ch in doctor_contact if ch.isdigit())
-                    if len(digits) < 8:
-                        raise ValueError("doctor_contact looks too short")
+                    # phone / e‑mail quick check
+                    if col and share_channel == "Email":
+                        validate_email(doctor_contact)
+                    elif col:
+                        # Handle scientific notation from Excel (e.g., 9.19812E+11)
+                        try:
+                            if 'E' in doctor_contact.upper() or 'e' in doctor_contact:
+                                # Convert scientific notation to regular number
+                                doctor_contact = str(int(float(doctor_contact)))
+                        except:
+                            pass  # If conversion fails, use original value
+                        
+                        digits = "".join(ch for ch in doctor_contact if ch.isdigit())
+                        if len(digits) < 8:
+                            raise ValueError("doctor_contact looks too short")
 
-                # Check for duplicate in last 24 hours
-                cutoff_time = timezone.now() - timedelta(hours=24)
-                duplicate_exists = ShareLog.objects.filter(
-                    field_rep=rep,
-                    doctor_identifier=doctor_contact or doctor_name,
-                    collateral=col,
-                    share_channel=share_channel or "WhatsApp",
-                    share_timestamp__gte=cutoff_time
-                ).exists()
+                    # If we have a collateral, create share log
+                    if col:
+                        # Check for duplicate in last 24 hours
+                        cutoff_time = timezone.now() - timedelta(hours=24)
+                        duplicate_exists = ShareLog.objects.filter(
+                            field_rep=rep,
+                            doctor_identifier=doctor_contact or doctor_name,
+                            collateral=col,
+                            share_channel=share_channel or "WhatsApp",
+                            share_timestamp__gte=cutoff_time
+                        ).exists()
 
-                if duplicate_exists:
-                    continue  # Skip duplicate
+                        if duplicate_exists:
+                            continue  # Skip duplicate
 
-                # short‑link (create or reuse)
-                sl, _ = ShortLink.objects.get_or_create(
-                    resource_type="collateral",
-                    resource_id=col.id,
-                    defaults=dict(
-                        short_code=generate_short_code(),
-                        is_active=True,
-                        created_by=user_request,
-                    ),
-                )
+                        # short‑link (create or reuse)
+                        from shortlink_management.models import ShortLink
+                        from shortlink_management.utils import generate_short_code
+                        
+                        sl, _ = ShortLink.objects.get_or_create(
+                            resource_type="collateral",
+                            resource_id=col.id,
+                            defaults=dict(
+                                short_code=generate_short_code(),
+                                is_active=True,
+                                created_by=user_request,
+                            ),
+                        )
 
-                ShareLog.objects.create(
-                    short_link=sl,
-                    field_rep=rep,
-                    doctor_identifier=doctor_contact or doctor_name,
-                    share_channel=share_channel or "WhatsApp",
-                    message_text=message_text,
-                    collateral=col,
-                )
-                created += 1
+                        ShareLog.objects.create(
+                            short_link=sl,
+                            field_rep=rep,
+                            doctor_identifier=doctor_contact or doctor_name,
+                            share_channel=share_channel or "WhatsApp",
+                            message_text=message_text,
+                            collateral=col,
+                        )
+                    created += 1
 
-            except Exception as exc:        # noqa: BLE001
-                errors.append(f"Row {row_no}: {exc}")
+                except Exception as exc:        # noqa: BLE001
+                    errors.append(f"Row {row_no}: {exc}")
+        else:
+            # Unknown format
+            errors.append("Invalid CSV format. Please use either 2-column format (Field Rep ID, Gmail ID) or 6-column format (field_rep_email, doctor_name, doctor_contact, collateral_id, share_channel, message_text)")
 
         return created, errors
 

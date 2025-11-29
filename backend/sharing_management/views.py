@@ -318,11 +318,33 @@ def fieldrep_dashboard(request):
         # Get campaign through collateral_management CampaignCollateral relationship
         campaign = cc.campaign if cc else None
 
+        # Build best viewer URL: if both assets present, route to combined viewer
+        has_pdf = bool(getattr(c, 'file', None))
+        has_vid = bool(getattr(c, 'vimeo_url', ''))
+        viewer_url = None
+        if has_pdf and has_vid:
+            try:
+                from django.urls import reverse
+                # Prefer shortlink if exists so tracking remains unchanged
+                from shortlink_management.models import ShortLink
+                sl = ShortLink.objects.filter(
+                    resource_type='collateral',
+                    resource_id=getattr(c, 'id', None),
+                    is_active=True
+                ).order_by('-date_created').first()
+                if sl:
+                    viewer_url = reverse('resolve_shortlink', args=[sl.short_code])
+                else:
+                    viewer_url = reverse('collateral_preview', args=[getattr(c, 'id', None)])
+            except Exception:
+                viewer_url = None
+
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',
             'item_name': getattr(c, 'title', ''),
             'description': getattr(c, 'description', ''),
-            'url': c.file.url if getattr(c, 'file', None) else (getattr(c, 'vimeo_url', '') or ''),
+            'url': viewer_url or (c.file.url if has_pdf else (getattr(c, 'vimeo_url', '') or '')),
+            'has_both': has_pdf and has_vid,
             # Use collateral_management.Collateral id for Replace/Delete actions
             'id': getattr(c, 'id', None),
             # Use collateral_management CampaignCollateral id for Edit Dates button
@@ -442,7 +464,7 @@ def bulk_manual_upload(request):
                 print(f"Created: {created}, Errors: {errors}")
                 
                 if created and created > 0:
-                    messages.success(request, f"{created} rows imported successfully.")
+                    messages.success(request, f"Data is uploaded successfully. {created} rows imported successfully.")
                     print("Redirecting to bulk_upload_success")
                     return redirect("bulk_upload_success")
                 else:
@@ -540,7 +562,7 @@ def bulk_pre_mapped_upload(request):
         if form.is_valid():
             created, errors = form.save(admin_user=request.user)
             if created:
-                messages.success(request, f"{created} rows imported successfully.")
+                messages.success(request, f"Data is uploaded successfully. {created} rows imported successfully.")
                 return redirect("bulk_upload_success")
             for err in errors:
                 messages.error(request, err)
@@ -567,7 +589,7 @@ def bulk_manual_upload_whatsapp(request):
         if form.is_valid():
             created, errors = form.save(user_request=request.user)
             if created:
-                messages.success(request, f"{created} WhatsApp rows imported successfully.")
+                messages.success(request, f"Data is uploaded successfully. {created} WhatsApp rows imported successfully.")
                 return redirect("bulk_upload_success")
             for err in errors:
                 messages.error(request, err)
@@ -603,7 +625,8 @@ def bulk_pre_filled_share_whatsapp(request):
         if form.is_valid():
             result = form.save(admin_user=request.user)
             if result["created"]:
-                messages.success(request, f"{result['created']} rows shared.")
+                messages.success(request, f"Data is uploaded successfully. {result['created']} rows shared.")
+                return redirect("bulk_upload_success")
             for err in result["errors"]:
                 messages.error(request, err)
             return redirect("bulk_pre_filled_share_whatsapp")
@@ -3846,7 +3869,7 @@ def bulk_pre_mapped_by_login(request):
             if result["created"] or result.get("updated"):
                 messages.success(
                     request,
-                    f"Doctors created: {result['created']}. Mappings created/updated: {result.get('updated', 0)}."
+                    f"Data is uploaded successfully. Doctors created: {result['created']}. Mappings created/updated: {result.get('updated', 0)}."
                 )
             for err in result["errors"]:
                 messages.error(request, err)

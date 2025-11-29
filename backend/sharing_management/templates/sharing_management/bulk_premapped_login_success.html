@@ -1,6 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Upload Complete (by Login){% endblock %}
 {% block content %}
+<!-- Display Django Messages -->
+{% if messages %}
+{% for message in messages %}
+<div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+  {{ message }}
+  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+</div>
+{% endfor %}
+{% endif %}
+
 <h2>Bulk Pre‑mapped (by Login) — Success</h2>
 <p class="lead">
   Doctors created: <strong>{{ created }}</strong><br>

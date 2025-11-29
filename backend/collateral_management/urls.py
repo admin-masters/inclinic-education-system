@@ -15,11 +15,13 @@ urlpatterns = [
     # standard CRUD
     path("",                CollateralListView.as_view(),  name="collateral_list"),
     path("<int:pk>/",       CollateralDetailView.as_view(), name="collateral_detail"),
-    path("create/",         CollateralCreateView.as_view(), name="collateral_create"),
-    path("<int:pk>/edit/",  CollateralUpdateView.as_view(), name="collateral_update"),
-    path("<int:pk>/delete/",CollateralDeleteView.as_view(), name="collateral_delete"),
-    path('<int:pk>/replace/', views.replace_collateral, name='replace_collateral'),
+    path("create/",                   CollateralCreateView.as_view(), name="collateral_create"),
+    path("<int:pk>/edit/",            CollateralUpdateView.as_view(), name="collateral_update"),
+    path("<int:pk>/delete/",          CollateralDeleteView.as_view(), name="collateral_delete"),
+    path('<int:pk>/replace/',          views.replace_collateral,      name='replace_collateral'),
     path('<int:pk>/dashboard-delete/', views.dashboard_delete_collateral, name='dashboard_delete_collateral'),
+    # Support both /collaterals/<pk>/preview/ and /collaterals/<pk>/preview/<extra_id>/
+    path('<int:pk>/preview/', views.preview_collateral, name='collateral_preview'),
 
     # bridging table helpers
     path("link/",           link_collateral_to_campaign,    name="link_collateral_to_campaign"),

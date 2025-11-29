@@ -84,6 +84,21 @@ class Collateral(models.Model):
     # pretty name ---------------------------------------------------
     def __str__(self):
         return self.title
+        
+    def save(self, *args, **kwargs):
+        # If this is a video type, ensure the Vimeo URL is properly formatted
+        if self.type in ['video', 'pdf_video'] and self.vimeo_url:
+            # If it's a full Vimeo URL, extract just the video ID
+            if 'vimeo.com' in self.vimeo_url:
+                # Remove any query parameters
+                clean_url = self.vimeo_url.split('?')[0]
+                # Extract the video ID (handles both /video/123 and /123 formats)
+                if '/video/' in clean_url:
+                    self.vimeo_url = clean_url.split('/video/')[-1]
+                else:
+                    self.vimeo_url = clean_url.strip('/').split('/')[-1]
+        
+        super().save(*args, **kwargs)
     
     # helper (optional)
     def webinar_month_year(self):

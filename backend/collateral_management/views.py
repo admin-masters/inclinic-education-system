@@ -604,3 +604,22 @@ def dashboard_delete_collateral(request, pk):
         collateral.delete()
         return redirect('/share/dashboard/')
     return redirect('/share/dashboard/')
+
+
+def preview_collateral(request, pk):
+    collateral = get_object_or_404(Collateral, pk=pk)
+    absolute_pdf_url = None
+    try:
+        if getattr(collateral, 'file', None):
+            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
+    except Exception:
+        absolute_pdf_url = None
+
+    return render(request, 'doctor_viewer/view.html', {
+        'verified': True,
+        'collateral': collateral,
+        'archives': [],
+        'absolute_pdf_url': absolute_pdf_url,
+        'engagement_id': 0,
+        'short_code': '',
+    })

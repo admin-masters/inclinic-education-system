@@ -10,17 +10,45 @@
             <p><strong>Upload Date:</strong> {{ collateral.upload_date }}</p>
             <p><strong>Status:</strong> {% if collateral.is_active %}Active{% else %}Inactive{% endif %}</p>
 
-            {% if collateral.type == 'pdf' and collateral.file %}
             <div class="mt-3">
-                <h4>PDF Document</h4>
-                <a href="{{ collateral.file.url }}" class="btn btn-primary" target="_blank">View PDF</a>
-            </div>
-            {% elif collateral.type == 'video' and collateral.vimeo_url %}
-            <div class="mt-3">
-                <h4>Video</h4>
-                <a href="{{ collateral.vimeo_url }}" class="btn btn-primary" target="_blank">View Video</a>
-            </div>
-            {% endif %}
+                {% if collateral.file %}
+                <div class="mb-4">
+                    <h4>PDF Document</h4>
+                    <div class="mt-2">
+                        <a href="{{ collateral.file.url }}" class="btn btn-primary" target="_blank">View PDF</a>
+                    </div>
+                    <div class="mt-2">
+                        <iframe src="{{ collateral.file.url }}#toolbar=0" width="100%" height="500px" class="border rounded">
+                            Your browser does not support PDFs. <a href="{{ collateral.file.url }}">Download the PDF</a> instead.
+                        </iframe>
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if collateral.vimeo_url %}
+                <div class="mt-4">
+                    <h4>Video</h4>
+                    <div class="mt-2">
+                        {% if 'vimeo.com' in collateral.vimeo_url %}
+                            {% with video_id=collateral.vimeo_url.split('/')|last %}
+                            <div class="embed-responsive embed-responsive-16by9">
+                                <iframe src="https://player.vimeo.com/video/{{ video_id }}" 
+                                        width="100%" 
+                                        height="400" 
+                                        frameborder="0" 
+                                        allow="autoplay; fullscreen; picture-in-picture" 
+                                        allowfullscreen
+                                        class="border rounded">
+                                </iframe>
+                            </div>
+                            {% endwith %}
+                        {% else %}
+                            <a href="{{ collateral.vimeo_url }}" class="btn btn-primary" target="_blank">View Video</a>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+            </div>  <!-- Added closing div tag for mt-3 -->
 
             <div class="mt-4">
                 <a href="{% url 'collateral_list' %}" class="btn btn-secondary">Back to List</a>
