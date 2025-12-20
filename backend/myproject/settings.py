@@ -115,7 +115,7 @@ DATABASES = {
         "NAME": "myproject_dev",
         "USER": "user_root",
         "PASSWORD": "6k9I7Lz-|[h",
-        "HOST": "13.200.145.110",
+        "HOST": "localhost",
         "PORT": "3306",
     },
     "reporting": {
@@ -123,7 +123,7 @@ DATABASES = {
         "NAME": "myproject_reporting",
         "USER": "user_root",
         "PASSWORD": "6k9I7Lz-|[h",
-        "HOST": "13.200.145.110",
+        "HOST": "localhost",
         "PORT": "3306",
     },
 }
