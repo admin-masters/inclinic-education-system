@@ -69,19 +69,13 @@ class CollateralDetailView(DetailView):
         try:
             if getattr(collateral, 'file', None):
                 import os
-
-                BASE_PDF_PATH = "/var/www/inclinic-media/collaterals/tmp/"
+                
+                # Always generate the URL using /collaterals/tmp/ without checking file existence
                 filename = os.path.basename(collateral.file.name)
-                full_file_path = os.path.join(BASE_PDF_PATH, filename)
-
-                if os.path.exists(full_file_path):
-                    # custom serving URL using /collaterals/tmp/
-                    absolute_pdf_url = self.request.build_absolute_uri(
-                        f"/collaterals/tmp/{filename}"
-                    )
-                    print(f"DEBUG: File exists at {full_file_path}")
-                else:
-                    print(f"DEBUG: File not found at {full_file_path}")
+                absolute_pdf_url = self.request.build_absolute_uri(
+                    f"/collaterals/tmp/{filename}"
+                )
+                print(f"DEBUG: Generated PDF URL: {absolute_pdf_url}")
         except Exception as e:
             print(f"Error generating PDF URL: {e}")
         
@@ -641,19 +635,13 @@ def preview_collateral(request, pk):
     try:
         if getattr(collateral, 'file', None):
             import os
-
-            BASE_PDF_PATH = "/var/www/inclinic-media/collaterals/tmp/"
+            
+            # Always generate the URL using /collaterals/tmp/ without checking file existence
             filename = os.path.basename(collateral.file.name)
-            full_file_path = os.path.join(BASE_PDF_PATH, filename)
-
-            if os.path.exists(full_file_path):
-                # custom serving URL using /collaterals/tmp/
-                absolute_pdf_url = request.build_absolute_uri(
-                    f"/collaterals/tmp/{filename}"
-                )
-                print(f"DEBUG: File exists at {full_file_path}")
-            else:
-                print(f"DEBUG: File not found at {full_file_path}")
+            absolute_pdf_url = request.build_absolute_uri(
+                f"/collaterals/tmp/{filename}"
+            )
+            print(f"DEBUG: Generated PDF URL: {absolute_pdf_url}")
 
     except Exception as e:
         print(f"Error generating PDF URL: {e}")
