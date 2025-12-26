@@ -83,8 +83,7 @@
     <div id="pdfContainer"></div>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
     <script>
-      // Use absolute_pdf_url for production, fallback to collateral.file.url
-      const url = "{{ absolute_pdf_url|default:collateral.file.url }}";
+      const url = "{{ collateral.file.url }}";
       let pdfDoc = null,
         totalPages = 0,
         completed = false;

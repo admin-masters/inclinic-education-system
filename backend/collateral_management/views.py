@@ -59,22 +59,6 @@ class CollateralDetailView(DetailView):
     model = Collateral
     template_name = 'collateral_management/collateral_detail.html'
     context_object_name = 'collateral'
-    
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        collateral = self.get_object()
-        absolute_pdf_url = None
-        try:
-            if getattr(collateral, 'file', None):
-                # For production, files are stored at /var/www/inclinic-media/ but accessed via /media/
-                # We need to construct the correct URL that points to the actual file location
-                file_path = collateral.file.name  # This gives relative path like 'collaterals/tmp/filename.pdf'
-                # Construct the correct URL for production environment
-                absolute_pdf_url = f"/var/www/inclinic-media/{file_path}"
-        except Exception:
-            absolute_pdf_url = None
-        context['absolute_pdf_url'] = absolute_pdf_url
-        return context
 
 
 @method_decorator(admin_required, name='dispatch')
@@ -627,11 +611,7 @@ def preview_collateral(request, pk):
     absolute_pdf_url = None
     try:
         if getattr(collateral, 'file', None):
-            # For production, files are stored at /var/www/inclinic-media/ but accessed via /media/
-            # We need to construct the correct URL that points to the actual file location
-            file_path = collateral.file.name  # This gives relative path like 'collaterals/tmp/filename.pdf'
-            # Construct the correct URL for production environment
-            absolute_pdf_url = f"/var/www/inclinic-media/{file_path}"
+            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
     except Exception:
         absolute_pdf_url = None
 

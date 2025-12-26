@@ -107,20 +107,10 @@ def resolve_shortlink(request, code):
         logger.warning(f"Redirect condition failed - collateral: {collateral}")
 
     messages.error(request, "Resource not found or inactive.")
-    
-    # Calculate absolute_pdf_url for production environment
-    absolute_pdf_url = None
-    if collateral and getattr(collateral, 'file', None):
-        try:
-            file_path = collateral.file.name  # This gives relative path like 'collaterals/tmp/filename.pdf'
-            absolute_pdf_url = f"/var/www/inclinic-media/{file_path}"
-        except Exception:
-            absolute_pdf_url = None
-    
     return render(
         request,
         "shortlink_management/resolve_shortlink.html",
-        {"shortlink": shortlink, "collateral": collateral, "absolute_pdf_url": absolute_pdf_url},
+        {"shortlink": shortlink, "collateral": collateral},
     )
 
 
