@@ -4,6 +4,7 @@ from django.utils.decorators import method_decorator
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from django.contrib import messages
 from django.db import transaction 
+from django.http import FileResponse, Http404
 import os
 from .decorators import admin_required
 from .models import Collateral, CampaignCollateral
@@ -67,22 +68,22 @@ class CollateralDetailView(DetailView):
         absolute_pdf_url = None
         try:
             if getattr(collateral, 'file', None):
-                from django.conf import settings
                 import os
-                file_path = collateral.file.name
-                # Build the absolute file path using MEDIA_ROOT to verify file exists
-                full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
-                # Check if file exists at the actual location
+
+                BASE_PDF_PATH = "/var/www/inclinic-media/collaterals/tmp/"
+                filename = os.path.basename(collateral.file.name)
+                full_file_path = os.path.join(BASE_PDF_PATH, filename)
+
                 if os.path.exists(full_file_path):
-                    # Use MEDIA_URL which is already configured to serve from MEDIA_ROOT
-                    absolute_pdf_url = self.request.build_absolute_uri(f"{settings.MEDIA_URL}{file_path}")
-                    print(f"DEBUG: File exists at {full_file_path}, using URL: {absolute_pdf_url}")
+                    # custom serving URL (NOT /media/)
+                    absolute_pdf_url = self.request.build_absolute_uri(
+                        f"/collaterals/pdf/{filename}"
+                    )
+                    print(f"DEBUG: File exists at {full_file_path}")
                 else:
                     print(f"DEBUG: File not found at {full_file_path}")
-                    absolute_pdf_url = None
         except Exception as e:
             print(f"Error generating PDF URL: {e}")
-            absolute_pdf_url = None
         
         context['absolute_pdf_url'] = absolute_pdf_url
         return context
@@ -636,24 +637,26 @@ def dashboard_delete_collateral(request, pk):
 def preview_collateral(request, pk):
     collateral = get_object_or_404(Collateral, pk=pk)
     absolute_pdf_url = None
+
     try:
         if getattr(collateral, 'file', None):
-            from django.conf import settings
             import os
-            file_path = collateral.file.name
-            # Build the absolute file path using MEDIA_ROOT to verify file exists
-            full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
-            # Check if file exists at the actual location
+
+            BASE_PDF_PATH = "/var/www/inclinic-media/collaterals/tmp/"
+            filename = os.path.basename(collateral.file.name)
+            full_file_path = os.path.join(BASE_PDF_PATH, filename)
+
             if os.path.exists(full_file_path):
-                # Use MEDIA_URL which is already configured to serve from MEDIA_ROOT
-                absolute_pdf_url = request.build_absolute_uri(f"{settings.MEDIA_URL}{file_path}")
-                print(f"DEBUG: File exists at {full_file_path}, using URL: {absolute_pdf_url}")
+                # custom serving URL (NOT /media/)
+                absolute_pdf_url = request.build_absolute_uri(
+                    f"/collaterals/pdf/{filename}"
+                )
+                print(f"DEBUG: File exists at {full_file_path}")
             else:
                 print(f"DEBUG: File not found at {full_file_path}")
-                absolute_pdf_url = None
+
     except Exception as e:
         print(f"Error generating PDF URL: {e}")
-        absolute_pdf_url = None
 
     return render(request, 'doctor_viewer/view.html', {
         'verified': True,
@@ -663,3 +666,13 @@ def preview_collateral(request, pk):
         'engagement_id': 0,
         'short_code': '',
     })
+
+
+def serve_collateral_pdf(request, filename):
+    BASE_PDF_PATH = "/var/www/inclinic-media/collaterals/tmp/"
+    file_path = os.path.join(BASE_PDF_PATH, filename)
+
+    if not os.path.exists(file_path):
+        raise Http404("File not found")
+
+    return FileResponse(open(file_path, "rb"), content_type="application/pdf")

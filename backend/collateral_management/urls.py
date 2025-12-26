@@ -22,6 +22,9 @@ urlpatterns = [
     path('<int:pk>/dashboard-delete/', views.dashboard_delete_collateral, name='dashboard_delete_collateral'),
     # Support both /collaterals/<pk>/preview/ and /collaterals/<pk>/preview/<extra_id>/
     path('<int:pk>/preview/', views.preview_collateral, name='collateral_preview'),
+    
+    # PDF serving
+    path('pdf/<str:filename>/', views.serve_collateral_pdf, name='serve_collateral_pdf'),
 
     # bridging table helpers
     path("link/",           link_collateral_to_campaign,    name="link_collateral_to_campaign"),
