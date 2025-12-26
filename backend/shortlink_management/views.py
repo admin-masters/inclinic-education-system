@@ -6,6 +6,7 @@ from django.utils.decorators import method_decorator
 from django.views.generic import ListView, DetailView, DeleteView
 from django.contrib import messages
 from django.utils import timezone
+from django.http import JsonResponse
 
 from .models import ShortLink
 from .forms import ShortLinkForm

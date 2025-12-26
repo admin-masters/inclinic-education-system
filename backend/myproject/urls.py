@@ -15,12 +15,13 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include
+from django.urls import path, include, re_path
 from .views import home_view
 from django.views.generic import RedirectView
 from django.contrib.auth import views as auth_views
 from django.conf.urls.static import static
 from django.conf import settings
+from django.views.static import serve
 from user_management.views_custom import CustomAdminLoginView
 from sharing_management.views_transactions_page import collateral_transactions_dashboard
 
@@ -34,7 +35,6 @@ urlpatterns = [
     path('share/', include('sharing_management.urls')),
     path('view/', include('doctor_viewer.urls')),
     path('api/', include('api.api_urls')),   
-    # path('admin/dashboard/', include('admin_dashboard.urls', namespace='admin_dashboard')),
     path('admin-dashboard/', include(('admin_dashboard.urls', 'admin_dashboard'), namespace='admin-dashboard')),
     path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('shortlinks/', include('shortlink_management.urls')),
@@ -44,16 +44,10 @@ urlpatterns = [
     path('admin/login/', CustomAdminLoginView.as_view(), name='admin_login'),
 ]
 
-# Custom media serving to handle production path
-from django.conf import settings
-from django.views.static import serve
-from django.urls import re_path
-
+# Custom media serving to handle production path - serve /media/ requests from /var/www/inclinic-media/
 urlpatterns += [
     re_path(r'^media/(?P<path>.*)$', serve, {
         'document_root': settings.MEDIA_ROOT,
         'show_indexes': False
     }),
 ]
-
-urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

@@ -4,6 +4,7 @@ from django.utils.decorators import method_decorator
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from django.contrib import messages
 from django.db import transaction 
+import os
 from .decorators import admin_required
 from .models import Collateral, CampaignCollateral
 from .forms import CollateralForm, CampaignCollateralForm
