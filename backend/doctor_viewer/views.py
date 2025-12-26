@@ -326,6 +326,7 @@ def doctor_collateral_verify(request):
 
                             # Generate absolute PDF URL to avoid localhost issues
                             absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
+                            # Now that MEDIA_URL is set correctly, this should generate proper URLs
                             
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
@@ -437,6 +438,7 @@ def doctor_collateral_view(request):
 
                             # Generate absolute PDF URL to avoid localhost issues
                             absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
+                            # Now that MEDIA_URL is set correctly, this should generate proper URLs
                             
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,

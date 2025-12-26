@@ -612,6 +612,7 @@ def preview_collateral(request, pk):
     absolute_pdf_url = None
     try:
         if getattr(collateral, 'file', None):
+            # For production, files are stored at /var/www/inclinic-media/ and MEDIA_URL is now set correctly
             absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
     except Exception:
         absolute_pdf_url = None
