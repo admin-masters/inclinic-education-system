@@ -339,11 +339,17 @@ def fieldrep_dashboard(request):
             except Exception:
                 viewer_url = None
 
+        # Construct correct PDF URL for production environment
+        pdf_url = None
+        if has_pdf and getattr(c, 'file', None):
+            file_path = c.file.name  # This gives relative path like 'collaterals/tmp/filename.pdf'
+            pdf_url = f"/var/www/inclinic-media/{file_path}"
+        
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',
             'item_name': getattr(c, 'title', ''),
             'description': getattr(c, 'description', ''),
-            'url': viewer_url or (c.file.url if has_pdf else (getattr(c, 'vimeo_url', '') or '')),
+            'url': viewer_url or (pdf_url or (getattr(c, 'vimeo_url', '') or '')),
             'has_both': has_pdf and has_vid,
             # Use collateral_management.Collateral id for Replace/Delete actions
             'id': getattr(c, 'id', None),
@@ -867,11 +873,10 @@ def fieldrep_email_registration(request):
 def fieldrep_create_password(request):
     email = request.GET.get('email') or request.POST.get('email')
     
-    # Fetch security questions from database
+    # Fetch security questions from database using Django ORM
     try:
-        with connection.cursor() as cursor:
-            cursor.execute("SELECT id, question FROM security_question ORDER BY id")
-            security_questions = cursor.fetchall()
+        from .models import SecurityQuestion
+        security_questions = SecurityQuestion.objects.all().values_list('id', 'question_txt')
     except Exception as e:
         print(f"Error fetching security questions: {e}")
         security_questions = []

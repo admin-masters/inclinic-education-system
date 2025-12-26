@@ -324,8 +324,9 @@ def doctor_collateral_verify(request):
                                     print(f"DEBUG: Could not create preview image for post-verification: {e}")
                                     pdf_preview_image = None
 
-                            # Generate absolute PDF URL to avoid localhost issues
-                            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
+                            # Generate absolute PDF URL for production environment
+                            file_path = collateral.file.name  # This gives relative path like 'collaterals/tmp/filename.pdf'
+                            absolute_pdf_url = f"/var/www/inclinic-media/{file_path}"
                             
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
@@ -435,8 +436,9 @@ def doctor_collateral_view(request):
                                         'short_code': sl.short_code if sl else None
                                     })
 
-                            # Generate absolute PDF URL to avoid localhost issues
-                            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
+                            # Generate absolute PDF URL for production environment
+                            file_path = collateral.file.name  # This gives relative path like 'collaterals/tmp/filename.pdf'
+                            absolute_pdf_url = f"/var/www/inclinic-media/{file_path}"
                             
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
