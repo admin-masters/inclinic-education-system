@@ -43,11 +43,3 @@ urlpatterns = [
     # Custom admin login with campaign support
     path('admin/login/', CustomAdminLoginView.as_view(), name='admin_login'),
 ]
-
-# Custom media serving to handle production path - serve /media/ requests from /var/www/inclinic-media/
-urlpatterns += [
-    re_path(r'^media/(?P<path>.*)$', serve, {
-        'document_root': settings.MEDIA_ROOT,
-        'show_indexes': False
-    }),
-]

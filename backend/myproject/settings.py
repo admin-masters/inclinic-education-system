@@ -163,7 +163,8 @@ STATIC_ROOT  = BACKEND_DIR / "staticfiles"
 STATICFILES_STORAGE = (
     "whitenoise.storage.CompressedManifestStaticFilesStorage"
 )
-MEDIA_URL   = "/media/"
+# MEDIA_URL   = "/media/"
+MEDIA_URL   = "/var/www/inclinic-media/"
 MEDIA_ROOT = Path("/var/www/inclinic-media")
 
 # ──────────────────────────────────────────────────────────────
