@@ -24,7 +24,7 @@ urlpatterns = [
     path('<int:pk>/preview/', views.preview_collateral, name='collateral_preview'),
     
     # PDF serving
-    path('pdf/<str:filename>/', views.serve_collateral_pdf, name='serve_collateral_pdf'),
+    path('tmp/<str:filename>/', views.serve_collateral_pdf, name='serve_collateral_pdf'),
 
     # bridging table helpers
     path("link/",           link_collateral_to_campaign,    name="link_collateral_to_campaign"),

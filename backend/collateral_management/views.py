@@ -75,9 +75,9 @@ class CollateralDetailView(DetailView):
                 full_file_path = os.path.join(BASE_PDF_PATH, filename)
 
                 if os.path.exists(full_file_path):
-                    # custom serving URL (NOT /media/)
+                    # custom serving URL using /collaterals/tmp/
                     absolute_pdf_url = self.request.build_absolute_uri(
-                        f"/collaterals/pdf/{filename}"
+                        f"/collaterals/tmp/{filename}"
                     )
                     print(f"DEBUG: File exists at {full_file_path}")
                 else:
@@ -647,9 +647,9 @@ def preview_collateral(request, pk):
             full_file_path = os.path.join(BASE_PDF_PATH, filename)
 
             if os.path.exists(full_file_path):
-                # custom serving URL (NOT /media/)
+                # custom serving URL using /collaterals/tmp/
                 absolute_pdf_url = request.build_absolute_uri(
-                    f"/collaterals/pdf/{filename}"
+                    f"/collaterals/tmp/{filename}"
                 )
                 print(f"DEBUG: File exists at {full_file_path}")
             else:
