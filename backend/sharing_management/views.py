@@ -340,17 +340,16 @@ def fieldrep_dashboard(request):
                 viewer_url = None
 
         # Construct correct PDF URL for production environment
+        pdf_url = None
         if has_pdf and getattr(c, 'file', None):
             file_path = c.file.name  # This gives relative path like 'collaterals/tmp/filename.pdf'
-            # Override the c.file.url with correct production path
-            c.file.name = file_path  # Keep original file name
-            c.file.url = f"/var/www/inclinic-media/{file_path}"
+            pdf_url = f"/var/www/inclinic-media/{file_path}"
 
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',
             'item_name': getattr(c, 'title', ''),
             'description': getattr(c, 'description', ''),
-            'url': viewer_url or (c.file.url if has_pdf else (getattr(c, 'vimeo_url', '') or '')),
+            'url': viewer_url or (pdf_url if has_pdf else (getattr(c, 'vimeo_url', '') or '')),
             'has_both': has_pdf and has_vid,
             # Use collateral_management.Collateral id for Replace/Delete actions
             'id': getattr(c, 'id', None),
