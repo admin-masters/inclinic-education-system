@@ -612,9 +612,9 @@ def preview_collateral(request, pk):
     absolute_pdf_url = None
     try:
         if getattr(collateral, 'file', None):
-            # For production, construct correct URL directly
-            file_path = collateral.file.name  # This gives 'collaterals/tmp/filename.pdf'
-            absolute_pdf_url = request.build_absolute_uri(f"/var/www/inclinic-media/{file_path}")
+            from django.conf import settings
+            file_path = collateral.file.name
+            absolute_pdf_url = request.build_absolute_uri(f"{settings.MEDIA_URL}{file_path}")
     except Exception:
         absolute_pdf_url = None
 

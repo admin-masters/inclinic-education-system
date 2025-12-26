@@ -24,7 +24,8 @@ from django.conf import settings
 from django.views.static import serve
 from user_management.views_custom import CustomAdminLoginView
 from sharing_management.views_transactions_page import collateral_transactions_dashboard
-
+from django.conf import settings
+from django.conf.urls.static import static
 urlpatterns = [
     path('', home_view, name='home'),
     path('admin/', admin.site.urls),
@@ -43,3 +44,5 @@ urlpatterns = [
     # Custom admin login with campaign support
     path('admin/login/', CustomAdminLoginView.as_view(), name='admin_login'),
 ]
+
+urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
