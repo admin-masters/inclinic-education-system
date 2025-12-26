@@ -61,6 +61,32 @@ class CollateralDetailView(DetailView):
     template_name = 'collateral_management/collateral_detail.html'
     context_object_name = 'collateral'
 
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        collateral = self.get_object()
+        absolute_pdf_url = None
+        try:
+            if getattr(collateral, 'file', None):
+                from django.conf import settings
+                import os
+                file_path = collateral.file.name
+                # Build the absolute file path using MEDIA_ROOT to verify file exists
+                full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
+                # Check if file exists at the actual location
+                if os.path.exists(full_file_path):
+                    # Use MEDIA_URL which is already configured to serve from MEDIA_ROOT
+                    absolute_pdf_url = self.request.build_absolute_uri(f"{settings.MEDIA_URL}{file_path}")
+                    print(f"DEBUG: File exists at {full_file_path}, using URL: {absolute_pdf_url}")
+                else:
+                    print(f"DEBUG: File not found at {full_file_path}")
+                    absolute_pdf_url = None
+        except Exception as e:
+            print(f"Error generating PDF URL: {e}")
+            absolute_pdf_url = None
+        
+        context['absolute_pdf_url'] = absolute_pdf_url
+        return context
+
 
 @method_decorator(admin_required, name='dispatch')
 class CollateralCreateView(CreateView):
