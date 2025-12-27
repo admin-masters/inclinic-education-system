@@ -345,9 +345,14 @@ def fieldrep_dashboard(request):
             import os
             from django.urls import reverse
             filename = os.path.basename(c.file.name)
-            pdf_url = request.build_absolute_uri(
-                reverse('serve_collateral_pdf', args=[filename])
-            )
+            try:
+                pdf_url = request.build_absolute_uri(
+                    reverse('serve_collateral_pdf', args=[filename])
+                )
+            except Exception as e:
+                print(f"Error generating PDF URL in dashboard: {e}")
+                # Fallback to manual URL construction
+                pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
 
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',
