@@ -168,15 +168,21 @@ def doctor_collateral_verify(request):
                     pdf_preview_url = None
                     pdf_preview_image = None
                     if collateral.type == 'pdf' and collateral.file:
-                        from django.conf import settings
+                        from django.urls import reverse
                         import os
+                        
+                        # Generate URL using the custom serve_collateral_pdf function
+                        filename = os.path.basename(collateral.file.name)
+                        absolute_pdf = request.build_absolute_uri(
+                            reverse('serve_collateral_pdf', args=[filename])
+                        )
+                        
+                        # DEBUG: Check what URL we're generating
+                        print(f"DEBUG: Generated serve_collateral_pdf URL = {absolute_pdf}")
+                        
+                        # Check if file exists for preview generation
+                        from django.conf import settings
                         media_path = collateral.file.name
-                        # DEBUG: Check what MEDIA_URL Django is actually using
-                        print(f"DEBUG: MEDIA_URL = {settings.MEDIA_URL}")
-                        print(f"DEBUG: Generated URL = {settings.MEDIA_URL}{media_path}")
-                        # Now that MEDIA_URL is set correctly, this should work
-                        absolute_pdf = request.build_absolute_uri(f"{settings.MEDIA_URL}{media_path}")
-
                         file_path = os.path.join(settings.MEDIA_ROOT, media_path)
                         if os.path.exists(file_path):
                             pdf_preview_url = absolute_pdf
@@ -332,17 +338,21 @@ def doctor_collateral_verify(request):
                             absolute_pdf_url = None
                             try:
                                 if getattr(collateral, 'file', None):
-                                    from django.conf import settings
+                                    from django.urls import reverse
                                     import os
+                                    
+                                    # Generate URL using the custom serve_collateral_pdf function
+                                    filename = os.path.basename(collateral.file.name)
+                                    absolute_pdf_url = request.build_absolute_uri(
+                                        reverse('serve_collateral_pdf', args=[filename])
+                                    )
+                                    print(f"DEBUG: Generated serve_collateral_pdf URL: {absolute_pdf_url}")
+                                    
+                                    # Check if file exists for verification
+                                    from django.conf import settings
                                     file_path = collateral.file.name
-                                    # Build the absolute file path using MEDIA_ROOT to verify file exists
                                     full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
-                                    # Check if file exists at the actual location
-                                    if os.path.exists(full_file_path):
-                                        # Use MEDIA_URL which is already configured to serve from MEDIA_ROOT
-                                        absolute_pdf_url = request.build_absolute_uri(f"{settings.MEDIA_URL}{file_path}")
-                                        print(f"DEBUG: File exists at {full_file_path}, using URL: {absolute_pdf_url}")
-                                    else:
+                                    if not os.path.exists(full_file_path):
                                         print(f"DEBUG: File not found at {full_file_path}")
                                         absolute_pdf_url = None
                             except Exception as e:
@@ -461,17 +471,21 @@ def doctor_collateral_view(request):
                             absolute_pdf_url = None
                             try:
                                 if getattr(collateral, 'file', None):
-                                    from django.conf import settings
+                                    from django.urls import reverse
                                     import os
+                                    
+                                    # Generate URL using the custom serve_collateral_pdf function
+                                    filename = os.path.basename(collateral.file.name)
+                                    absolute_pdf_url = request.build_absolute_uri(
+                                        reverse('serve_collateral_pdf', args=[filename])
+                                    )
+                                    print(f"DEBUG: Generated serve_collateral_pdf URL: {absolute_pdf_url}")
+                                    
+                                    # Check if file exists for verification
+                                    from django.conf import settings
                                     file_path = collateral.file.name
-                                    # Build the absolute file path using MEDIA_ROOT to verify file exists
                                     full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
-                                    # Check if file exists at the actual location
-                                    if os.path.exists(full_file_path):
-                                        # Use MEDIA_URL which is already configured to serve from MEDIA_ROOT
-                                        absolute_pdf_url = request.build_absolute_uri(f"{settings.MEDIA_URL}{file_path}")
-                                        print(f"DEBUG: File exists at {full_file_path}, using URL: {absolute_pdf_url}")
-                                    else:
+                                    if not os.path.exists(full_file_path):
                                         print(f"DEBUG: File not found at {full_file_path}")
                                         absolute_pdf_url = None
                             except Exception as e:
