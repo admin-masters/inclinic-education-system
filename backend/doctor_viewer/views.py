@@ -173,9 +173,14 @@ def doctor_collateral_verify(request):
                         
                         # Generate URL using the custom serve_collateral_pdf function
                         filename = os.path.basename(collateral.file.name)
-                        absolute_pdf = request.build_absolute_uri(
-                            reverse('serve_collateral_pdf', args=[filename])
-                        )
+                        try:
+                            absolute_pdf = request.build_absolute_uri(
+                                reverse('serve_collateral_pdf', args=[filename])
+                            )
+                        except Exception as e:
+                            print(f"DEBUG: Error generating serve_collateral_pdf URL: {e}")
+                            # Fallback to manual URL construction
+                            absolute_pdf = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
                         
                         # DEBUG: Check what URL we're generating
                         print(f"DEBUG: Generated serve_collateral_pdf URL = {absolute_pdf}")
@@ -343,9 +348,15 @@ def doctor_collateral_verify(request):
                                     
                                     # Generate URL using the custom serve_collateral_pdf function
                                     filename = os.path.basename(collateral.file.name)
-                                    absolute_pdf_url = request.build_absolute_uri(
-                                        reverse('serve_collateral_pdf', args=[filename])
-                                    )
+                                    try:
+                                        absolute_pdf_url = request.build_absolute_uri(
+                                            reverse('serve_collateral_pdf', args=[filename])
+                                        )
+                                    except Exception as url_error:
+                                        print(f"DEBUG: Error generating serve_collateral_pdf URL: {url_error}")
+                                        # Fallback to manual URL construction
+                                        absolute_pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
+                                    
                                     print(f"DEBUG: Generated serve_collateral_pdf URL: {absolute_pdf_url}")
                                     
                                     # Check if file exists for verification
@@ -476,9 +487,15 @@ def doctor_collateral_view(request):
                                     
                                     # Generate URL using the custom serve_collateral_pdf function
                                     filename = os.path.basename(collateral.file.name)
-                                    absolute_pdf_url = request.build_absolute_uri(
-                                        reverse('serve_collateral_pdf', args=[filename])
-                                    )
+                                    try:
+                                        absolute_pdf_url = request.build_absolute_uri(
+                                            reverse('serve_collateral_pdf', args=[filename])
+                                        )
+                                    except Exception as url_error:
+                                        print(f"DEBUG: Error generating serve_collateral_pdf URL: {url_error}")
+                                        # Fallback to manual URL construction
+                                        absolute_pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
+                                    
                                     print(f"DEBUG: Generated serve_collateral_pdf URL: {absolute_pdf_url}")
                                     
                                     # Check if file exists for verification

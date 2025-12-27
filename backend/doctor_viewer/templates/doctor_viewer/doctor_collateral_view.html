@@ -47,13 +47,13 @@ and collateral %}
           "
         >
           <a
-            href="{{ absolute_pdf_url|default:collateral.file.url }}"
+            href="{% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}#{% endif %}"
             class="btn btn-outline-secondary btn-sm"
             target="_blank"
             >Open in New Tab</a
           >
           <a
-            href="{{ absolute_pdf_url|default:collateral.file.url }}"
+            href="{% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}#{% endif %}"
             class="btn btn-outline-success btn-sm"
             download
             >Download</a
@@ -63,7 +63,7 @@ and collateral %}
           style="height: calc(100% - 50px); overflow: auto; position: relative"
         >
           <iframe
-            src="{{ absolute_pdf_url|default:collateral.file.url }}"
+            src="{% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}about:blank{% endif %}"
             width="100%"
             height="100%"
             style="border: none; min-height: 100%"

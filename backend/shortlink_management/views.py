@@ -108,10 +108,24 @@ def resolve_shortlink(request, code):
         logger.warning(f"Redirect condition failed - collateral: {collateral}")
 
     messages.error(request, "Resource not found or inactive.")
+    
+    # Generate absolute_pdf_url for the template
+    absolute_pdf_url = None
+    if collateral and getattr(collateral, 'file', None):
+        try:
+            import os
+            from django.urls import reverse
+            filename = os.path.basename(collateral.file.name)
+            absolute_pdf_url = request.build_absolute_uri(
+                reverse('serve_collateral_pdf', args=[filename])
+            )
+        except Exception as e:
+            print(f"Error generating PDF URL in shortlink: {e}")
+    
     return render(
         request,
         "shortlink_management/resolve_shortlink.html",
-        {"shortlink": shortlink, "collateral": collateral},
+        {"shortlink": shortlink, "collateral": collateral, "absolute_pdf_url": absolute_pdf_url},
     )
 
 

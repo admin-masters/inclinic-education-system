@@ -4,7 +4,7 @@
 <p>You have accessed short link: {{ shortlink.short_code }}</p>
 <p>Collateral Title: {{ collateral.title }}</p>
 {% if collateral.type == 'pdf' %}
-    <p>PDF File: {{ collateral.file.url }}</p>
+    <p>PDF File: {% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}PDF URL not available{% endif %}</p>
     <!-- In a real app, embed or redirect to a PDF viewer. -->
 {% elif collateral.type == 'video' %}
     <p>Vimeo URL: {{ collateral.vimeo_url }}</p>

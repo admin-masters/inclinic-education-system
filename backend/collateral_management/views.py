@@ -79,6 +79,16 @@ class CollateralDetailView(DetailView):
                 print(f"DEBUG: Generated PDF URL: {absolute_pdf_url}")
         except Exception as e:
             print(f"Error generating PDF URL: {e}")
+            # Even if there's an error, don't fall back to collateral.file.url
+            # Instead, try to construct the URL manually
+            try:
+                if getattr(collateral, 'file', None):
+                    import os
+                    filename = os.path.basename(collateral.file.name)
+                    absolute_pdf_url = self.request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
+                    print(f"DEBUG: Manually constructed PDF URL: {absolute_pdf_url}")
+            except Exception as manual_error:
+                print(f"DEBUG: Manual URL construction also failed: {manual_error}")
         
         context['absolute_pdf_url'] = absolute_pdf_url
         return context
@@ -647,6 +657,16 @@ def preview_collateral(request, pk):
 
     except Exception as e:
         print(f"Error generating PDF URL: {e}")
+        # Even if there's an error, don't fall back to collateral.file.url
+        # Instead, try to construct the URL manually
+        try:
+            if getattr(collateral, 'file', None):
+                import os
+                filename = os.path.basename(collateral.file.name)
+                absolute_pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
+                print(f"DEBUG: Manually constructed PDF URL: {absolute_pdf_url}")
+        except Exception as manual_error:
+            print(f"DEBUG: Manual URL construction also failed: {manual_error}")
 
     return render(request, 'doctor_viewer/view.html', {
         'verified': True,
@@ -662,7 +682,28 @@ def serve_collateral_pdf(request, filename):
     BASE_PDF_PATH = "/var/www/inclinic-media/collaterals/tmp/"
     file_path = os.path.join(BASE_PDF_PATH, filename)
 
+    # Debug logging
+    print(f"DEBUG serve_collateral_pdf: Looking for file: {filename}")
+    print(f"DEBUG serve_collateral_pdf: Primary path: {file_path}")
+    print(f"DEBUG serve_collateral_pdf: File exists at primary path: {os.path.exists(file_path)}")
+
     if not os.path.exists(file_path):
-        raise Http404("File not found")
+        # Try alternative paths based on how files might be stored
+        alternative_paths = [
+            os.path.join("/var/www/inclinic-media/", filename),
+            os.path.join("/var/www/inclinic-media/collaterals/", filename),
+        ]
+        
+        print(f"DEBUG serve_collateral_pdf: Trying alternative paths: {alternative_paths}")
+        
+        for alt_path in alternative_paths:
+            print(f"DEBUG serve_collateral_pdf: Checking path: {alt_path} - Exists: {os.path.exists(alt_path)}")
+            if os.path.exists(alt_path):
+                file_path = alt_path
+                print(f"DEBUG serve_collateral_pdf: Found file at: {file_path}")
+                break
+        else:
+            print(f"DEBUG serve_collateral_pdf: File not found in any location")
+            raise Http404("File not found")
 
     return FileResponse(open(file_path, "rb"), content_type="application/pdf")
