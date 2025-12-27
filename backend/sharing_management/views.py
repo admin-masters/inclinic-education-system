@@ -342,8 +342,12 @@ def fieldrep_dashboard(request):
         # Construct correct PDF URL for production environment
         pdf_url = None
         if has_pdf and getattr(c, 'file', None):
-            file_path = c.file.name  # This gives relative path like 'collaterals/tmp/filename.pdf'
-            pdf_url = f"/var/www/inclinic-media/{file_path}"
+            import os
+            from django.urls import reverse
+            filename = os.path.basename(c.file.name)
+            pdf_url = request.build_absolute_uri(
+                reverse('serve_collateral_pdf', args=[filename])
+            )
 
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',

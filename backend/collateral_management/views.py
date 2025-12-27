@@ -69,11 +69,12 @@ class CollateralDetailView(DetailView):
         try:
             if getattr(collateral, 'file', None):
                 import os
+                from django.urls import reverse
                 
-                # Always generate the URL using /collaterals/tmp/ without checking file existence
+                # Generate URL using the custom serve_collateral_pdf function
                 filename = os.path.basename(collateral.file.name)
                 absolute_pdf_url = self.request.build_absolute_uri(
-                    f"/collaterals/tmp/{filename}"
+                    reverse('serve_collateral_pdf', args=[filename])
                 )
                 print(f"DEBUG: Generated PDF URL: {absolute_pdf_url}")
         except Exception as e:
@@ -635,11 +636,12 @@ def preview_collateral(request, pk):
     try:
         if getattr(collateral, 'file', None):
             import os
+            from django.urls import reverse
             
-            # Always generate the URL using /collaterals/tmp/ without checking file existence
+            # Generate URL using the custom serve_collateral_pdf function
             filename = os.path.basename(collateral.file.name)
             absolute_pdf_url = request.build_absolute_uri(
-                f"/collaterals/tmp/{filename}"
+                reverse('serve_collateral_pdf', args=[filename])
             )
             print(f"DEBUG: Generated PDF URL: {absolute_pdf_url}")
 
