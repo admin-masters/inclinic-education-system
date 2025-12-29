@@ -679,7 +679,10 @@ def preview_collateral(request, pk):
 
 
 def serve_collateral_pdf(request, filename):
-    BASE_PDF_PATH = "/var/www/inclinic-media/collaterals/tmp/"
+    from django.conf import settings
+    
+    # Use Django's MEDIA_ROOT instead of hardcoded path
+    BASE_PDF_PATH = os.path.join(settings.MEDIA_ROOT, "collaterals", "tmp")
     file_path = os.path.join(BASE_PDF_PATH, filename)
 
     # Debug logging
@@ -690,8 +693,8 @@ def serve_collateral_pdf(request, filename):
     if not os.path.exists(file_path):
         # Try alternative paths based on how files might be stored
         alternative_paths = [
-            os.path.join("/var/www/inclinic-media/", filename),
-            os.path.join("/var/www/inclinic-media/collaterals/", filename),
+            os.path.join(settings.MEDIA_ROOT, filename),
+            os.path.join(settings.MEDIA_ROOT, "collaterals", filename),
         ]
         
         print(f"DEBUG serve_collateral_pdf: Trying alternative paths: {alternative_paths}")
