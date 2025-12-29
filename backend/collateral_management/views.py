@@ -686,9 +686,20 @@ def serve_collateral_pdf(request, filename):
     file_path = os.path.join(BASE_PDF_PATH, filename)
 
     # Debug logging
-    print(f"DEBUG serve_collateral_pdf: Looking for file: {filename}")
     print(f"DEBUG serve_collateral_pdf: Primary path: {file_path}")
     print(f"DEBUG serve_collateral_pdf: File exists at primary path: {os.path.exists(file_path)}")
+    
+    # Check if the directory exists
+    print(f"DEBUG serve_collateral_pdf: Directory exists: {os.path.exists(BASE_PDF_PATH)}")
+    print(f"DEBUG serve_collateral_pdf: Directory path: {BASE_PDF_PATH}")
+    
+    # List files in directory for debugging
+    try:
+        if os.path.exists(BASE_PDF_PATH):
+            files = os.listdir(BASE_PDF_PATH)
+            print(f"DEBUG serve_collateral_pdf: Files in directory: {files}")
+    except Exception as e:
+        print(f"DEBUG serve_collateral_pdf: Error listing directory: {e}")
 
     if not os.path.exists(file_path):
         # Try alternative paths based on how files might be stored
@@ -707,6 +718,17 @@ def serve_collateral_pdf(request, filename):
                 break
         else:
             print(f"DEBUG serve_collateral_pdf: File not found in any location")
-            raise Http404("File not found")
+            print(f"DEBUG serve_collateral_pdf: === END (404) ===")
+            raise Http404(f"File '{filename}' not found in media directories")
 
-    return FileResponse(open(file_path, "rb"), content_type="application/pdf")
+    try:
+        print(f"DEBUG serve_collateral_pdf: Serving file from: {file_path}")
+        response = FileResponse(open(file_path, "rb"), content_type="application/pdf")
+        response['Content-Disposition'] = f'inline; filename="{filename}"'
+        print(f"DEBUG serve_collateral_pdf: === END (SUCCESS) ===")
+        return response
+    except Exception as e:
+        print(f"DEBUG serve_collateral_pdf: Error serving file: {e}")
+        print(f"DEBUG serve_collateral_pdf: Traceback: {traceback.format_exc()}")
+        print(f"DEBUG serve_collateral_pdf: === END (ERROR) ===")
+        raise Http404(f"Error serving file: {e}")

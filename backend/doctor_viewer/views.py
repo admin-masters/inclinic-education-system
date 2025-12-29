@@ -345,29 +345,40 @@ def doctor_collateral_verify(request):
                                 if getattr(collateral, 'file', None):
                                     from django.urls import reverse
                                     import os
+                                    from django.conf import settings
+                                    
+                                    print(f"DEBUG doctor_collateral_view: collateral.file.name = {collateral.file.name}")
+                                    print(f"DEBUG doctor_collateral_view: MEDIA_ROOT = {settings.MEDIA_ROOT}")
                                     
                                     # Generate URL using the custom serve_collateral_pdf function
                                     filename = os.path.basename(collateral.file.name)
+                                    print(f"DEBUG doctor_collateral_view: filename = {filename}")
+                                    
                                     try:
                                         absolute_pdf_url = request.build_absolute_uri(
                                             reverse('serve_collateral_pdf', args=[filename])
                                         )
+                                        print(f"DEBUG doctor_collateral_view: Generated URL via reverse: {absolute_pdf_url}")
                                     except Exception as url_error:
                                         print(f"DEBUG: Error generating serve_collateral_pdf URL: {url_error}")
                                         # Fallback to manual URL construction
                                         absolute_pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
-                                    
-                                    print(f"DEBUG: Generated serve_collateral_pdf URL: {absolute_pdf_url}")
+                                        print(f"DEBUG doctor_collateral_view: Generated URL via manual construction: {absolute_pdf_url}")
                                     
                                     # Check if file exists for verification
-                                    from django.conf import settings
                                     file_path = collateral.file.name
                                     full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
+                                    print(f"DEBUG doctor_collateral_view: Checking file existence at: {full_file_path}")
+                                    print(f"DEBUG doctor_collateral_view: File exists: {os.path.exists(full_file_path)}")
+                                    
                                     if not os.path.exists(full_file_path):
                                         print(f"DEBUG: File not found at {full_file_path}")
-                                        absolute_pdf_url = None
+                                        # Don't set to None, let it try to serve anyway
+                                        # absolute_pdf_url = None
                             except Exception as e:
                                 print(f"Error generating PDF URL: {e}")
+                                import traceback
+                                print(f"DEBUG doctor_collateral_view: Traceback: {traceback.format_exc()}")
                                 absolute_pdf_url = None
                             
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {

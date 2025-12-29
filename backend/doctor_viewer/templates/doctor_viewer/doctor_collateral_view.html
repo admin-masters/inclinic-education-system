@@ -17,7 +17,7 @@ and collateral %}
       </div>
       {% endif %} {% if collateral.file %}
       <a
-        href="{{ absolute_pdf_url|default:collateral.file.url }}"
+        href="{% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}#{% endif %}"
         class="btn btn-primary mb-3"
         target="_blank"
         style="background: #1877f2; border: none"
