@@ -63,37 +63,6 @@ class CollateralDetailView(DetailView):
     template_name = 'collateral_management/collateral_detail.html'
     context_object_name = 'collateral'
 
-    def get_context_data(self, **kwargs):
-        context = super().get_context_data(**kwargs)
-        collateral = self.get_object()
-        absolute_pdf_url = None
-        try:
-            if getattr(collateral, 'file', None):
-                import os
-                from django.urls import reverse
-                
-                # Generate URL using the custom serve_collateral_pdf function
-                filename = os.path.basename(collateral.file.name)
-                absolute_pdf_url = self.request.build_absolute_uri(
-                    reverse('serve_collateral_pdf', args=[filename])
-                )
-                print(f"DEBUG: Generated PDF URL: {absolute_pdf_url}")
-        except Exception as e:
-            print(f"Error generating PDF URL: {e}")
-            # Even if there's an error, don't fall back to collateral.file.url
-            # Instead, try to construct the URL manually
-            try:
-                if getattr(collateral, 'file', None):
-                    import os
-                    filename = os.path.basename(collateral.file.name)
-                    absolute_pdf_url = self.request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
-                    print(f"DEBUG: Manually constructed PDF URL: {absolute_pdf_url}")
-            except Exception as manual_error:
-                print(f"DEBUG: Manual URL construction also failed: {manual_error}")
-        
-        context['absolute_pdf_url'] = absolute_pdf_url
-        return context
-
 
 @method_decorator(admin_required, name='dispatch')
 class CollateralCreateView(CreateView):
@@ -643,31 +612,11 @@ def dashboard_delete_collateral(request, pk):
 def preview_collateral(request, pk):
     collateral = get_object_or_404(Collateral, pk=pk)
     absolute_pdf_url = None
-
     try:
         if getattr(collateral, 'file', None):
-            import os
-            from django.urls import reverse
-            
-            # Generate URL using the custom serve_collateral_pdf function
-            filename = os.path.basename(collateral.file.name)
-            absolute_pdf_url = request.build_absolute_uri(
-                reverse('serve_collateral_pdf', args=[filename])
-            )
-            print(f"DEBUG: Generated PDF URL: {absolute_pdf_url}")
-
-    except Exception as e:
-        print(f"Error generating PDF URL: {e}")
-        # Even if there's an error, don't fall back to collateral.file.url
-        # Instead, try to construct the URL manually
-        try:
-            if getattr(collateral, 'file', None):
-                import os
-                filename = os.path.basename(collateral.file.name)
-                absolute_pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
-                print(f"DEBUG: Manually constructed PDF URL: {absolute_pdf_url}")
-        except Exception as manual_error:
-            print(f"DEBUG: Manual URL construction also failed: {manual_error}")
+            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
+    except Exception:
+        absolute_pdf_url = None
 
     return render(request, 'doctor_viewer/view.html', {
         'verified': True,
@@ -678,58 +627,3 @@ def preview_collateral(request, pk):
         'short_code': '',
     })
 
-
-def serve_collateral_pdf(request, filename):
-    from django.conf import settings
-    
-    # Use Django's MEDIA_ROOT instead of hardcoded path
-    BASE_PDF_PATH = os.path.join(settings.MEDIA_ROOT, "collaterals", "tmp")
-    file_path = os.path.join(BASE_PDF_PATH, filename)
-
-    # Debug logging
-    print(f"DEBUG serve_collateral_pdf: Primary path: {file_path}")
-    print(f"DEBUG serve_collateral_pdf: File exists at primary path: {os.path.exists(file_path)}")
-    
-    # Check if the directory exists
-    print(f"DEBUG serve_collateral_pdf: Directory exists: {os.path.exists(BASE_PDF_PATH)}")
-    print(f"DEBUG serve_collateral_pdf: Directory path: {BASE_PDF_PATH}")
-    
-    # List files in directory for debugging
-    try:
-        if os.path.exists(BASE_PDF_PATH):
-            files = os.listdir(BASE_PDF_PATH)
-            print(f"DEBUG serve_collateral_pdf: Files in directory: {files}")
-    except Exception as e:
-        print(f"DEBUG serve_collateral_pdf: Error listing directory: {e}")
-
-    if not os.path.exists(file_path):
-        # Try alternative paths based on how files might be stored
-        alternative_paths = [
-            os.path.join(settings.MEDIA_ROOT, filename),
-            os.path.join(settings.MEDIA_ROOT, "collaterals", filename),
-        ]
-        
-        print(f"DEBUG serve_collateral_pdf: Trying alternative paths: {alternative_paths}")
-        
-        for alt_path in alternative_paths:
-            print(f"DEBUG serve_collateral_pdf: Checking path: {alt_path} - Exists: {os.path.exists(alt_path)}")
-            if os.path.exists(alt_path):
-                file_path = alt_path
-                print(f"DEBUG serve_collateral_pdf: Found file at: {file_path}")
-                break
-        else:
-            print(f"DEBUG serve_collateral_pdf: File not found in any location")
-            print(f"DEBUG serve_collateral_pdf: === END (404) ===")
-            raise Http404(f"File '{filename}' not found in media directories")
-
-    try:
-        print(f"DEBUG serve_collateral_pdf: Serving file from: {file_path}")
-        response = FileResponse(open(file_path, "rb"), content_type="application/pdf")
-        response['Content-Disposition'] = f'inline; filename="{filename}"'
-        print(f"DEBUG serve_collateral_pdf: === END (SUCCESS) ===")
-        return response
-    except Exception as e:
-        print(f"DEBUG serve_collateral_pdf: Error serving file: {e}")
-        print(f"DEBUG serve_collateral_pdf: Traceback: {traceback.format_exc()}")
-        print(f"DEBUG serve_collateral_pdf: === END (ERROR) ===")
-        raise Http404(f"Error serving file: {e}")

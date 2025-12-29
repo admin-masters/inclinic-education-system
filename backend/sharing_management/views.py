@@ -339,26 +339,11 @@ def fieldrep_dashboard(request):
             except Exception:
                 viewer_url = None
 
-        # Construct correct PDF URL for production environment
-        pdf_url = None
-        if has_pdf and getattr(c, 'file', None):
-            import os
-            from django.urls import reverse
-            filename = os.path.basename(c.file.name)
-            try:
-                pdf_url = request.build_absolute_uri(
-                    reverse('serve_collateral_pdf', args=[filename])
-                )
-            except Exception as e:
-                print(f"Error generating PDF URL in dashboard: {e}")
-                # Fallback to manual URL construction
-                pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
-
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',
             'item_name': getattr(c, 'title', ''),
             'description': getattr(c, 'description', ''),
-            'url': viewer_url or (pdf_url if has_pdf else (getattr(c, 'vimeo_url', '') or '')),
+            'url': viewer_url or (c.file.url if has_pdf else (getattr(c, 'vimeo_url', '') or '')),
             'has_both': has_pdf and has_vid,
             # Use collateral_management.Collateral id for Replace/Delete actions
             'id': getattr(c, 'id', None),
@@ -381,7 +366,6 @@ def fieldrep_dashboard(request):
     response['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
     response['Pragma'] = 'no-cache'
     return response
-
 
 @field_rep_required
 def fieldrep_campaign_detail(request, campaign_id):

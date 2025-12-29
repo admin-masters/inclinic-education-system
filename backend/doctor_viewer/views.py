@@ -184,50 +184,32 @@ def doctor_collateral_verify(request):
                     pdf_preview_url = None
                     pdf_preview_image = None
                     if collateral.type == 'pdf' and collateral.file:
-                        from django.urls import reverse
-                        import os
-                        
-                        # Generate URL using the custom serve_collateral_pdf function
-                        filename = os.path.basename(collateral.file.name)
-                        try:
-                            absolute_pdf = request.build_absolute_uri(
-                                reverse('serve_collateral_pdf', args=[filename])
-                            )
-                        except Exception as e:
-                            print(f"DEBUG: Error generating serve_collateral_pdf URL: {e}")
-                            # Fallback to manual URL construction
-                            absolute_pdf = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
-                        
-                        # DEBUG: Check what URL we're generating
-                        print(f"DEBUG: Generated serve_collateral_pdf URL = {absolute_pdf}")
-                        
-                        # Check if file exists for preview generation
                         from django.conf import settings
+                        import os
                         media_path = collateral.file.name
+                        absolute_pdf = request.build_absolute_uri(f"{settings.MEDIA_URL}{media_path}")
+
                         file_path = os.path.join(settings.MEDIA_ROOT, media_path)
                         if os.path.exists(file_path):
                             pdf_preview_url = absolute_pdf
                             try:
-                                if fitz:
-                                    doc = fitz.open(file_path)
-                                    page = doc[0]
-                                    mat = fitz.Matrix(2, 2)
-                                    pix = page.get_pixmap(matrix=mat)
-                                    img_data = pix.tobytes("png")
-                                    doc.close()
-                                else:
-                                    img_data = None
+                                import fitz  # PyMuPDF
+                                doc = fitz.open(file_path)
+                                page = doc[0]
+                                mat = fitz.Matrix(2, 2)
+                                pix = page.get_pixmap(matrix=mat)
+                                img_data = pix.tobytes("png")
+                                doc.close()
                             except Exception:
                                 try:
-                                    if PyPDF2 and convert_from_path:
-                                        images = convert_from_path(file_path, first_page=1, last_page=1)
-                                        if images:
-                                            from io import BytesIO
-                                            buffer = BytesIO()
-                                            images[0].save(buffer, format="PNG")
-                                            img_data = buffer.getvalue()
-                                        else:
-                                            img_data = None
+                                    from PyPDF2 import PdfReader
+                                    from pdf2image import convert_from_path
+                                    images = convert_from_path(file_path, first_page=1, last_page=1)
+                                    if images:
+                                        from io import BytesIO
+                                        buffer = BytesIO()
+                                        images[0].save(buffer, format="PNG")
+                                        img_data = buffer.getvalue()
                                     else:
                                         img_data = None
                                 except Exception:
@@ -331,73 +313,35 @@ def doctor_collateral_verify(request):
                             pdf_preview_image = None
                             if collateral.type == 'pdf' and collateral.file:
                                 try:
-                                    if fitz:
-                                        file_path = os.path.join(settings.MEDIA_ROOT, collateral.file.name)
-                                        if os.path.exists(file_path):
-                                            doc = fitz.open(file_path)
-                                            page = doc[0]  # First page
-                                            mat = fitz.Matrix(2, 2)  # 2x zoom
-                                            pix = page.get_pixmap(matrix=mat)
-                                            img_data = pix.tobytes("png")
-                                            
-                                            # Save preview image
-                                            preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
-                                            os.makedirs(preview_dir, exist_ok=True)
-                                            preview_filename = f"preview_{collateral.id}.png"
-                                            preview_path = os.path.join(preview_dir, preview_filename)
-                                            
-                                            with open(preview_path, 'wb') as f:
-                                                f.write(img_data)
-                                            
-                                            pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
-                                            doc.close()
-                                    else:
-                                        pdf_preview_image = None
+                                    import fitz  # PyMuPDF
+                                    from django.conf import settings
+                                    import os
+                                    
+                                    file_path = os.path.join(settings.MEDIA_ROOT, collateral.file.name)
+                                    if os.path.exists(file_path):
+                                        doc = fitz.open(file_path)
+                                        page = doc[0]  # First page
+                                        mat = fitz.Matrix(2, 2)  # 2x zoom
+                                        pix = page.get_pixmap(matrix=mat)
+                                        img_data = pix.tobytes("png")
+                                        
+                                        # Save preview image
+                                        preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
+                                        os.makedirs(preview_dir, exist_ok=True)
+                                        preview_filename = f"preview_{collateral.id}.png"
+                                        preview_path = os.path.join(preview_dir, preview_filename)
+                                        
+                                        with open(preview_path, 'wb') as f:
+                                            f.write(img_data)
+                                        
+                                        pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
+                                        doc.close()
                                 except Exception as e:
                                     print(f"DEBUG: Could not create preview image for post-verification: {e}")
                                     pdf_preview_image = None
 
                             # Generate absolute PDF URL to avoid localhost issues
-                            absolute_pdf_url = None
-                            try:
-                                if getattr(collateral, 'file', None):
-                                    from django.urls import reverse
-                                    import os
-                                    from django.conf import settings
-                                    
-                                    print(f"DEBUG doctor_collateral_view: collateral.file.name = {collateral.file.name}")
-                                    print(f"DEBUG doctor_collateral_view: MEDIA_ROOT = {settings.MEDIA_ROOT}")
-                                    
-                                    # Generate URL using the custom serve_collateral_pdf function
-                                    filename = os.path.basename(collateral.file.name)
-                                    print(f"DEBUG doctor_collateral_view: filename = {filename}")
-                                    
-                                    try:
-                                        absolute_pdf_url = request.build_absolute_uri(
-                                            reverse('serve_collateral_pdf', args=[filename])
-                                        )
-                                        print(f"DEBUG doctor_collateral_view: Generated URL via reverse: {absolute_pdf_url}")
-                                    except Exception as url_error:
-                                        print(f"DEBUG: Error generating serve_collateral_pdf URL: {url_error}")
-                                        # Fallback to manual URL construction
-                                        absolute_pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
-                                        print(f"DEBUG doctor_collateral_view: Generated URL via manual construction: {absolute_pdf_url}")
-                                    
-                                    # Check if file exists for verification
-                                    file_path = collateral.file.name
-                                    full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
-                                    print(f"DEBUG doctor_collateral_view: Checking file existence at: {full_file_path}")
-                                    print(f"DEBUG doctor_collateral_view: File exists: {os.path.exists(full_file_path)}")
-                                    
-                                    if not os.path.exists(full_file_path):
-                                        print(f"DEBUG: File not found at {full_file_path}")
-                                        # Don't set to None, let it try to serve anyway
-                                        # absolute_pdf_url = None
-                            except Exception as e:
-                                print(f"Error generating PDF URL: {e}")
-                                import traceback
-                                print(f"DEBUG doctor_collateral_view: Traceback: {traceback.format_exc()}")
-                                absolute_pdf_url = None
+                            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
                             
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
@@ -508,35 +452,7 @@ def doctor_collateral_view(request):
                                     })
 
                             # Generate absolute PDF URL to avoid localhost issues
-                            absolute_pdf_url = None
-                            try:
-                                if getattr(collateral, 'file', None):
-                                    from django.urls import reverse
-                                    import os
-                                    
-                                    # Generate URL using the custom serve_collateral_pdf function
-                                    filename = os.path.basename(collateral.file.name)
-                                    try:
-                                        absolute_pdf_url = request.build_absolute_uri(
-                                            reverse('serve_collateral_pdf', args=[filename])
-                                        )
-                                    except Exception as url_error:
-                                        print(f"DEBUG: Error generating serve_collateral_pdf URL: {url_error}")
-                                        # Fallback to manual URL construction
-                                        absolute_pdf_url = request.build_absolute_uri(f'/collaterals/tmp/{filename}/')
-                                    
-                                    print(f"DEBUG: Generated serve_collateral_pdf URL: {absolute_pdf_url}")
-                                    
-                                    # Check if file exists for verification
-                                    from django.conf import settings
-                                    file_path = collateral.file.name
-                                    full_file_path = os.path.join(settings.MEDIA_ROOT, file_path)
-                                    if not os.path.exists(full_file_path):
-                                        print(f"DEBUG: File not found at {full_file_path}")
-                                        absolute_pdf_url = None
-                            except Exception as e:
-                                print(f"Error generating PDF URL: {e}")
-                                absolute_pdf_url = None
+                            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
                             
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
