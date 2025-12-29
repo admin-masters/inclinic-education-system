@@ -20,6 +20,11 @@ whitenoise==6.6.0             # static file serving middleware
 python-dotenv==1.0.1          # load .env into settings (if you like)
 django-environ==0.11.2        # alternative env loader
 
+# ───────────────────────── PDF Processing ────────────────────────
+PyMuPDF==1.26.5               # PDF processing (fitz module)
+PyPDF2==3.0.1                 # PDF page counting and manipulation
+pdf2image==1.17.0             # PDF to image conversion
+
 # ───────────────────────── Development ────────────────────────────
 ipython==8.23.0               # nicer shell_plus
 Werkzeug==3.0.2               # runserver_plus (optional)

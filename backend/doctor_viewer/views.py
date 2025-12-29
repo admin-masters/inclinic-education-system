@@ -3,6 +3,23 @@ from django.shortcuts import render, get_object_or_404, redirect
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.views.decorators.csrf import csrf_exempt
 from django.utils import timezone
+from django.conf import settings
+
+# PDF processing imports
+try:
+    import fitz  # PyMuPDF
+except ImportError:
+    fitz = None
+
+try:
+    import PyPDF2
+except ImportError:
+    PyPDF2 = None
+
+try:
+    from pdf2image import convert_from_path
+except ImportError:
+    convert_from_path = None
 
 from shortlink_management.models import ShortLink
 from collateral_management.models import Collateral
@@ -19,13 +36,12 @@ def _page_count(collateral: Collateral) -> int:
     if collateral.type != "pdf":
         return 0
     try:
-        from PyPDF2 import PdfReader
         # Local file?
         if collateral.file and hasattr(collateral.file, "path") and os.path.exists(collateral.file.path):
-            return len(PdfReader(collateral.file.path).pages)
+            return len(PyPDF2.PdfReader(collateral.file.path).pages)
         # Remote file (S3 or other)
         resp = collateral.file.open(mode="rb")
-        return len(PdfReader(resp).pages)
+        return len(PyPDF2.PdfReader(resp).pages)
     except Exception:
         return 0
 
@@ -192,23 +208,26 @@ def doctor_collateral_verify(request):
                         if os.path.exists(file_path):
                             pdf_preview_url = absolute_pdf
                             try:
-                                import fitz  # PyMuPDF
-                                doc = fitz.open(file_path)
-                                page = doc[0]
-                                mat = fitz.Matrix(2, 2)
-                                pix = page.get_pixmap(matrix=mat)
-                                img_data = pix.tobytes("png")
-                                doc.close()
+                                if fitz:
+                                    doc = fitz.open(file_path)
+                                    page = doc[0]
+                                    mat = fitz.Matrix(2, 2)
+                                    pix = page.get_pixmap(matrix=mat)
+                                    img_data = pix.tobytes("png")
+                                    doc.close()
+                                else:
+                                    img_data = None
                             except Exception:
                                 try:
-                                    from PyPDF2 import PdfReader
-                                    from pdf2image import convert_from_path
-                                    images = convert_from_path(file_path, first_page=1, last_page=1)
-                                    if images:
-                                        from io import BytesIO
-                                        buffer = BytesIO()
-                                        images[0].save(buffer, format="PNG")
-                                        img_data = buffer.getvalue()
+                                    if PyPDF2 and convert_from_path:
+                                        images = convert_from_path(file_path, first_page=1, last_page=1)
+                                        if images:
+                                            from io import BytesIO
+                                            buffer = BytesIO()
+                                            images[0].save(buffer, format="PNG")
+                                            img_data = buffer.getvalue()
+                                        else:
+                                            img_data = None
                                     else:
                                         img_data = None
                                 except Exception:
@@ -312,29 +331,28 @@ def doctor_collateral_verify(request):
                             pdf_preview_image = None
                             if collateral.type == 'pdf' and collateral.file:
                                 try:
-                                    import fitz  # PyMuPDF
-                                    from django.conf import settings
-                                    import os
-                                    
-                                    file_path = os.path.join(settings.MEDIA_ROOT, collateral.file.name)
-                                    if os.path.exists(file_path):
-                                        doc = fitz.open(file_path)
-                                        page = doc[0]  # First page
-                                        mat = fitz.Matrix(2, 2)  # 2x zoom
-                                        pix = page.get_pixmap(matrix=mat)
-                                        img_data = pix.tobytes("png")
-                                        
-                                        # Save preview image
-                                        preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
-                                        os.makedirs(preview_dir, exist_ok=True)
-                                        preview_filename = f"preview_{collateral.id}.png"
-                                        preview_path = os.path.join(preview_dir, preview_filename)
-                                        
-                                        with open(preview_path, 'wb') as f:
-                                            f.write(img_data)
-                                        
-                                        pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
-                                        doc.close()
+                                    if fitz:
+                                        file_path = os.path.join(settings.MEDIA_ROOT, collateral.file.name)
+                                        if os.path.exists(file_path):
+                                            doc = fitz.open(file_path)
+                                            page = doc[0]  # First page
+                                            mat = fitz.Matrix(2, 2)  # 2x zoom
+                                            pix = page.get_pixmap(matrix=mat)
+                                            img_data = pix.tobytes("png")
+                                            
+                                            # Save preview image
+                                            preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
+                                            os.makedirs(preview_dir, exist_ok=True)
+                                            preview_filename = f"preview_{collateral.id}.png"
+                                            preview_path = os.path.join(preview_dir, preview_filename)
+                                            
+                                            with open(preview_path, 'wb') as f:
+                                                f.write(img_data)
+                                            
+                                            pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
+                                            doc.close()
+                                    else:
+                                        pdf_preview_image = None
                                 except Exception as e:
                                     print(f"DEBUG: Could not create preview image for post-verification: {e}")
                                     pdf_preview_image = None
