@@ -321,6 +321,15 @@ def fieldrep_dashboard(request):
         # Build best viewer URL: if both assets present, route to combined viewer
         has_pdf = bool(getattr(c, 'file', None))
         has_vid = bool(getattr(c, 'vimeo_url', ''))
+        
+        # Print fetching path debug info
+        if has_pdf:
+            print(f"[sharing_management] Fetching collateral file for ID: {getattr(c, 'id', None)}, Title: '{getattr(c, 'title', '')}'")
+            print(f"[sharing_management] File URL: {c.file.url}")
+            print(f"[sharing_management] File name: {c.file.name}")
+            if hasattr(c.file, 'path'):
+                print(f"[sharing_management] File path: {c.file.path}")
+        
         viewer_url = None
         if has_pdf and has_vid:
             try:
@@ -339,11 +348,15 @@ def fieldrep_dashboard(request):
             except Exception:
                 viewer_url = None
 
+        # Print final URL being used
+        final_url = viewer_url or (c.file.url if has_pdf else (getattr(c, 'vimeo_url', '') or ''))
+        print(f"[sharing_management] Final URL for collateral ID {getattr(c, 'id', None)}: {final_url}")
+        
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',
             'item_name': getattr(c, 'title', ''),
             'description': getattr(c, 'description', ''),
-            'url': viewer_url or (c.file.url if has_pdf else (getattr(c, 'vimeo_url', '') or '')),
+            'url': final_url,
             'has_both': has_pdf and has_vid,
             # Use collateral_management.Collateral id for Replace/Delete actions
             'id': getattr(c, 'id', None),

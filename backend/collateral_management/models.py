@@ -10,7 +10,11 @@ def collateral_upload_path(instance, filename):
     """
     MEDIA_ROOT/collaterals/<id or tmp>/<filename>
     """
-    return f"collaterals/{instance.id or 'tmp'}/{filename}"
+    upload_path = f"collaterals/{instance.id or 'tmp'}/{filename}"
+    print(f"[collateral_upload_path] Uploading file '{filename}' to path: {upload_path}")
+    print(f"[collateral_upload_path] Instance ID: {instance.id or 'tmp'}, Instance: {instance}")
+    return upload_path
+    
 
 
 # ------------------------------------------------------------------
