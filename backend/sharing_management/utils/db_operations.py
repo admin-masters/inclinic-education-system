@@ -811,8 +811,8 @@ def share_prefilled_doctor(rep_id, prefilled_doctor_id, short_link_id, collatera
 
 def verify_doctor_whatsapp_number(phone_input, short_link_id):
     """
-    Verify if the provided WhatsApp number matches the one used to share the collateral.
-    Handles multiple phone number formats for better matching.
+    Verify if the provided WhatsApp number matches exactly what was stored during sharing.
+    Uses the same cleaning logic as the sharing form.
     
     Args:
         phone_input: Phone number in any format (10 digits, +91, etc.)
@@ -822,95 +822,26 @@ def verify_doctor_whatsapp_number(phone_input, short_link_id):
         bool: True if WhatsApp number matches, False otherwise
     """
     try:
-        import re
-        
-        # Normalize the input phone number to get just digits
-        digits = re.sub(r'\D', '', phone_input)
-        
-        # Generate possible formats to check
-        possible_formats = []
-        
-        if len(digits) == 10:
-            # 10 digit number - add various prefixes
-            possible_formats = [
-                digits,                    # 9812345678
-                f'+91{digits}',           # +919812345678
-                f'91{digits}',            # 919812345678
-                f'0{digits}',             # 09812345678
-            ]
-        elif len(digits) == 12 and digits.startswith('91'):
-            # 12 digit starting with 91
-            base_digits = digits[2:]  # Remove 91 prefix
-            possible_formats = [
-                digits,                    # 919812345678
-                f'+{digits}',             # +919812345678
-                base_digits,              # 9812345678
-                f'+91{base_digits}',      # +919812345678
-            ]
-        elif len(digits) == 11 and digits.startswith('0'):
-            # 11 digit starting with 0
-            base_digits = digits[1:]  # Remove 0 prefix
-            possible_formats = [
-                digits,                    # 09812345678
-                base_digits,              # 9812345678
-                f'+91{base_digits}',      # +919812345678
-                f'91{base_digits}',       # 919812345678
-            ]
-        else:
-            # Use as-is and with +91 prefix
-            possible_formats = [
-                phone_input,
-                digits,
-                f'+91{digits}',
-                f'91{digits}',
-            ]
-        
-        print(f"DEBUG: Checking phone formats: {possible_formats}")
+        # Clean input phone number exactly like the sharing form does
+        cleaned_input = "".join(ch for ch in phone_input if ch.isdigit() or ch == "+")
         
         with connection.cursor() as cursor:
-            # First, let's see what's actually stored for this short_link_id
+            # Get the exact stored doctor_identifier for this short_link_id
             cursor.execute("""
-                SELECT doctor_identifier, share_channel FROM sharing_management_sharelog
-                WHERE short_link_id = %s
+                SELECT doctor_identifier FROM sharing_management_sharelog
+                WHERE short_link_id = %s AND share_channel = 'WhatsApp'
                 ORDER BY share_timestamp DESC
-                LIMIT 5
+                LIMIT 1
             """, [short_link_id])
             
-            stored_numbers = cursor.fetchall()
-            print(f"DEBUG: Stored numbers for short_link_id {short_link_id}: {stored_numbers}")
-            
-            # Check if any of the possible formats match
-            placeholders = ','.join(['%s'] * len(possible_formats))
-            cursor.execute(f"""
-                SELECT doctor_identifier FROM sharing_management_sharelog
-                WHERE short_link_id = %s 
-                  AND doctor_identifier IN ({placeholders})
-                  AND share_channel = 'WhatsApp'
-                LIMIT 1
-            """, [short_link_id] + possible_formats)
-            
             result = cursor.fetchone()
-            if result:
-                print(f"DEBUG: Match found with format: {result[0]}")
-                return True
-            else:
-                print(f"DEBUG: No match found for any format")
-                # Try a more flexible search - check if any stored number contains the input digits
-                cursor.execute("""
-                    SELECT doctor_identifier FROM sharing_management_sharelog
-                    WHERE short_link_id = %s 
-                      AND share_channel = 'WhatsApp'
-                      AND (doctor_identifier LIKE %s OR doctor_identifier LIKE %s OR doctor_identifier LIKE %s)
-                    LIMIT 1
-                """, [short_link_id, f'%{digits}%', f'%{digits[-10:]}%', f'%{digits[-8:]}%'])
-                
-                flexible_result = cursor.fetchone()
-                if flexible_result:
-                    print(f"DEBUG: Flexible match found: {flexible_result[0]}")
-                    return True
-                else:
-                    print(f"DEBUG: No flexible match found either")
-                    return False
+            if not result:
+                return False
+            
+            stored_identifier = result[0]
+            
+            # Exact match with what was stored during sharing
+            return cleaned_input == stored_identifier
             
     except Exception as e:
         print(f"Error verifying doctor WhatsApp number: {e}")
