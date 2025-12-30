@@ -622,7 +622,7 @@ class BulkPreMappedUploadForm(forms.Form):
             try:
                 name   = (row.get("doctor_name")     or "").strip()
                 phone  = (row.get("whatsapp_number") or "").strip()
-                rep_id =  int(row.get("fieldrep_id") or 0)
+                rep_id = (row.get("fieldrep_id") or "").strip()
                 collateral_id = int(row.get("collateral_id") or 0)
 
                 if not (name and phone and rep_id and collateral_id):
@@ -846,9 +846,22 @@ class BulkPreFilledWhatsappShareForm(forms.Form):
                 if not all([name, phone, rep_id, col_id]):
                     raise ValueError("Missing required column value")
 
-                # Get field rep
+                # Get field rep - handle both integer and string field_rep_id
                 try:
-                    rep = UserModel.objects.get(id=int(rep_id), role="field_rep")
+                    # First try to find by field_id (which can be string like "FR1234")
+                    rep = UserModel.objects.filter(role="field_rep", field_id=rep_id).first()
+                    if not rep:
+                        # If not found by field_id, try by username pattern
+                        rep = UserModel.objects.filter(role="field_rep", username=f"field_rep_{rep_id}").first()
+                    if not rep:
+                        # Last resort: try if rep_id is a numeric user ID
+                        try:
+                            rep = UserModel.objects.get(id=int(rep_id), role="field_rep")
+                        except (ValueError, UserModel.DoesNotExist):
+                            pass
+                    
+                    if not rep:
+                        raise ValueError(f"Unknown fieldrep_id «{rep_id}»")
                 except Exception:
                     raise ValueError(f"Unknown fieldrep_id «{rep_id}»")
 
@@ -976,9 +989,22 @@ class BulkPreMappedByLoginForm(forms.Form):
                 if not rep_id or not col_id:
                     raise ValueError("fieldrep_id and collateral_id are required")
 
-                # field rep
+                # field rep - handle both integer and string field_rep_id
                 try:
-                    rep = UserModel.objects.get(id=int(rep_id), role="field_rep")
+                    # First try to find by field_id (which can be string like "FR1234")
+                    rep = UserModel.objects.filter(role="field_rep", field_id=rep_id).first()
+                    if not rep:
+                        # If not found by field_id, try by username pattern
+                        rep = UserModel.objects.filter(role="field_rep", username=f"field_rep_{rep_id}").first()
+                    if not rep:
+                        # Last resort: try if rep_id is a numeric user ID
+                        try:
+                            rep = UserModel.objects.get(id=int(rep_id), role="field_rep")
+                        except (ValueError, UserModel.DoesNotExist):
+                            pass
+                    
+                    if not rep:
+                        raise ValueError(f"Unknown fieldrep_id «{rep_id}»")
                 except Exception:
                     raise ValueError(f"Unknown fieldrep_id «{rep_id}»")
 
