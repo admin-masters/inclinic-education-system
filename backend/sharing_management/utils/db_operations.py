@@ -101,9 +101,9 @@ def get_security_question_by_email(email):
     try:
         with connection.cursor() as cursor:
             cursor.execute("""
-                SELECT sq.id, sq.question 
+                SELECT sq.id, sq.question_txt 
                 FROM sharing_management_fieldrepresentative fr
-                JOIN security_question sq ON fr.security_question_id = sq.id
+                JOIN sharing_management_securityquestion sq ON fr.security_question_id = sq.id
                 WHERE fr.email = %s
                 LIMIT 1
             """, [email])
