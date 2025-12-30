@@ -245,14 +245,13 @@ def doctor_collateral_verify(request):
                         else:
                             pdf_preview_url = None
                     
-                    print(f"DEBUG: GET request - short_link_id: {short_link_id}, rendering template")
                     return render(request, 'doctor_viewer/doctor_collateral_verify.html', {
-                            'short_link': short_link,
-                            'collateral': collateral,
-                            'short_link_id': short_link_id,
-                            'pdf_preview_url': pdf_preview_url,
-                            'pdf_preview_image': pdf_preview_image
-                        })
+                        'short_link': short_link,
+                        'collateral': collateral,
+                        'short_link_id': short_link_id,
+                        'pdf_preview_url': pdf_preview_url,
+                        'pdf_preview_image': pdf_preview_image
+                    })
                 else:
                     from django.contrib import messages
                     messages.error(request, 'Collateral not found or inactive.')
@@ -268,8 +267,6 @@ def doctor_collateral_verify(request):
     elif request.method == 'POST':
         whatsapp_number = request.POST.get('whatsapp_number')
         short_link_id = request.POST.get('short_link_id')
-        
-        print(f"DEBUG: Verification attempt - WhatsApp: {whatsapp_number}, short_link_id: {short_link_id}")
         
         if whatsapp_number and short_link_id:
             try:
