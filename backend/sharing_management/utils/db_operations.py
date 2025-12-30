@@ -811,7 +811,7 @@ def share_prefilled_doctor(rep_id, prefilled_doctor_id, short_link_id, collatera
 
 def verify_doctor_whatsapp_number(phone_input, short_link_id):
     """
-    Verify if the provided WhatsApp number matches the one used to share the collateral.
+    Verify if the provided WhatsApp number matches the doctor's number stored in database.
     Handles multiple phone number formats for better matching.
     
     Args:
@@ -868,7 +868,59 @@ def verify_doctor_whatsapp_number(phone_input, short_link_id):
         print(f"DEBUG: Checking phone formats: {possible_formats}")
         
         with connection.cursor() as cursor:
-            # First, let's see what's actually stored for this short_link_id
+            # First, get the field rep who created this short link
+            cursor.execute("""
+                SELECT created_by_id FROM shortlink_management_shortlink
+                WHERE id = %s
+                LIMIT 1
+            """, [short_link_id])
+            
+            short_link_result = cursor.fetchone()
+            if not short_link_result:
+                print(f"DEBUG: Short link {short_link_id} not found")
+                return False
+                
+            field_rep_user_id = short_link_result[0]
+            print(f"DEBUG: Field rep user ID: {field_rep_user_id}")
+            
+            # Check if there's a doctor with this phone number associated with this field rep
+            from doctor_viewer.models import Doctor
+            
+            # Try to find a doctor with matching phone number for this field rep
+            doctors = Doctor.objects.filter(rep_id=field_rep_user_id)
+            print(f"DEBUG: Found {doctors.count()} doctors for field rep {field_rep_user_id}")
+            
+            for doctor in doctors:
+                doctor_phone_digits = re.sub(r'\D', '', doctor.phone or '')
+                print(f"DEBUG: Checking doctor {doctor.name} phone: {doctor.phone} -> digits: {doctor_phone_digits}")
+                
+                # Check if any format matches the doctor's phone
+                for format_phone in possible_formats:
+                    if format_phone == doctor.phone or format_phone == doctor_phone_digits:
+                        print(f"DEBUG: Match found with doctor {doctor.name} phone: {doctor.phone}")
+                        
+                        # Also verify that this doctor was shared this collateral
+                        # Check in share logs if this doctor was shared this collateral
+                        cursor.execute("""
+                            SELECT 1 FROM sharing_management_sharelog
+                            WHERE short_link_id = %s 
+                              AND doctor_identifier IN (%s, %s)
+                              AND share_channel = 'WhatsApp'
+                            LIMIT 1
+                        """, [short_link_id, doctor.phone, doctor_phone_digits])
+                        
+                        share_log_result = cursor.fetchone()
+                        if share_log_result:
+                            print(f"DEBUG: Doctor was indeed shared this collateral")
+                            return True
+                        else:
+                            print(f"DEBUG: Doctor found but not shared this collateral via WhatsApp")
+                            # Continue checking other doctors or fall back to original logic
+            
+            # If no doctor found in database, fall back to original share log verification
+            print(f"DEBUG: No matching doctor found in database, falling back to share log verification")
+            
+            # Check share logs for verification (original logic)
             cursor.execute("""
                 SELECT doctor_identifier, share_channel FROM sharing_management_sharelog
                 WHERE short_link_id = %s
@@ -879,7 +931,7 @@ def verify_doctor_whatsapp_number(phone_input, short_link_id):
             stored_numbers = cursor.fetchall()
             print(f"DEBUG: Stored numbers for short_link_id {short_link_id}: {stored_numbers}")
             
-            # Check if any of the possible formats match
+            # Check if any of the possible formats match in share logs
             placeholders = ','.join(['%s'] * len(possible_formats))
             cursor.execute(f"""
                 SELECT doctor_identifier FROM sharing_management_sharelog
@@ -891,10 +943,10 @@ def verify_doctor_whatsapp_number(phone_input, short_link_id):
             
             result = cursor.fetchone()
             if result:
-                print(f"DEBUG: Match found with format: {result[0]}")
+                print(f"DEBUG: Match found in share logs with format: {result[0]}")
                 return True
             else:
-                print(f"DEBUG: No match found for any format")
+                print(f"DEBUG: No match found in share logs for any format")
                 # Try a more flexible search - check if any stored number contains the input digits
                 cursor.execute("""
                     SELECT doctor_identifier FROM sharing_management_sharelog
@@ -906,10 +958,10 @@ def verify_doctor_whatsapp_number(phone_input, short_link_id):
                 
                 flexible_result = cursor.fetchone()
                 if flexible_result:
-                    print(f"DEBUG: Flexible match found: {flexible_result[0]}")
+                    print(f"DEBUG: Flexible match found in share logs: {flexible_result[0]}")
                     return True
                 else:
-                    print(f"DEBUG: No flexible match found either")
+                    print(f"DEBUG: No flexible match found in share logs either")
                     return False
             
     except Exception as e:
