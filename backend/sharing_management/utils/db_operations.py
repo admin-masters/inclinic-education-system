@@ -827,56 +827,37 @@ def verify_doctor_whatsapp_number(phone_input, short_link_id):
         # Normalize the input phone number to get just digits
         digits = re.sub(r'\D', '', phone_input)
         
-        # Generate possible formats to check
-        possible_formats = []
+        # Extract last 10 digits for matching (most common case)
+        last_10_digits = digits[-10:] if len(digits) >= 10 else digits
         
-        if len(digits) == 10:
-            # 10 digit number - add various prefixes
-            possible_formats = [
-                digits,                    # 9812345678
-                f'+91{digits}',           # +919812345678
-                f'91{digits}',            # 919812345678
-                f'0{digits}',             # 09812345678
-            ]
-        elif len(digits) == 12 and digits.startswith('91'):
-            # 12 digit starting with 91
-            base_digits = digits[2:]  # Remove 91 prefix
-            possible_formats = [
-                digits,                    # 919812345678
-                f'+{digits}',             # +919812345678
-                base_digits,              # 9812345678
-                f'+91{base_digits}',      # +919812345678
-            ]
-        elif len(digits) == 11 and digits.startswith('0'):
-            # 11 digit starting with 0
-            base_digits = digits[1:]  # Remove 0 prefix
-            possible_formats = [
-                digits,                    # 09812345678
-                base_digits,              # 9812345678
-                f'+91{base_digits}',      # +919812345678
-                f'91{base_digits}',       # 919812345678
-            ]
-        else:
-            # Use as-is and with +91 prefix
-            possible_formats = [
-                phone_input,
-                digits,
-                f'+91{digits}',
-                f'91{digits}',
-            ]
-        
-        print(f"DEBUG: Checking phone formats: {possible_formats}")
+        print(f"DEBUG: Input phone: {phone_input}, normalized digits: {digits}, last_10: {last_10_digits}")
         
         with connection.cursor() as cursor:
-            # Check if any of the possible formats match
-            placeholders = ','.join(['%s'] * len(possible_formats))
-            cursor.execute(f"""
+            # Use flexible matching similar to the working logic in views.py
+            cursor.execute("""
                 SELECT doctor_identifier FROM sharing_management_sharelog
                 WHERE short_link_id = %s 
-                  AND doctor_identifier IN ({placeholders})
                   AND share_channel = 'WhatsApp'
+                  AND (
+                      doctor_identifier = %s OR  -- exact match
+                      doctor_identifier = %s OR  -- +91 + 10 digits
+                      doctor_identifier = %s OR  -- 91 + 10 digits
+                      doctor_identifier LIKE %s OR  -- ends with 10 digits
+                      doctor_identifier LIKE %s OR  -- ends with 91 + 10 digits
+                      doctor_identifier = %s OR  -- 0 + 10 digits
+                      doctor_identifier LIKE %s  -- ends with 0 + 10 digits
+                  )
                 LIMIT 1
-            """, [short_link_id] + possible_formats)
+            """, [
+                short_link_id,
+                digits,                    # exact digits match
+                f'+91{last_10_digits}',    # +91 + 10 digits
+                f'91{last_10_digits}',     # 91 + 10 digits
+                f'%{last_10_digits}',      # ends with 10 digits
+                f'%91{last_10_digits}',     # ends with 91 + 10 digits
+                f'0{last_10_digits}',      # 0 + 10 digits
+                f'%0{last_10_digits}'      # ends with 0 + 10 digits
+            ])
             
             result = cursor.fetchone()
             if result:
