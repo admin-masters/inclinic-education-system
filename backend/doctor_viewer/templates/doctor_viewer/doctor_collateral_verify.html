@@ -5,60 +5,93 @@
 <div class="container-fluid" style="min-height: 100vh; background: #f8f9fa;">
   <div class="row h-100">
 
-    <!-- Left side: PDF Preview -->
+    <!-- Left side: Content Preview -->
     <div class="col-md-8 p-0">
-      {% if pdf_preview_url %}
-      <div class="pdf-preview-container" style="height: 100vh; border-right: 1px solid #dee2e6;">
+      {% if pdf_preview_url or pdf_preview_image %}
+      <div class="preview-container" style="height: 100vh; border-right: 1px solid #dee2e6;">
         <div class="preview-header bg-primary text-white p-3">
           <h5 class="mb-0">
-            <i class="fas fa-file-pdf me-2"></i>
+            {% if collateral.type == 'pdf' %}
+              <i class="fas fa-file-pdf me-2"></i>
+            {% elif collateral.type in 'jpg jpeg png gif bmp' %}
+              <i class="fas fa-image me-2"></i>
+            {% elif collateral.type == 'mp4' or collateral.type == 'video' %}
+              <i class="fas fa-video me-2"></i>
+            {% else %}
+              <i class="fas fa-file me-2"></i>
+            {% endif %}
             {{ collateral.title }} - Preview
           </h5>
-          <small>First page preview • Verify your WhatsApp number to access full content</small>
+          <small>Content preview • Verify your WhatsApp number to access full content</small>
           {% if pdf_preview_url %}
           <br><small class="text-light">URL: {{ pdf_preview_url|truncatechars:50 }}</small>
           {% endif %}
         </div>
 
-        <div class="pdf-preview" style="height: calc(100vh - 80px); overflow: hidden;">
+        <div class="content-preview" style="height: calc(100vh - 80px); overflow: hidden;">
           {% if pdf_preview_image %}
-          <!-- PDF preview image -->
-          <div style="width: 100%; height: 100%; text-align: center; padding: 10px;">
-            <img src="{{ pdf_preview_image }}" alt="PDF Preview"
-              style="max-width: 100%; max-height: 100%; object-fit: contain;">
-            
+          <!-- Preview image -->
+          <div style="width: 100%; height: 100%; text-align: center; padding: 10px; background: #f8f9fa;">
+            <img src="{{ pdf_preview_image }}" alt="Content Preview"
+              style="max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 4px 8px rgba(0,0,0,0.1); border-radius: 8px;">
           </div>
           {% else %}
-          <!-- Direct PDF link with better styling -->
+          <!-- Direct content link with better styling -->
           <div
             style="width: 100%; height: 100%; text-align: center; padding: 20px; display: flex; align-items: center; justify-content: center; background: #f8f9fa;">
             <div style="max-width: 400px;">
               <div
                 style="background: white; padding: 30px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1);">
-                <i class="fas fa-file-pdf fa-4x text-primary mb-3"></i>
-                <h4 class="text-dark mb-3">PDF Document</h4>
+                {% if collateral.type == 'pdf' %}
+                  <i class="fas fa-file-pdf fa-4x text-primary mb-3"></i>
+                  <h4 class="text-dark mb-3">PDF Document</h4>
+                {% elif collateral.type in 'jpg jpeg png gif bmp' %}
+                  <i class="fas fa-image fa-4x text-success mb-3"></i>
+                  <h4 class="text-dark mb-3">Image Document</h4>
+                {% elif collateral.type == 'mp4' or collateral.type == 'video' %}
+                  <i class="fas fa-video fa-4x text-warning mb-3"></i>
+                  <h4 class="text-dark mb-3">Video Content</h4>
+                {% else %}
+                  <i class="fas fa-file fa-4x text-info mb-3"></i>
+                  <h4 class="text-dark mb-3">Document</h4>
+                {% endif %}
                 <p class="text-muted mb-4">{{ collateral.title }}</p>
+                {% if pdf_preview_url %}
                 <a href="{{ pdf_preview_url }}" class="btn btn-primary btn-lg" target="_blank"
                   style="background: #007bff; border: none; padding: 12px 30px; font-size: 16px; border-radius: 8px;">
-                  <i class="fas fa-file-pdf me-2"></i>View PDF Document
+                  <i class="fas fa-external-link-alt me-2"></i>View Full Content
                 </a>
-                <p class="text-muted mt-3 small">Click the button above to view the PDF in a new tab</p>
+                <p class="text-muted mt-3 small">Click the button above to view the full content in a new tab</p>
+                {% endif %}
               </div>
             </div>
           </div>
           {% endif %}
         </div>
 
-        <!-- Fallback content when PDF fails to load -->
-        <div id="pdf-fallback" class="pdf-fallback">
+        <!-- Fallback content when content fails to load -->
+        <div id="content-fallback" class="content-fallback">
           <div class="text-center d-flex align-items-center justify-content-center h-100">
             <div>
-              <i class="fas fa-file-pdf fa-5x text-muted mb-3"></i>
-              <h4 class="text-muted">PDF Preview</h4>
+              {% if collateral.type == 'pdf' %}
+                <i class="fas fa-file-pdf fa-5x text-muted mb-3"></i>
+                <h4 class="text-muted">PDF Preview</h4>
+              {% elif collateral.type in 'jpg jpeg png gif bmp' %}
+                <i class="fas fa-image fa-5x text-muted mb-3"></i>
+                <h4 class="text-muted">Image Preview</h4>
+              {% elif collateral.type == 'mp4' or collateral.type == 'video' %}
+                <i class="fas fa-video fa-5x text-muted mb-3"></i>
+                <h4 class="text-muted">Video Preview</h4>
+              {% else %}
+                <i class="fas fa-file fa-5x text-muted mb-3"></i>
+                <h4 class="text-muted">Content Preview</h4>
+              {% endif %}
               <p class="text-muted">{{ collateral.title }}</p>
+              {% if pdf_preview_url %}
               <a href="{{ pdf_preview_url }}" class="btn btn-primary" target="_blank">
-                <i class="fas fa-external-link-alt me-2"></i>Open PDF in New Tab
+                <i class="fas fa-external-link-alt me-2"></i>Open Content in New Tab
               </a>
+              {% endif %}
             </div>
           </div>
         </div>
@@ -66,9 +99,18 @@
       {% else %}
       <div class="d-flex align-items-center justify-content-center h-100 bg-light">
         <div class="text-center">
-          <i class="fas fa-file-alt fa-5x text-muted mb-3"></i>
+          {% if collateral.type == 'pdf' %}
+            <i class="fas fa-file-pdf fa-5x text-muted mb-3"></i>
+          {% elif collateral.type in 'jpg jpeg png gif bmp' %}
+            <i class="fas fa-image fa-5x text-muted mb-3"></i>
+          {% elif collateral.type == 'mp4' or collateral.type == 'video' %}
+            <i class="fas fa-video fa-5x text-muted mb-3"></i>
+          {% else %}
+            <i class="fas fa-file-alt fa-5x text-muted mb-3"></i>
+          {% endif %}
           <h4 class="text-muted">Content Preview</h4>
           <p class="text-muted">{{ collateral.title }}</p>
+          <p class="text-muted small">Preview will be available once verification is complete</p>
         </div>
       </div>
       {% endif %}
@@ -137,7 +179,7 @@
 </div>
 
 <style>
-  .pdf-preview-container {
+  .preview-container {
     position: relative;
   }
 
@@ -147,13 +189,13 @@
     z-index: 10;
   }
 
-  .pdf-fallback {
+  .content-fallback {
     display: none;
     height: calc(100vh - 80px);
     background: #f8f9fa;
   }
 
-  .pdf-fallback.show {
+  .content-fallback.show {
     display: block;
   }
 
@@ -170,44 +212,14 @@
       height: 50vh;
     }
 
-    .pdf-preview {
+    .content-preview {
       height: calc(50vh - 80px) !important;
     }
 
-    .pdf-fallback {
+    .content-fallback {
       height: calc(50vh - 80px) !important;
     }
   }
 </style>
 
-<script>
-  // PDF.js viewer
-  document.addEventListener('DOMContentLoaded', function () {
-    console.log('PDF.js viewer loaded');
-
-    const pdfPreview = document.getElementById('pdf-preview');
-    const pdfFallback = document.getElementById('pdf-fallback');
-
-    // Handle iframe load events
-    pdfPreview.addEventListener('load', function () {
-      console.log('PDF.js viewer loaded successfully');
-      pdfFallback.classList.remove('show');
-    });
-
-    pdfPreview.addEventListener('error', function () {
-      console.log('PDF.js viewer failed to load');
-      pdfPreview.style.display = 'none';
-      pdfFallback.classList.add('show');
-    });
-
-    // Check if PDF loads successfully after a timeout
-    setTimeout(function () {
-      if (pdfPreview && pdfPreview.offsetHeight === 0) {
-        console.log('PDF.js viewer failed after timeout, showing fallback');
-        pdfPreview.style.display = 'none';
-        pdfFallback.classList.add('show');
-      }
-    }, 5000);
-  });
-</script>
 {% endblock %}

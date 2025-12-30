@@ -868,6 +868,17 @@ def verify_doctor_whatsapp_number(phone_input, short_link_id):
         print(f"DEBUG: Checking phone formats: {possible_formats}")
         
         with connection.cursor() as cursor:
+            # First, let's see what's actually stored for this short_link_id
+            cursor.execute("""
+                SELECT doctor_identifier, share_channel FROM sharing_management_sharelog
+                WHERE short_link_id = %s
+                ORDER BY share_timestamp DESC
+                LIMIT 5
+            """, [short_link_id])
+            
+            stored_numbers = cursor.fetchall()
+            print(f"DEBUG: Stored numbers for short_link_id {short_link_id}: {stored_numbers}")
+            
             # Check if any of the possible formats match
             placeholders = ','.join(['%s'] * len(possible_formats))
             cursor.execute(f"""
@@ -884,7 +895,22 @@ def verify_doctor_whatsapp_number(phone_input, short_link_id):
                 return True
             else:
                 print(f"DEBUG: No match found for any format")
-                return False
+                # Try a more flexible search - check if any stored number contains the input digits
+                cursor.execute("""
+                    SELECT doctor_identifier FROM sharing_management_sharelog
+                    WHERE short_link_id = %s 
+                      AND share_channel = 'WhatsApp'
+                      AND (doctor_identifier LIKE %s OR doctor_identifier LIKE %s OR doctor_identifier LIKE %s)
+                    LIMIT 1
+                """, [short_link_id, f'%{digits}%', f'%{digits[-10:]}%', f'%{digits[-8:]}%'])
+                
+                flexible_result = cursor.fetchone()
+                if flexible_result:
+                    print(f"DEBUG: Flexible match found: {flexible_result[0]}")
+                    return True
+                else:
+                    print(f"DEBUG: No flexible match found either")
+                    return False
             
     except Exception as e:
         print(f"Error verifying doctor WhatsApp number: {e}")

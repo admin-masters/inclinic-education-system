@@ -183,7 +183,7 @@ def doctor_collateral_verify(request):
                     # Generate PDF preview URL for the first page
                     pdf_preview_url = None
                     pdf_preview_image = None
-                    if collateral.type == 'pdf' and collateral.file:
+                    if collateral.file:
                         from django.conf import settings
                         import os
                         media_path = collateral.file.name
@@ -192,28 +192,47 @@ def doctor_collateral_verify(request):
                         file_path = os.path.join(settings.MEDIA_ROOT, media_path)
                         if os.path.exists(file_path):
                             pdf_preview_url = absolute_pdf
-                            try:
-                                import fitz  # PyMuPDF
-                                doc = fitz.open(file_path)
-                                page = doc[0]
-                                mat = fitz.Matrix(2, 2)
-                                pix = page.get_pixmap(matrix=mat)
-                                img_data = pix.tobytes("png")
-                                doc.close()
-                            except Exception:
+                            # Generate preview image for all file types
+                            if collateral.type == 'pdf':
                                 try:
-                                    from PyPDF2 import PdfReader
-                                    from pdf2image import convert_from_path
-                                    images = convert_from_path(file_path, first_page=1, last_page=1)
-                                    if images:
-                                        from io import BytesIO
-                                        buffer = BytesIO()
-                                        images[0].save(buffer, format="PNG")
-                                        img_data = buffer.getvalue()
-                                    else:
+                                    import fitz  # PyMuPDF
+                                    doc = fitz.open(file_path)
+                                    page = doc[0]
+                                    mat = fitz.Matrix(2, 2)
+                                    pix = page.get_pixmap(matrix=mat)
+                                    img_data = pix.tobytes("png")
+                                    doc.close()
+                                except Exception:
+                                    try:
+                                        from PyPDF2 import PdfReader
+                                        from pdf2image import convert_from_path
+                                        images = convert_from_path(file_path, first_page=1, last_page=1)
+                                        if images:
+                                            from io import BytesIO
+                                            buffer = BytesIO()
+                                            images[0].save(buffer, format="PNG")
+                                            img_data = buffer.getvalue()
+                                        else:
+                                            img_data = None
+                                    except Exception:
                                         img_data = None
+                            elif collateral.type in ['jpg', 'jpeg', 'png', 'gif', 'bmp']:
+                                # For image files, use the image directly as preview
+                                try:
+                                    from PIL import Image
+                                    img = Image.open(file_path)
+                                    img.thumbnail((800, 600), Image.Resampling.LANCZOS)
+                                    from io import BytesIO
+                                    buffer = BytesIO()
+                                    img.save(buffer, format="PNG")
+                                    img_data = buffer.getvalue()
                                 except Exception:
                                     img_data = None
+                            elif collateral.type == 'mp4' or collateral.type == 'video':
+                                # For videos, we'll show a video placeholder
+                                img_data = None
+                            else:
+                                img_data = None
 
                             if img_data:
                                 preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
@@ -359,7 +378,7 @@ def doctor_collateral_verify(request):
                         messages.error(request, 'Error granting access.')
                 else:
                     from django.contrib import messages
-                    messages.error(request, 'WhatsApp number not found in sharing records. Please check the number.')
+                    messages.error(request, 'WhatsApp number not found in our records. Please ensure you are using the same number that was used to share this collateral.')
                     
             except Exception as e:
                 from django.contrib import messages
