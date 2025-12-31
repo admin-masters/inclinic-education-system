@@ -194,10 +194,7 @@ def doctor_report(request, code: str):
     return JsonResponse(list(qry), safe=False)
 
 
-qs = ShareLog.objects.filter(
-    short_link_id=short_link_id,
-    share_channel="WhatsApp"
-).values_list("doctor_identifier", flat=True)
+
 
 def doctor_collateral_view(request):
     """
