@@ -333,25 +333,29 @@ def doctor_collateral_verify(request):
             # success = verify_doctor_whatsapp_number(whatsapp_number, short_link_id)
             from sharing_management.models import ShareLog
 
-            normalized_formats = set()
+            import re
 
-            num = whatsapp_number.strip()
-            normalized_formats.add(num)
+            def last10(phone):
+                digits = re.sub(r'\D', '', phone or '')
+                return digits[-10:] if len(digits) >= 10 else digits
 
-            if not num.startswith("+91"):
-                normalized_formats.add("+91" + num)
+            input_last10 = last10(whatsapp_number)
+            print("DEBUG: Input last10 =", input_last10)
 
-            if not num.startswith("91"):
-                normalized_formats.add("91" + num)
-
-            normalized_formats.add("0" + num)
-
-            print("DEBUG: Trying phone formats:", normalized_formats)
-
-            success = ShareLog.objects.filter(
+            success = False
+            qs = ShareLog.objects.filter(
                 short_link_id=short_link_id,
-                whatsapp_number__in=normalized_formats
-            ).exists()
+                share_channel="WhatsApp"
+            ).values_list("doctor_identifier", flat=True)
+
+            for stored in qs:
+                print("DEBUG: Comparing with stored =", stored)
+                if last10(stored) == input_last10:
+                    success = True
+                    break
+
+
+
 
             print("DEBUG: Verification result:", success)
 
