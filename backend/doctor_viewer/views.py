@@ -288,9 +288,13 @@ def doctor_collateral_verify(request):
         print("DEBUG input last10:", input_last10)
 
         logs = ShareLog.objects.filter(
-            short_link_id=short_link_id,
-            share_channel="WhatsApp",
+        short_link_id=short_link_id
+        ).exclude(
+        doctor_identifier__isnull=True
+        ).exclude(
+        doctor_identifier__exact=""
         ).values_list("doctor_identifier", flat=True)
+
 
         matched = False
         for stored in logs:
