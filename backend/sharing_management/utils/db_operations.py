@@ -242,7 +242,7 @@ def validate_user_forgot_password(email, security_answer):
             cursor.execute("""
                 SELECT 1 
                 FROM user_security_answer usa 
-                JOIN security_question q ON q.id = usa.question_id 
+                JOIN user_management_securityquestion q ON q.id = usa.question_id 
                 WHERE usa.user_id = (SELECT id FROM user_management_user WHERE email = %s) 
                 AND usa.security_answer_hash = %s 
                 LIMIT 1
@@ -268,9 +268,9 @@ def get_user_security_questions_by_email(email):
     try:
         with connection.cursor() as cursor:
             cursor.execute("""
-                SELECT sq.id, sq.question_txt 
+                SELECT sq.id, sq.question 
                 FROM user_security_answer usa
-                JOIN security_question sq ON usa.question_id = sq.id
+                JOIN user_management_securityquestion sq ON usa.question_id = sq.id
                 JOIN user_management_user umu ON usa.user_id = umu.id
                 WHERE umu.email = %s
             """, [email])
