@@ -142,5 +142,28 @@
     <script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}" defer></script>
     <!-- Page-specific scripts -->
     {% block bottomjs %}{% endblock %}
+    <script>
+document.addEventListener("DOMContentLoaded", function () {
+
+    const logoutForm = document.getElementById("logoutForm");
+    const recaptchaToken = document.getElementById("recaptchaToken");
+
+    // Guard: only attach if elements exist (public pages won't have them)
+    if (logoutForm && recaptchaToken && window.grecaptcha) {
+        logoutForm.addEventListener("submit", function (e) {
+            e.preventDefault();
+            grecaptcha.ready(function () {
+                grecaptcha.execute("{{ RECAPTCHA_SITE_KEY }}", { action: "logout" })
+                    .then(function (token) {
+                        recaptchaToken.value = token;
+                        logoutForm.submit();
+                    });
+            });
+        });
+    }
+
+});
+</script>
+
 </body>
 </html>
