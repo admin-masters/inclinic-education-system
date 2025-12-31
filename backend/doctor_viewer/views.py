@@ -48,6 +48,25 @@ def _page_count(collateral: Collateral) -> int:
 # ──────────────────────────────────────────────────────────────
 # GET  /view/<code>/   → render PDF or video template
 # ──────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────
+# Safe file URL helper – avoids ValueError for missing files
+# ──────────────────────────────────────────────────────────────
+def _safe_absolute_file_url(request, file_field):
+    """
+    Return an absolute URL for a Django FileField/ImageField or None.
+
+    Django raises ValueError when accessing `.url` on an empty FileField.
+    Some collateral types (e.g., video-only) legitimately have no file,
+    and that should not break the verification flow.
+    """
+    if not file_field:
+        return None
+    try:
+        return request.build_absolute_uri(file_field.url)
+    except Exception:
+        return None
+
 def resolve_view(request, code: str):
     short_link = get_object_or_404(ShortLink, short_code=code, is_active=True)
     collateral = short_link.get_collateral()
@@ -244,7 +263,7 @@ def doctor_collateral_verify(request):
                                 pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
                         else:
                             pdf_preview_url = None
-                    
+
                     return render(request, 'doctor_viewer/doctor_collateral_verify.html', {
                         'short_link': short_link,
                         'collateral': collateral,
@@ -262,23 +281,23 @@ def doctor_collateral_verify(request):
         else:
             from django.contrib import messages
             messages.error(request, 'Short link ID is required.')
-    
+
     # Handle POST request - WhatsApp number verification
     elif request.method == 'POST':
         whatsapp_number = request.POST.get('whatsapp_number')
         short_link_id = request.POST.get('short_link_id')
-        
+
         if whatsapp_number and short_link_id:
             try:
                 print(f"DEBUG: Verifying WhatsApp number: {whatsapp_number} for short_link_id: {short_link_id}")
-                
+
                 # Check if this WhatsApp number was used to share this collateral
                 from sharing_management.utils.db_operations import verify_doctor_whatsapp_number
-                
+
                 # Verify WhatsApp number matches the one used in sharing
                 success = verify_doctor_whatsapp_number(whatsapp_number, short_link_id)
                 print(f"DEBUG: Verification result: {success}")
-                
+
                 if success:
                     # Grant download access
                     from sharing_management.utils.db_operations import grant_download_access
@@ -289,12 +308,12 @@ def doctor_collateral_verify(request):
                             mark_downloaded_pdf(sl)
                     except Exception:
                         pass
-                    
+
                     if grant_success:
                         # Get short link and collateral info
                         short_link = get_object_or_404(ShortLink, id=short_link_id, is_active=True)
                         collateral = short_link.get_collateral()
-                        
+
                         if collateral:
                             # Build Archives list (same logic as OTP flow)
                             campaign_id = None
@@ -335,7 +354,7 @@ def doctor_collateral_verify(request):
                                     import fitz  # PyMuPDF
                                     from django.conf import settings
                                     import os
-                                    
+
                                     file_path = os.path.join(settings.MEDIA_ROOT, collateral.file.name)
                                     if os.path.exists(file_path):
                                         doc = fitz.open(file_path)
@@ -343,16 +362,16 @@ def doctor_collateral_verify(request):
                                         mat = fitz.Matrix(2, 2)  # 2x zoom
                                         pix = page.get_pixmap(matrix=mat)
                                         img_data = pix.tobytes("png")
-                                        
+
                                         # Save preview image
                                         preview_dir = os.path.join(settings.MEDIA_ROOT, 'previews')
                                         os.makedirs(preview_dir, exist_ok=True)
                                         preview_filename = f"preview_{collateral.id}.png"
                                         preview_path = os.path.join(preview_dir, preview_filename)
-                                        
+
                                         with open(preview_path, 'wb') as f:
                                             f.write(img_data)
-                                        
+
                                         pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
                                         doc.close()
                                 except Exception as e:
@@ -360,8 +379,8 @@ def doctor_collateral_verify(request):
                                     pdf_preview_image = None
 
                             # Generate absolute PDF URL to avoid localhost issues
-                            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
-                            
+                            absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
+
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
                                 'short_link': short_link,
@@ -379,7 +398,7 @@ def doctor_collateral_verify(request):
                 else:
                     from django.contrib import messages
                     messages.error(request, 'WhatsApp number not found in our records. Please ensure you are using the same number that was used to share this collateral.')
-                    
+
             except Exception as e:
                 from django.contrib import messages
                 messages.error(request, 'Error verifying WhatsApp number. Please try again.')
@@ -387,7 +406,7 @@ def doctor_collateral_verify(request):
         else:
             from django.contrib import messages
             messages.error(request, 'Please provide WhatsApp number.')
-    
+
     return render(request, 'doctor_viewer/doctor_collateral_verify.html')
 
 def doctor_collateral_view(request):
@@ -395,14 +414,14 @@ def doctor_collateral_view(request):
         whatsapp_number = request.POST.get('whatsapp_number')
         short_link_id = request.POST.get('short_link_id')
         otp = request.POST.get('otp')
-        
+
         if whatsapp_number and short_link_id and otp:
             try:
                 from sharing_management.utils.db_operations import verify_doctor_otp, grant_download_access
-                
+
                 # Verify OTP
                 success, row_id = verify_doctor_otp(whatsapp_number, short_link_id, otp)
-                
+
                 if success:
                     # Grant download access
                     grant_success = grant_download_access(short_link_id)
@@ -412,7 +431,7 @@ def doctor_collateral_view(request):
                             mark_downloaded_pdf(sl)
                     except Exception:
                         pass
-                    
+
                     if grant_success:
                         # Get short link and collateral info
                         short_link = get_object_or_404(ShortLink, id=short_link_id)
@@ -471,8 +490,8 @@ def doctor_collateral_view(request):
                                     })
 
                             # Generate absolute PDF URL to avoid localhost issues
-                            absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
-                            
+                            absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
+
                             return render(request, 'doctor_viewer/doctor_collateral_view.html', {
                                 'collateral': collateral,
                                 'short_link': short_link,
@@ -489,14 +508,14 @@ def doctor_collateral_view(request):
                 else:
                     from django.contrib import messages
                     messages.error(request, 'Invalid OTP. Please try again.')
-                    
+
             except Exception as e:
                 from django.contrib import messages
                 messages.error(request, 'Error verifying OTP. Please try again.')
         else:
             from django.contrib import messages
             messages.error(request, 'Please provide all required information.')
-    
+
     # If no POST or verification failed, show verification form
     return render(request, 'doctor_viewer/doctor_collateral_verify.html')
 
@@ -508,19 +527,19 @@ def tracking_dashboard(request):
     engagements = DoctorEngagement.objects.select_related(
         'short_link'
     ).order_by('-view_timestamp')
-    
+
     # Get summary statistics
     total_engagements = engagements.count()
     pdf_engagements = engagements.filter(pdf_completed=True).count()
     video_engagements = engagements.filter(video_watch_percentage__gte=90).count()
-    
+
     # Get collateral-wise statistics (instead of campaign-wise)
     collateral_stats = {}
     for engagement in engagements:
         collateral = engagement.short_link.get_collateral()
         if collateral:
             collateral_name = collateral.title if hasattr(collateral, 'title') else str(collateral)
-            
+
             if collateral_name not in collateral_stats:
                 collateral_stats[collateral_name] = {
                     'pdf_completed': 0,
@@ -528,16 +547,16 @@ def tracking_dashboard(request):
                     'total_views': 0,
                     'type': collateral.type if hasattr(collateral, 'type') else 'unknown'
                 }
-            
+
             collateral_stats[collateral_name]['total_views'] += 1
             if engagement.pdf_completed:
                 collateral_stats[collateral_name]['pdf_completed'] += 1
             if engagement.video_watch_percentage >= 90:
                 collateral_stats[collateral_name]['video_completed'] += 1
-    
+
     # Get recent engagements for detailed view
     recent_engagements = engagements[:50]  # Last 50 engagements
-    
+
     context = {
         'total_engagements': total_engagements,
         'pdf_engagements': pdf_engagements,
@@ -545,5 +564,5 @@ def tracking_dashboard(request):
         'collateral_stats': collateral_stats,  # Changed from campaign_stats
         'recent_engagements': recent_engagements,
     }
-    
+
     return render(request, 'doctor_viewer/tracking_dashboard.html', context)
