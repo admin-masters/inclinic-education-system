@@ -10,6 +10,9 @@ class SecurityQuestion(models.Model):
 
     def __str__(self):
         return self.question_txt
+    
+    class Meta:
+        db_table = 'security_question'
 
 class FieldRepresentative(models.Model):
     field_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
