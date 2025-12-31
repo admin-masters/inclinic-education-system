@@ -812,80 +812,43 @@ def share_prefilled_doctor(rep_id, prefilled_doctor_id, short_link_id, collatera
 def verify_doctor_whatsapp_number(phone_input, short_link_id):
     """
     Verify if the provided WhatsApp number matches the one used to share the collateral.
-    Handles multiple phone number formats for better matching.
-    
-    Args:
-        phone_input: Phone number in any format (10 digits, +91, etc.)
-        short_link_id: The short link ID for the collateral
-    
-    Returns:
-        bool: True if WhatsApp number matches, False otherwise
+    Matching is done on LAST 10 DIGITS to safely handle +91 / 0 / spacing / formatting issues.
     """
     try:
         import re
-        
-        # Normalize the input phone number to get just digits
-        digits = re.sub(r'\D', '', phone_input)
-        
-        # Generate possible formats to check
-        possible_formats = []
-        
-        if len(digits) == 10:
-            # 10 digit number - add various prefixes
-            possible_formats = [
-                digits,                    # 9812345678
-                f'+91{digits}',           # +919812345678
-                f'91{digits}',            # 919812345678
-                f'0{digits}',             # 09812345678
-            ]
-        elif len(digits) == 12 and digits.startswith('91'):
-            # 12 digit starting with 91
-            base_digits = digits[2:]  # Remove 91 prefix
-            possible_formats = [
-                digits,                    # 919812345678
-                f'+{digits}',             # +919812345678
-                base_digits,              # 9812345678
-                f'+91{base_digits}',      # +919812345678
-            ]
-        elif len(digits) == 11 and digits.startswith('0'):
-            # 11 digit starting with 0
-            base_digits = digits[1:]  # Remove 0 prefix
-            possible_formats = [
-                digits,                    # 09812345678
-                base_digits,              # 9812345678
-                f'+91{base_digits}',      # +919812345678
-                f'91{base_digits}',       # 919812345678
-            ]
-        else:
-            # Use as-is and with +91 prefix
-            possible_formats = [
-                phone_input,
-                digits,
-                f'+91{digits}',
-                f'91{digits}',
-            ]
-        
-        print(f"DEBUG: Checking phone formats: {possible_formats}")
-        
+        from django.db import connection
+
+        def last10(phone):
+            digits = re.sub(r'\D', '', phone or '')
+            return digits[-10:] if len(digits) >= 10 else digits
+
+        input_last10 = last10(phone_input)
+        print(f"DEBUG: Input last10 digits = {input_last10}")
+
         with connection.cursor() as cursor:
-            # Check if any of the possible formats match
-            placeholders = ','.join(['%s'] * len(possible_formats))
-            cursor.execute(f"""
-                SELECT doctor_identifier FROM sharing_management_sharelog
-                WHERE short_link_id = %s 
-                  AND doctor_identifier IN ({placeholders})
+            cursor.execute("""
+                SELECT doctor_identifier
+                FROM sharing_management_sharelog
+                WHERE short_link_id = %s
                   AND share_channel = 'WhatsApp'
-                LIMIT 1
-            """, [short_link_id] + possible_formats)
-            
-            result = cursor.fetchone()
-            if result:
-                print(f"DEBUG: Match found with format: {result[0]}")
+            """, [short_link_id])
+
+            rows = cursor.fetchall()
+
+        for (stored_phone,) in rows:
+            stored_last10 = last10(stored_phone)
+            print(
+                f"DEBUG: Comparing stored {stored_phone} "
+                f"(last10={stored_last10})"
+            )
+
+            if stored_last10 == input_last10:
+                print("DEBUG: WhatsApp verification SUCCESS")
                 return True
-            else:
-                print(f"DEBUG: No match found for any format")
-                return False
-            
+
+        print("DEBUG: WhatsApp verification FAILED")
+        return False
+
     except Exception as e:
         print(f"Error verifying doctor WhatsApp number: {e}")
         return False
