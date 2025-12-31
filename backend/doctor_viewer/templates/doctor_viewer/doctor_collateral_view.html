@@ -2,208 +2,137 @@
 {% load static %}
 
 {% block content %}
+
 {% if verified and collateral %}
+
 <div class="container mt-4">
   <div class="card mx-auto" style="max-width: 800px">
+
     <div class="card-header text-center">
       <h4 class="mb-0">{{ collateral.title }}</h4>
 
       {% if collateral.description %}
-      <p class="text-muted mb-0">{{ collateral.description }}</p>
+        <p class="text-muted mb-0">{{ collateral.description }}</p>
       {% endif %}
 
       {% if collateral.doctor_name %}
-      <p class="text-muted mb-0">By Dr. {{ collateral.doctor_name }}</p>
+        <p class="text-muted mb-0">By Dr. {{ collateral.doctor_name }}</p>
       {% endif %}
     </div>
 
     <div class="card-body text-center">
+
       {% if collateral.vimeo_url %}
-      <div class="ratio ratio-16x9 mb-3">
-        <iframe src="{{ collateral.vimeo_url }}" allowfullscreen></iframe>
-      </div>
+        <div class="ratio ratio-16x9 mb-3">
+          <iframe src="{{ collateral.vimeo_url }}" allowfullscreen></iframe>
+        </div>
       {% endif %}
 
       {% if collateral.file %}
-      <a
-        href="{% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}#{% endif %}"
-        class="btn btn-primary mb-3"
-        target="_blank"
-        style="background: #1877f2; border: none"
-      >
-        CLICK HERE to download the PDF
-      </a>
-
-      <p>If you are not able to see the PDF, please refresh the page!</p>
-
-      <div
-        class="pdf-container"
-        style="
-          border: 1px solid #ccc;
-          height: 600px;
-          overflow: auto;
-          position: relative;
-          background: #f8f9fa;
-        "
-      >
-        <div
-          class="pdf-controls"
-          style="
-            background: white;
-            padding: 10px;
-            border-bottom: 1px solid #ddd;
-            display: flex;
-            gap: 10px;
-            align-items: center;
-          "
+        <a
+          href="{{ absolute_pdf_url|default:'#' }}"
+          class="btn btn-primary mb-3"
+          target="_blank"
+          style="background: #1877f2; border: none"
         >
-          <a
-            href="{% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}#{% endif %}"
-            class="btn btn-outline-secondary btn-sm"
-            target="_blank"
-          >
-            Open in New Tab
-          </a>
+          CLICK HERE to download the PDF
+        </a>
 
-          <a
-            href="{% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}#{% endif %}"
-            class="btn btn-outline-success btn-sm"
-            download
-          >
-            Download
-          </a>
-        </div>
+        <p>If you are not able to see the PDF, please refresh the page!</p>
 
-        <div style="height: calc(100% - 50px); overflow: auto; position: relative">
+        <div
+          class="pdf-container"
+          style="border: 1px solid #ccc; height: 600px; overflow: auto; background: #f8f9fa;"
+        >
+          <div class="pdf-controls bg-white p-2 border-bottom">
+            <a
+              href="{{ absolute_pdf_url|default:'#' }}"
+              class="btn btn-outline-secondary btn-sm"
+              target="_blank"
+            >
+              Open in New Tab
+            </a>
+
+            <a
+              href="{{ absolute_pdf_url|default:'#' }}"
+              class="btn btn-outline-success btn-sm"
+              download
+            >
+              Download
+            </a>
+          </div>
+
           <iframe
-            src="{% if absolute_pdf_url %}{{ absolute_pdf_url }}{% else %}about:blank{% endif %}"
+            src="{{ absolute_pdf_url|default:'about:blank' }}"
             width="100%"
             height="100%"
-            style="border: none; min-height: 100%"
+            style="border: none;"
           ></iframe>
         </div>
-      </div>
       {% endif %}
 
       {% if not collateral.file and not collateral.vimeo_url %}
-      <div class="alert alert-info">
-        <h5>Content Preview</h5>
-        <p><strong>Title:</strong> {{ collateral.title }}</p>
-
-        {% if collateral.description %}
-        <p><strong>Description:</strong> {{ collateral.description }}</p>
-        {% endif %}
-
-        <p><strong>Type:</strong> {{ collateral.type }}</p>
-      </div>
+        <div class="alert alert-info">
+          <h5>Content Preview</h5>
+          <p><strong>Title:</strong> {{ collateral.title }}</p>
+          {% if collateral.description %}
+            <p><strong>Description:</strong> {{ collateral.description }}</p>
+          {% endif %}
+          <p><strong>Type:</strong> {{ collateral.type }}</p>
+        </div>
       {% endif %}
+
     </div>
 
-    <!-- === Archives Section === -->
     {% if archives %}
-    <hr class="my-4" />
-    <div class="text-start">
-      <h5 class="mb-3">Archives</h5>
-      <div class="row g-3">
-        {% for item in archives %}
-        <div class="col-12 col-md-4">
-          <div class="card h-100">
-            <div class="card-body">
-              <h6 class="card-title mb-1">{{ item.obj.title }}</h6>
-
-              {% if item.obj.description %}
-              <small class="text-muted d-block">
-                {{ item.obj.description|truncatechars:80 }}
-              </small>
-              {% endif %}
-
-              {% if item.obj.doctor_name %}
-              <small class="text-muted d-block">
-                By Dr. {{ item.obj.doctor_name }}
-              </small>
-              {% endif %}
+      <hr class="my-4" />
+      <div class="text-start">
+        <h5 class="mb-3">Archives</h5>
+        <div class="row g-3">
+          {% for item in archives %}
+            <div class="col-12 col-md-4">
+              <div class="card h-100">
+                <div class="card-body">
+                  <h6 class="card-title">{{ item.obj.title }}</h6>
+                </div>
+                <div class="card-footer bg-white border-0">
+                  {% if item.short_code %}
+                    <a class="btn btn-sm btn-outline-primary w-100"
+                       href="{% url 'resolve_shortlink' item.short_code %}">
+                      Open
+                    </a>
+                  {% else %}
+                    <button class="btn btn-sm btn-outline-secondary w-100" disabled>
+                      No link available
+                    </button>
+                  {% endif %}
+                </div>
+              </div>
             </div>
-
-            <div class="card-footer bg-white border-0">
-              {% if item.short_code %}
-              <a
-                class="btn btn-sm btn-outline-primary w-100"
-                href="{% url 'resolve_shortlink' item.short_code %}"
-              >
-                Open
-              </a>
-              {% else %}
-              <button class="btn btn-sm btn-outline-secondary w-100" disabled>
-                No link available
-              </button>
-              {% endif %}
-            </div>
-          </div>
-        </div>
-        {% endfor %}
-      </div>
-    </div>
-    {% endif %}
-
-    <!-- === Webinar Section === -->
-    {% if collateral.webinar_title or collateral.webinar_url %}
-    <hr class="my-4" />
-    <div class="text-start">
-      <h5 class="mb-3">Webinar</h5>
-      <div class="card">
-        <div class="card-body">
-          <div class="d-flex justify-content-between align-items-start">
-            <div>
-              <h6 class="mb-1">
-                {{ collateral.webinar_title|default:"Learning Webinar" }}
-              </h6>
-
-              {% if collateral.webinar_date %}
-              <small class="text-muted">{{ collateral.webinar_month_year }}</small>
-              {% endif %}
-
-              {% if collateral.webinar_description %}
-              <p class="mt-2 mb-0">{{ collateral.webinar_description }}</p>
-              {% endif %}
-            </div>
-
-            {% if collateral.webinar_url %}
-            <a
-              class="btn btn-outline-primary"
-              href="{{ collateral.webinar_url }}"
-              target="_blank"
-              rel="noopener"
-            >
-              View on DIAP
-            </a>
-            {% endif %}
-          </div>
+          {% endfor %}
         </div>
       </div>
-    </div>
     {% endif %}
+
   </div>
 </div>
+
 {% else %}
-<div
-  class="d-flex justify-content-center align-items-center"
-  style="min-height: 80vh; background: #fff"
->
-  <div class="card shadow" style="width: 100%; max-width: 400px">
-    <div class="card-body p-4">
-      <h3 class="text-center mb-4">Access Denied</h3>
-      <p class="text-center text-muted">
-        Please verify your WhatsApp number to access this content.
-      </p>
-      <a
-        href="{% url 'doctor_collateral_verify' %}"
-        class="btn btn-primary w-100"
-        style="background: #1877f2; border: none"
-      >
+
+<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh;">
+  <div class="card shadow" style="max-width: 400px;">
+    <div class="card-body text-center">
+      <h3>Access Denied</h3>
+      <p class="text-muted">Please verify your WhatsApp number.</p>
+      <a href="{% url 'doctor_collateral_verify' %}"
+         class="btn btn-primary w-100"
+         style="background: #1877f2;">
         Go Back to Verification
       </a>
     </div>
   </div>
 </div>
+
 {% endif %}
+
 {% endblock %}
