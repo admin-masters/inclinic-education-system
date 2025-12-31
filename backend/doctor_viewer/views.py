@@ -330,7 +330,29 @@ def doctor_collateral_verify(request):
                 f"for short_link_id: {short_link_id}"
             )
 
-            success = verify_doctor_whatsapp_number(whatsapp_number, short_link_id)
+            # success = verify_doctor_whatsapp_number(whatsapp_number, short_link_id)
+            from sharing_management.models import ShareLog
+
+            normalized_formats = set()
+
+            num = whatsapp_number.strip()
+            normalized_formats.add(num)
+
+            if not num.startswith("+91"):
+                normalized_formats.add("+91" + num)
+
+            if not num.startswith("91"):
+                normalized_formats.add("91" + num)
+
+            normalized_formats.add("0" + num)
+
+            print("DEBUG: Trying phone formats:", normalized_formats)
+
+            success = ShareLog.objects.filter(
+                short_link_id=short_link_id,
+                whatsapp_number__in=normalized_formats
+            ).exists()
+
             print("DEBUG: Verification result:", success)
 
             if not success:
