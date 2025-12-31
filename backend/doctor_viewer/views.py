@@ -195,232 +195,181 @@ def doctor_report(request, code: str):
 
 
 def doctor_collateral_verify(request):
-    # Handle GET request - fetch short_link_id from query params
+    from django.contrib import messages
+    import re
+
+    def last10(phone):
+        digits = re.sub(r"\D", "", phone or "")
+        return digits[-10:] if len(digits) >= 10 else digits
+
+    # ─────────────────────────────────────────
+    # GET: Render verification page with preview
+    # ─────────────────────────────────────────
     if request.method == "GET":
         short_link_id = request.GET.get("short_link_id")
-        if short_link_id:
-            try:
-                short_link = get_object_or_404(ShortLink, id=short_link_id, is_active=True)
-                collateral = short_link.get_collateral()
-                if collateral and collateral.is_active:
-                    pdf_preview_url = None
-                    pdf_preview_image = None
 
-                    if collateral.file:
-                        media_path = collateral.file.name
-                        absolute_pdf = request.build_absolute_uri(f"{settings.MEDIA_URL}{media_path}")
+        try:
+            short_link_id = int(short_link_id)
+            short_link = get_object_or_404(ShortLink, id=short_link_id, is_active=True)
+            collateral = short_link.get_collateral()
 
-                        file_path = os.path.join(settings.MEDIA_ROOT, media_path)
-                        if os.path.exists(file_path):
-                            pdf_preview_url = absolute_pdf
+            if not collateral or not collateral.is_active:
+                messages.error(request, "Collateral unavailable.")
+                return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
-                            # Generate preview image for all file types
+            pdf_preview_url = None
+            pdf_preview_image = None
+
+            if collateral.file:
+                media_path = collateral.file.name
+                file_path = os.path.join(settings.MEDIA_ROOT, media_path)
+                pdf_preview_url = request.build_absolute_uri(
+                    f"{settings.MEDIA_URL}{media_path}"
+                )
+
+                if os.path.exists(file_path):
+                    img_data = None
+
+                    if collateral.type == "pdf" and fitz:
+                        try:
+                            doc = fitz.open(file_path)
+                            page = doc[0]
+                            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                            img_data = pix.tobytes("png")
+                            doc.close()
+                        except Exception:
                             img_data = None
 
-                            if collateral.type == "pdf":
-                                try:
-                                    if fitz:
-                                        doc = fitz.open(file_path)
-                                        page = doc[0]
-                                        mat = fitz.Matrix(2, 2)
-                                        pix = page.get_pixmap(matrix=mat)
-                                        img_data = pix.tobytes("png")
-                                        doc.close()
-                                except Exception:
-                                    img_data = None
+                    if img_data:
+                        preview_dir = os.path.join(settings.MEDIA_ROOT, "previews")
+                        os.makedirs(preview_dir, exist_ok=True)
+                        preview_filename = f"preview_{collateral.id}.png"
+                        preview_path = os.path.join(preview_dir, preview_filename)
 
-                                if img_data is None:
-                                    try:
-                                        if convert_from_path:
-                                            images = convert_from_path(file_path, first_page=1, last_page=1)
-                                            if images:
-                                                from io import BytesIO
-                                                buffer = BytesIO()
-                                                images[0].save(buffer, format="PNG")
-                                                img_data = buffer.getvalue()
-                                    except Exception:
-                                        img_data = None
+                        with open(preview_path, "wb") as f:
+                            f.write(img_data)
 
-                            elif collateral.type in ["jpg", "jpeg", "png", "gif", "bmp"]:
-                                try:
-                                    from PIL import Image
-                                    from io import BytesIO
+                        pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
 
-                                    img = Image.open(file_path)
-                                    img.thumbnail((800, 600), Image.Resampling.LANCZOS)
-                                    buffer = BytesIO()
-                                    img.save(buffer, format="PNG")
-                                    img_data = buffer.getvalue()
-                                except Exception:
-                                    img_data = None
+            return render(
+                request,
+                "doctor_viewer/doctor_collateral_verify.html",
+                {
+                    "short_link_id": short_link_id,
+                    "collateral": collateral,
+                    "pdf_preview_url": pdf_preview_url,
+                    "pdf_preview_image": pdf_preview_image,
+                },
+            )
 
-                            # Save preview image if we generated one
-                            if img_data:
-                                try:
-                                    preview_dir = os.path.join(settings.MEDIA_ROOT, "previews")
-                                    os.makedirs(preview_dir, exist_ok=True)
-                                    preview_filename = f"preview_{collateral.id}.png"
-                                    preview_path = os.path.join(preview_dir, preview_filename)
+        except Exception as e:
+            print("GET verify error:", e)
+            messages.error(request, "Invalid or expired access link.")
+            return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
-                                    with open(preview_path, "wb") as f:
-                                        f.write(img_data)
-
-                                    pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
-                                except Exception:
-                                    pdf_preview_image = None
-
-                    return render(
-                        request,
-                        "doctor_viewer/doctor_collateral_verify.html",
-                        {
-                            "short_link_id": short_link_id,
-                            "collateral": collateral,
-                            "pdf_preview_url": pdf_preview_url,
-                            "pdf_preview_image": pdf_preview_image,
-                        },
-                    )
-            except Exception:
-                pass
-
-    # Handle POST request - verify WhatsApp number
+    # ─────────────────────────────────────────
+    # POST: Verify WhatsApp number
+    # ─────────────────────────────────────────
     if request.method == "POST":
         whatsapp_number = (request.POST.get("whatsapp_number") or "").strip()
-        short_link_id = (request.POST.get("short_link_id") or request.GET.get("short_link_id") or "").strip()
+        short_link_id = request.POST.get("short_link_id")
 
-        if whatsapp_number:
-            try:
-                from django.contrib import messages
-                from sharing_management.utils.db_operations import grant_download_access
-                from sharing_management.models import ShareLog
-                import re
+        try:
+            short_link_id = int(short_link_id)
+        except (TypeError, ValueError):
+            messages.error(request, "Invalid access link.")
+            return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
-                # ---- FIX STARTS HERE (only this part changed) ----
-                def last10(phone):
-                    digits = re.sub(r"\D", "", phone or "")
-                    return digits[-10:] if len(digits) >= 10 else digits
-
-                input_last10 = last10(whatsapp_number)
-
-                success = False
-                qs = ShareLog.objects.filter(
-                    short_link_id=short_link_id
-                ).values_list("doctor_identifier", flat=True)
-
-                for stored in qs:
-                    if last10(stored) == input_last10:
-                        success = True
-                        break
-                # ---- FIX ENDS HERE ----
-
-                if success:
-                    grant_success = grant_download_access(short_link_id)
-
-                    if grant_success:
-                        short_link = get_object_or_404(ShortLink, id=short_link_id)
-                        collateral = short_link.get_collateral()
-
-                        if collateral:
-                            # Build archives list (same logic as OTP flow)
-                            campaign_id = None
-                            if getattr(collateral, "campaign_id", None):
-                                campaign_id = collateral.campaign_id
-                            else:
-                                link = (
-                                    CollateralCampaignLink.objects.filter(collateral=collateral)
-                                    .select_related("campaign")
-                                    .first()
-                                )
-                                if link:
-                                    campaign_id = link.campaign_id
-
-                            archives = []
-                            if campaign_id:
-                                older_qs = (
-                                    Collateral.objects.filter(
-                                        campaign_id=campaign_id,
-                                        is_active=True,
-                                        upload_date__lt=collateral.upload_date,
-                                    )
-                                    .exclude(pk=collateral.pk)
-                                    .order_by("-upload_date")
-                                )
-
-                                n_prev = older_qs.count()
-                                limit = 3 if n_prev >= 3 else n_prev
-                                older_items = list(older_qs[:limit])
-
-                                for c in older_items:
-                                    sl = (
-                                        ShortLink.objects.filter(
-                                            resource_type="collateral",
-                                            resource_id=c.id,
-                                            is_active=True,
-                                        )
-                                        .order_by("-date_created")
-                                        .first()
-                                    )
-                                    archives.append({"obj": c, "short_code": sl.short_code if sl else None})
-
-                            # Generate preview image for post-verification view (best-effort)
-                            pdf_preview_image = None
-                            if collateral.type == "pdf" and collateral.file:
-                                try:
-                                    file_path = os.path.join(settings.MEDIA_ROOT, collateral.file.name)
-                                    if os.path.exists(file_path) and fitz:
-                                        doc = fitz.open(file_path)
-                                        page = doc[0]
-                                        mat = fitz.Matrix(2, 2)
-                                        pix = page.get_pixmap(matrix=mat)
-                                        img_data = pix.tobytes("png")
-
-                                        preview_dir = os.path.join(settings.MEDIA_ROOT, "previews")
-                                        os.makedirs(preview_dir, exist_ok=True)
-                                        preview_filename = f"preview_{collateral.id}.png"
-                                        preview_path = os.path.join(preview_dir, preview_filename)
-
-                                        with open(preview_path, "wb") as f:
-                                            f.write(img_data)
-
-                                        pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
-                                        doc.close()
-                                except Exception as e:
-                                    print(f"DEBUG: Could not create preview image for post-verification: {e}")
-                                    pdf_preview_image = None
-
-                            absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
-
-                            return render(
-                                request,
-                                "doctor_viewer/doctor_collateral_view.html",
-                                {
-                                    "collateral": collateral,
-                                    "short_link": short_link,
-                                    "verified": True,
-                                    "archives": archives,
-                                    "pdf_preview_image": pdf_preview_image,
-                                    "absolute_pdf_url": absolute_pdf_url,
-                                },
-                            )
-
-                        messages.error(request, "Collateral not found.")
-                    else:
-                        messages.error(request, "Error granting access.")
-                else:
-                    messages.error(
-                        request,
-                        "WhatsApp number not found in our records. Please ensure you are using the same number that was used to share this collateral.",
-                    )
-
-            except Exception as e:
-                from django.contrib import messages
-                messages.error(request, "Error verifying WhatsApp number. Please try again.")
-                print(f"DEBUG: Error: {e}")
-        else:
-            from django.contrib import messages
+        if not whatsapp_number:
             messages.error(request, "Please provide WhatsApp number.")
+            return render(request, "doctor_viewer/doctor_collateral_verify.html")
+
+        input_last10 = last10(whatsapp_number)
+        print("DEBUG input last10:", input_last10)
+
+        logs = ShareLog.objects.filter(
+            short_link_id=short_link_id,
+            share_channel="WhatsApp",
+        ).values_list("doctor_identifier", flat=True)
+
+        matched = False
+        for stored in logs:
+            print("DEBUG comparing with:", stored)
+            if last10(stored) == input_last10:
+                matched = True
+                break
+
+        print("DEBUG verification result:", matched)
+
+        if not matched:
+            messages.error(
+                request,
+                "WhatsApp number not found in our records. "
+                "Please use the same number used to share this content."
+            )
+            return redirect(request.path + f"?short_link_id={short_link_id}")
+
+        # Grant access
+        from sharing_management.utils.db_operations import grant_download_access
+
+        if not grant_download_access(short_link_id):
+            messages.error(request, "Error granting access.")
+            return redirect(request.path + f"?short_link_id={short_link_id}")
+
+        short_link = get_object_or_404(ShortLink, id=short_link_id)
+        collateral = short_link.get_collateral()
+
+        # Build archives (unchanged logic)
+        campaign_id = getattr(collateral, "campaign_id", None)
+        if not campaign_id:
+            link = (
+                CollateralCampaignLink.objects
+                .filter(collateral=collateral)
+                .select_related("campaign")
+                .first()
+            )
+            if link:
+                campaign_id = link.campaign_id
+
+        archives = []
+        if campaign_id:
+            older = (
+                Collateral.objects.filter(
+                    campaign_id=campaign_id,
+                    is_active=True,
+                    upload_date__lt=collateral.upload_date,
+                )
+                .exclude(pk=collateral.pk)
+                .order_by("-upload_date")[:3]
+            )
+
+            for c in older:
+                sl = (
+                    ShortLink.objects.filter(
+                        resource_type="collateral",
+                        resource_id=c.id,
+                        is_active=True,
+                    )
+                    .order_by("-date_created")
+                    .first()
+                )
+                archives.append({"obj": c, "short_code": sl.short_code if sl else None})
+
+        absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
+
+        return render(
+            request,
+            "doctor_viewer/doctor_collateral_view.html",
+            {
+                "collateral": collateral,
+                "short_link": short_link,
+                "verified": True,
+                "archives": archives,
+                "absolute_pdf_url": absolute_pdf_url,
+            },
+        )
 
     return render(request, "doctor_viewer/doctor_collateral_verify.html")
-
 
 def doctor_collateral_view(request):
     """
