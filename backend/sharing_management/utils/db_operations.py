@@ -159,7 +159,7 @@ def register_user_management_user(email, username, password, security_answers):
                 )
                 
                 cursor.execute("""
-                    INSERT INTO user_security_answer 
+                    INSERT INTO user_management_usersecurityanswer 
                     (user_id, question_id, security_answer_hash) 
                     VALUES (%s, %s, %s)
                 """, [user_id, question_id, security_answer_hash])
@@ -241,8 +241,8 @@ def validate_user_forgot_password(email, security_answer):
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT 1 
-                FROM user_security_answer usa 
-                JOIN security_question q ON q.id = usa.question_id 
+                FROM user_management_usersecurityanswer usa 
+                JOIN sharing_management_securityquestion q ON q.id = usa.question_id 
                 WHERE usa.user_id = (SELECT id FROM user_management_user WHERE email = %s) 
                 AND usa.security_answer_hash = %s 
                 LIMIT 1
@@ -269,8 +269,8 @@ def get_user_security_questions_by_email(email):
         with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT sq.id, sq.question 
-                FROM user_security_answer usa
-                JOIN security_question sq ON usa.question_id = sq.id
+                FROM user_management_usersecurityanswer usa
+                JOIN sharing_management_securityquestion sq ON usa.question_id = sq.id
                 JOIN user_management_user umu ON usa.user_id = umu.id
                 WHERE umu.email = %s
             """, [email])
