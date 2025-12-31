@@ -2,7 +2,6 @@
 {% load static %}
 
 {% block content %}
-
 {% if verified and collateral %}
 
 <div class="container mt-4">
@@ -33,6 +32,7 @@
           href="{{ absolute_pdf_url|default:'#' }}"
           class="btn btn-primary mb-3"
           target="_blank"
+          rel="noopener"
           style="background: #1877f2; border: none"
         >
           CLICK HERE to download the PDF
@@ -42,13 +42,30 @@
 
         <div
           class="pdf-container"
-          style="border: 1px solid #ccc; height: 600px; overflow: auto; background: #f8f9fa;"
+          style="
+            border: 1px solid #ccc;
+            height: 600px;
+            overflow: auto;
+            position: relative;
+            background: #f8f9fa;
+          "
         >
-          <div class="pdf-controls bg-white p-2 border-bottom">
+          <div
+            class="pdf-controls"
+            style="
+              background: white;
+              padding: 10px;
+              border-bottom: 1px solid #ddd;
+              display: flex;
+              gap: 10px;
+              align-items: center;
+            "
+          >
             <a
               href="{{ absolute_pdf_url|default:'#' }}"
               class="btn btn-outline-secondary btn-sm"
               target="_blank"
+              rel="noopener"
             >
               Open in New Tab
             </a>
@@ -62,12 +79,14 @@
             </a>
           </div>
 
-          <iframe
-            src="{{ absolute_pdf_url|default:'about:blank' }}"
-            width="100%"
-            height="100%"
-            style="border: none;"
-          ></iframe>
+          <div style="height: calc(100% - 50px); overflow: auto; position: relative">
+            <iframe
+              src="{{ absolute_pdf_url|default:'about:blank' }}"
+              width="100%"
+              height="100%"
+              style="border: none; min-height: 100%"
+            ></iframe>
+          </div>
         </div>
       {% endif %}
 
@@ -82,51 +101,97 @@
         </div>
       {% endif %}
 
-    </div>
-
-    {% if archives %}
-      <hr class="my-4" />
-      <div class="text-start">
-        <h5 class="mb-3">Archives</h5>
-        <div class="row g-3">
-          {% for item in archives %}
-            <div class="col-12 col-md-4">
-              <div class="card h-100">
-                <div class="card-body">
-                  <h6 class="card-title">{{ item.obj.title }}</h6>
-                </div>
-                <div class="card-footer bg-white border-0">
-                  {% if item.short_code %}
-                    <a class="btn btn-sm btn-outline-primary w-100"
-                       href="{% url 'resolve_shortlink' item.short_code %}">
-                      Open
-                    </a>
-                  {% else %}
-                    <button class="btn btn-sm btn-outline-secondary w-100" disabled>
-                      No link available
-                    </button>
-                  {% endif %}
+      {% if archives %}
+        <hr class="my-4" />
+        <div class="text-start">
+          <h5 class="mb-3">Archives</h5>
+          <div class="row g-3">
+            {% for item in archives %}
+              <div class="col-12 col-md-4">
+                <div class="card h-100">
+                  <div class="card-body">
+                    <h6 class="card-title">{{ item.obj.title }}</h6>
+                  </div>
+                  <div class="card-footer bg-white border-0">
+                    {% if item.short_code %}
+                      <a
+                        class="btn btn-sm btn-outline-primary w-100"
+                        href="{% url 'resolve_shortlink' item.short_code %}"
+                      >
+                        Open
+                      </a>
+                    {% else %}
+                      <button class="btn btn-sm btn-outline-secondary w-100" disabled>
+                        No link available
+                      </button>
+                    {% endif %}
+                  </div>
                 </div>
               </div>
-            </div>
-          {% endfor %}
+            {% endfor %}
+          </div>
         </div>
-      </div>
-    {% endif %}
+      {% endif %}
 
+      <!-- === Webinar Section === -->
+      {% if collateral.webinar_title or collateral.webinar_url %}
+        <hr class="my-4" />
+        <div class="text-start">
+          <h5 class="mb-3">Webinar</h5>
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <h6 class="mb-1">
+                    {{ collateral.webinar_title|default:"Learning Webinar" }}
+                  </h6>
+
+                  {% if collateral.webinar_date %}
+                    <small class="text-muted">{{ collateral.webinar_month_year }}</small>
+                  {% endif %}
+
+                  {% if collateral.webinar_description %}
+                    <p class="mt-2 mb-0">{{ collateral.webinar_description }}</p>
+                  {% endif %}
+                </div>
+
+                {% if collateral.webinar_url %}
+                  <a
+                    class="btn btn-outline-primary"
+                    href="{{ collateral.webinar_url }}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    View on DIAP
+                  </a>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+    </div>
   </div>
 </div>
 
 {% else %}
 
-<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh;">
-  <div class="card shadow" style="max-width: 400px;">
-    <div class="card-body text-center">
-      <h3>Access Denied</h3>
-      <p class="text-muted">Please verify your WhatsApp number.</p>
-      <a href="{% url 'doctor_collateral_verify' %}"
-         class="btn btn-primary w-100"
-         style="background: #1877f2;">
+<div
+  class="d-flex justify-content-center align-items-center"
+  style="min-height: 80vh; background: #fff"
+>
+  <div class="card shadow" style="width: 100%; max-width: 400px">
+    <div class="card-body p-4">
+      <h3 class="text-center mb-4">Access Denied</h3>
+      <p class="text-center text-muted">
+        Please verify your WhatsApp number to access this content.
+      </p>
+      <a
+        href="{% url 'doctor_collateral_verify' %}"
+        class="btn btn-primary w-100"
+        style="background: #1877f2; border: none"
+      >
         Go Back to Verification
       </a>
     </div>
@@ -134,5 +199,4 @@
 </div>
 
 {% endif %}
-
 {% endblock %}
