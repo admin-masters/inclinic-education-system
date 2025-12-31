@@ -36,6 +36,6 @@ jobs:
             python manage.py migrate --noinput
 
             echo "Restarting Gunicorn..."
-            sudo systemctl restart gunicorn-inclinic_new
+            sudo systemctl restart gunicorn-inclinic.service
 
             echo "Deployment completed successfully."
