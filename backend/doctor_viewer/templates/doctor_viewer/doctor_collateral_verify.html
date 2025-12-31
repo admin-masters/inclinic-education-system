@@ -1,6 +1,10 @@
-{% extends "base.html" %} {% load static %} {% block content %}
+{% extends "base.html" %}
+{% load static %}
+
+{% block content %}
 <div class="container-fluid" style="min-height: 100vh; background: #f8f9fa">
   <div class="row h-100">
+
     <!-- Left side: Content Preview -->
     <div class="col-md-8 p-0">
       {% if pdf_preview_url or pdf_preview_image %}
@@ -11,30 +15,24 @@
         <div class="preview-header bg-primary text-white p-3">
           <h5 class="mb-0">
             {% if collateral.type == 'pdf' %}
-            <i class="fas fa-file-pdf me-2"></i>
-            {% elif collateral.type in 'jpg' or collateral.type in 'jpeg' or collateral.type in 'png' or collateral.type in 'gif' or collateral.type in 'bmp' %}
-            <i class="fas fa-image me-2"></i>
+              <i class="fas fa-file-pdf me-2"></i>
+            {% elif collateral.type == 'jpg' or collateral.type == 'jpeg' or collateral.type == 'png' or collateral.type == 'gif' or collateral.type == 'bmp' %}
+              <i class="fas fa-image me-2"></i>
             {% elif collateral.type == 'mp4' or collateral.type == 'video' %}
-            <i class="fas fa-video me-2"></i>
+              <i class="fas fa-video me-2"></i>
             {% else %}
-            <i class="fas fa-file me-2"></i>
-            {% endif %} {{ collateral.title }} - Preview
+              <i class="fas fa-file me-2"></i>
+            {% endif %}
+            {{ collateral.title }} - Preview
           </h5>
-          <small
-            >Content preview • Verify your WhatsApp number to access full
-            content</small
-          >
+          <small>Content preview • Verify your WhatsApp number to access full content</small>
           {% if pdf_preview_url %}
-          <br /><small class="text-light"
-            >URL: {{ pdf_preview_url|truncatechars:50 }}</small
-          >
+            <br />
+            <small class="text-light">URL: {{ pdf_preview_url|truncatechars:50 }}</small>
           {% endif %}
         </div>
 
-        <div
-          class="content-preview"
-          style="height: calc(100vh - 80px); overflow: hidden"
-        >
+        <div class="content-preview" style="height: calc(100vh - 80px); overflow: hidden">
           {% if pdf_preview_image %}
           <!-- Preview image -->
           <div
@@ -59,7 +57,7 @@
             />
           </div>
           {% else %}
-          <!-- Direct content link with better styling -->
+          <!-- Direct content link fallback -->
           <div
             style="
               width: 100%;
@@ -72,7 +70,7 @@
               background: #f8f9fa;
             "
           >
-            <div style="max-width: 400px">
+            <div style="max-width: 420px">
               <div
                 style="
                   background: white;
@@ -81,99 +79,45 @@
                   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
                 "
               >
-                {% if collateral.type == 'pdf' %}
-                <i class="fas fa-file-pdf fa-4x text-primary mb-3"></i>
-                <h4 class="text-dark mb-3">PDF Document</h4>
-                {% elif collateral.type in 'jpg' or collateral.type in 'jpeg' or collateral.type in 'png' or collateral.type in 'gif' or collateral.type in 'bmp' %}
-                <i class="fas fa-image fa-4x text-success mb-3"></i>
-                <h4 class="text-dark mb-3">Image Document</h4>
-                {% elif collateral.type == 'mp4' or collateral.type == 'video'
-                %}
-                <i class="fas fa-video fa-4x text-warning mb-3"></i>
-                <h4 class="text-dark mb-3">Video Content</h4>
-                {% else %}
-                <i class="fas fa-file fa-4x text-info mb-3"></i>
-                <h4 class="text-dark mb-3">Document</h4>
-                {% endif %}
-                <p class="text-muted mb-4">{{ collateral.title }}</p>
+                <h5 class="mb-3">Preview available</h5>
                 {% if pdf_preview_url %}
-                <a
-                  href="{{ pdf_preview_url }}"
-                  class="btn btn-primary btn-lg"
-                  target="_blank"
-                  style="
-                    background: #007bff;
-                    border: none;
-                    padding: 12px 30px;
-                    font-size: 16px;
-                    border-radius: 8px;
-                  "
-                >
-                  <i class="fas fa-external-link-alt me-2"></i>View Full Content
+                <a class="btn btn-outline-primary" href="{{ pdf_preview_url }}" target="_blank" rel="noopener">
+                  Open Preview in New Tab
                 </a>
-                <p class="text-muted mt-3 small">
-                  Click the button above to view the full content in a new tab
-                </p>
                 {% endif %}
+                <p class="text-muted mt-3 mb-0">
+                  Verify your WhatsApp number on the right to unlock full content.
+                </p>
               </div>
             </div>
           </div>
           {% endif %}
         </div>
-
-        <!-- Fallback content when content fails to load -->
-        <div id="content-fallback" class="content-fallback">
-          <div
-            class="text-center d-flex align-items-center justify-content-center h-100"
-          >
-            <div>
-              {% if collateral.type == 'pdf' %}
-              <i class="fas fa-file-pdf fa-5x text-muted mb-3"></i>
-              <h4 class="text-muted">PDF Preview</h4>
-              {% elif collateral.type in 'jpg' or collateral.type in 'jpeg' or collateral.type in 'png' or collateral.type in 'gif' or collateral.type in 'bmp' %}
-              <i class="fas fa-image fa-5x text-muted mb-3"></i>
-              <h4 class="text-muted">Image Preview</h4>
-              {% elif collateral.type == 'mp4' or collateral.type == 'video' %}
-              <i class="fas fa-video fa-5x text-muted mb-3"></i>
-              <h4 class="text-muted">Video Preview</h4>
-              {% else %}
-              <i class="fas fa-file fa-5x text-muted mb-3"></i>
-              <h4 class="text-muted">Content Preview</h4>
-              {% endif %}
-              <p class="text-muted">{{ collateral.title }}</p>
-              {% if pdf_preview_url %}
-              <a
-                href="{{ pdf_preview_url }}"
-                class="btn btn-primary"
-                target="_blank"
-              >
-                <i class="fas fa-external-link-alt me-2"></i>Open Content in New
-                Tab
-              </a>
-              {% endif %}
-            </div>
-          </div>
-        </div>
       </div>
       {% else %}
+      <!-- If no preview available -->
       <div
-        class="d-flex align-items-center justify-content-center h-100 bg-light"
+        class="preview-container"
+        style="height: 100vh; border-right: 1px solid #dee2e6"
       >
-        <div class="text-center">
-          {% if collateral.type == 'pdf' %}
-          <i class="fas fa-file-pdf fa-5x text-muted mb-3"></i>
-          {% elif collateral.type in 'jpg' or collateral.type in 'jpeg' or collateral.type in 'png' or collateral.type in 'gif' or collateral.type in 'bmp' %}
-          <i class="fas fa-image fa-5x text-muted mb-3"></i>
-          {% elif collateral.type == 'mp4' or collateral.type == 'video' %}
-          <i class="fas fa-video fa-5x text-muted mb-3"></i>
-          {% else %}
-          <i class="fas fa-file-alt fa-5x text-muted mb-3"></i>
-          {% endif %}
-          <h4 class="text-muted">Content Preview</h4>
-          <p class="text-muted">{{ collateral.title }}</p>
-          <p class="text-muted small">
-            Preview will be available once verification is complete
-          </p>
+        <div class="preview-header bg-primary text-white p-3">
+          <h5 class="mb-0"><i class="fas fa-file me-2"></i>Content Preview</h5>
+          <small>Verify your WhatsApp number to access content</small>
+        </div>
+        <div
+          class="content-preview"
+          style="
+            height: calc(100vh - 80px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f8f9fa;
+          "
+        >
+          <div class="text-center text-muted">
+            <i class="fas fa-lock fa-3x mb-3"></i>
+            <p class="mb-0">Preview is not available for this content.</p>
+          </div>
         </div>
       </div>
       {% endif %}
@@ -181,59 +125,39 @@
 
     <!-- Right side: Verification Form -->
     <div class="col-md-4 d-flex align-items-center justify-content-center">
-      <div
-        class="card shadow-lg border-0"
-        style="width: 100%; max-width: 400px; margin: 2rem"
-      >
+      <div class="card shadow" style="width: 100%; max-width: 400px; margin: 2rem">
         <div class="card-body p-4">
-          {% if collateral %}
-          <div class="text-center mb-4">
-            <i class="fas fa-shield-alt fa-2x text-primary mb-2"></i>
-            <h4 class="mb-2">Verify Access</h4>
-            <p class="text-muted small">
-              Enter your WhatsApp number to unlock full content
-            </p>
-          </div>
-          {% else %}
-          <h3 class="text-center mb-4">Health and Education</h3>
-          {% endif %} {% if messages %} {% for message in messages %}
-          <div
-            class="alert alert-{% if message.tags == 'error' %}danger{% else %}success{% endif %} alert-dismissible fade show"
-            role="alert"
-          >
-            {{ message }}
-            <button
-              type="button"
-              class="btn-close"
-              data-bs-dismiss="alert"
-            ></button>
-          </div>
-          {% endfor %} {% endif %}
+          <h3 class="text-center mb-2">Verify Access</h3>
+          <p class="text-center text-muted mb-4">
+            Enter your WhatsApp number to unlock the content
+          </p>
 
-          <form method="post" autocomplete="off">
+          {% if messages %}
+            {% for message in messages %}
+            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+            </div>
+            {% endfor %}
+          {% endif %}
+
+          <form method="post">
             {% csrf_token %}
 
-            <!-- WhatsApp Number Verification Form -->
             <div class="mb-3">
-              <label class="form-label fw-bold">
-                <i class="fab fa-whatsapp text-success me-1"></i>
-                WhatsApp Number:
-              </label>
+              <label for="whatsapp_number" class="form-label">WhatsApp Number</label>
               <input
-                type="text"
+                type="tel"
                 class="form-control form-control-lg"
+                id="whatsapp_number"
                 name="whatsapp_number"
-                placeholder="9812345678"
-                maxlength="10"
+                placeholder="Enter 10-digit number"
                 pattern="\d{10}"
+                maxlength="10"
                 required
-                style="border: 2px solid #e9ecef; border-radius: 10px"
+                style="border-radius: 10px"
               />
-              <input
-                type="hidden"
-                name="short_link_id"
-                value="{{ short_link_id|default:'' }}"
-              />
+              <input type="hidden" name="short_link_id" value="{{ short_link_id|default:'' }}" />
               <small class="form-text text-muted">
                 <i class="fas fa-info-circle me-1"></i>
                 Enter the 10-digit number used for sharing
@@ -263,6 +187,7 @@
         </div>
       </div>
     </div>
+
   </div>
 </div>
 
@@ -309,5 +234,4 @@
     }
   }
 </style>
-
 {% endblock %}
