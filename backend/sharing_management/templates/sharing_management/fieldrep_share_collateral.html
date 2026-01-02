@@ -2,40 +2,538 @@
 {% load static %}
 
 {% block content %}
-<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #f8f9fa;">
-  <div class="card shadow" style="width: 100%; max-width: 400px;">
-    <div class="card-header text-center">
-      <h5 class="mb-0">Share Collaterals Form</h5>
-      <div class="small text-muted">Brand Campaign ID: {{ brand_campaign_id }}</div>
+<div class="container" style="max-width: 960px;">
+  <div class="row g-4">
+    <div class="col-12 col-lg-4">
+      <div class="card shadow">
+        <div class="card-header text-center">
+          <h5 class="mb-0">Share Collaterals Form</h5>
+          <div class="small text-muted">Brand Campaign ID: {{ brand_campaign_id }}</div>
+        </div>
+        <div class="card-body p-4">
+          <form method="post" autocomplete="off">
+            {% csrf_token %}
+            <div class="mb-3">
+              <label class="form-label">Field Rep ID:</label>
+              <input type="text" class="form-control" name="fieldrep_id" value="{{ fieldrep_id }}" readonly>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Name of Doctor:</label>
+              <input type="text" class="form-control" name="doctor_name" placeholder="Doctor Name" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Doctor WhatsApp Number:</label>
+              <input type="text" class="form-control" name="doctor_whatsapp" placeholder="Enter 10 digit mobile number"
+                maxlength="10" pattern="\d{10}" required>
+            </div>
+            <div class="mb-3">
+              <label class="form-label">Select Collaterals:</label>
+              {% if collaterals %}
+              <select class="form-select" name="collateral" required>
+                <option value="">Select Collateral</option>
+                {% for c in collaterals %}
+                <option value="{{ c.id }}">{{ c.name }}</option>
+                {% endfor %}
+              </select>
+              {% else %}
+              <div class="alert alert-info">
+                <strong>No collaterals available</strong><br>
+                {% if brand_campaign_id %}
+                No collaterals found for brand campaign: {{ brand_campaign_id }}
+                {% else %}
+                No brand campaign specified
+                {% endif %}
+              </div>
+              {% endif %}
+            </div>
+            {% if collaterals %}
+            <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Submit</button>
+            {% endif %}
+          </form>
+        </div>
+      </div>
     </div>
-    <div class="card-body p-4">
-      <form method="post" autocomplete="off">
-        {% csrf_token %}
-        <div class="mb-3">
-          <label class="form-label">Field Rep ID:</label>
-          <input type="text" class="form-control" name="fieldrep_id" value="{{ fieldrep_id }}">
+
+    <div class="col-12 col-lg-8">
+      <div class="card shadow">
+        <div class="card-header d-flex justify-content-between align-items-center">
+          <h6 class="mb-0">Assigned Doctors</h6>
+          <div class="d-flex gap-2">
+            <input type="text" id="doctorSearch" class="form-control form-control-sm" placeholder="Search by name or phone">
+            <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
+              <option value="">All</option>
+              <option value="not_shared">Not Shared</option>
+              <option value="shared">Shared</option>
+              <option value="viewed">Viewed</option>
+              <option value="needs_reminder">Needs Reminder</option>
+            </select>
+          </div>
         </div>
-        <div class="mb-3">
-          <label class="form-label">Name of Doctor:</label>
-          <input type="text" class="form-control" name="doctor_name" placeholder="Doctor Name" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Doctor WhatsApp Number:</label>
-          <input type="text" class="form-control" name="doctor_whatsapp" placeholder="Enter 10 digit mobile number"
-            maxlength="10" pattern="\d{10}" required>
-        </div>
-        <div class="mb-3">
-          <label class="form-label">Select Collaterals:</label>
-          <select class="form-select" name="collateral" required>
-            <option value="">Select Collateral</option>
-            {% for c in collaterals %}
-            <option value="{{ c.id }}">{{ c.name }}</option>
+        <div class="card-body p-0">
+          <div class="list-group list-group-flush" id="doctorList">
+            {% for doctor in doctors %}
+            <div class="list-group-item d-flex justify-content-between align-items-center doctor-row"
+                 data-id="{{ doctor.id }}"
+                 data-name="{{ doctor.name|lower }}" 
+                 data-phone="{{ doctor.phone }}" 
+                 data-status="{{ doctor.status|default:'not_shared' }}">
+              <div>
+                <div class="fw-semibold">{{ doctor.name|default:'Unnamed Doctor' }}</div>
+                <div class="text-muted small">
+                  {{ doctor.phone|default:'No phone' }}
+                  {% if doctor.specialty %}| {{ doctor.specialty }}{% endif %}
+                  {% if doctor.city %}| {{ doctor.city }}{% endif %}
+                </div>
+                {% if doctor.last_shared %}
+                <div class="last-shared-time text-muted small mt-1">
+                  Last shared: <span class="time-ago">{{ doctor.last_shared|timesince }} ago</span>
+                </div>
+                {% endif %}
+              </div>
+              <div class="d-flex align-items-center gap-2">
+                <form method="post" class="m-0 share-form" data-doctor-id="{{ doctor.id }}">
+                  {% csrf_token %}
+                  <input type="hidden" name="doctor_id" value="{{ doctor.id }}">
+                  <input type="hidden" name="doctor_name" value="{{ doctor.name }}">
+                  <input type="hidden" name="doctor_whatsapp" value="{{ doctor.phone }}">
+                  {% if collaterals %}
+                  <input type="hidden" name="collateral" value="{{ collaterals.0.id }}">
+                  {% endif %}
+                  {% if doctor.status == 'viewed' %}
+                    <button type="button" class="btn btn-success btn-sm" disabled>
+                      <i class="fas fa-check-circle me-1"></i> Viewed
+                    </button>
+                  {% elif doctor.status == 'needs_reminder' %}
+                    <button type="submit" class="btn btn-purple btn-sm" data-status="needs_reminder">
+                      <i class="fas fa-bell me-1"></i> Send Reminder
+                    </button>
+                  {% elif doctor.status == 'shared' %}
+                    <button type="button" class="btn btn-warning btn-sm" disabled data-status="shared">
+                      <i class="fas fa-paper-plane me-1"></i> Shared
+                    </button>
+                  {% else %}
+                    <button type="submit" class="btn btn-danger btn-sm" data-status="not_shared">
+                      <i class="fas fa-paper-plane me-1"></i> Send Message
+                    </button>
+                  {% endif %}
+                </form>
+              </div>
+            </div>
+            {% empty %}
+            <div class="list-group-item text-center text-muted py-4">
+              <i class="fas fa-user-md me-2"></i>
+              No doctors assigned to this field representative.
+            </div>
             {% endfor %}
-          </select>
+            
+            {% if not collaterals %}
+            <div class="list-group-item text-center text-muted py-4">
+              <i class="fas fa-info-circle me-2"></i>
+              No collaterals available to share. Please add collaterals to this brand campaign first.
+            </div>
+            {% endif %}
+          </div>
         </div>
-        <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Submit</button>
-      </form>
+      </div>
     </div>
   </div>
 </div>
+
+<style>
+  /* Button styles */
+  .btn[data-status="not_shared"] {
+    background-color: #dc3545;
+    color: white;
+    border: none;
+  }
+  
+  .btn[data-status="shared"] {
+    background-color: #ffc107;
+    color: #000;
+    border: none;
+    opacity: 0.7;
+  }
+  
+  .btn[data-status="viewed"] {
+    background-color: #28a745;
+    color: white;
+    border: none;
+  }
+  
+  .btn-purple {
+    background: #6f42c1 !important;
+    border: none !important;
+    color: #fff !important;
+  }
+</style>
+
+<script>
+// Search functionality
+document.getElementById('doctorSearch').addEventListener('input', function(e) {
+  const searchTerm = e.target.value.toLowerCase();
+  const doctorRows = document.querySelectorAll('.doctor-row');
+  
+  doctorRows.forEach(row => {
+    const name = row.dataset.name.toLowerCase();
+    const phone = row.dataset.phone;
+    
+    if (name.includes(searchTerm) || phone.includes(searchTerm)) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+});
+
+// Status filter
+document.getElementById('statusFilter').addEventListener('change', function(e) {
+  const statusFilter = e.target.value;
+  const doctorRows = document.querySelectorAll('.doctor-row');
+  
+  doctorRows.forEach(row => {
+    const status = row.dataset.status;
+    
+    if (!statusFilter || status === statusFilter) {
+      row.style.display = '';
+    } else {
+      row.style.display = 'none';
+    }
+  });
+});
+
+// Handle form submissions
+document.querySelectorAll('.share-form').forEach(form => {
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(form);
+    const button = form.querySelector('button');
+    const originalText = button.innerHTML;
+    
+    // Show loading state
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Sending...';
+    
+    // Submit the form via AJAX
+    fetch(window.location.href, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+      }
+    })
+    .then(response => response.json())
+    .then(data => {
+      console.log('[DEBUG] Response data:', data);
+      
+      if (data.success) {
+        // Update button state
+        button.className = 'btn btn-warning btn-sm';
+        button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Shared';
+        button.disabled = true;
+        
+        // Update row status
+        const row = button.closest('.doctor-row');
+        if (row) {
+          row.dataset.status = 'shared';
+        }
+        
+        // Show success message with doctor creation info
+        const successMsg = document.createElement('div');
+        successMsg.className = 'alert alert-success mt-2 mb-0 py-1';
+        let messageText = 'Message sent successfully!';
+        if (data.doctor_created) {
+          messageText += ' New doctor added to list.';
+        }
+        successMsg.textContent = messageText;
+        form.parentNode.insertBefore(successMsg, form.nextSibling);
+        
+        // Remove success message after 3 seconds
+        setTimeout(() => successMsg.remove(), 3000);
+        
+        // Open WhatsApp if URL provided
+        if (data.whatsapp_url) {
+          window.open(data.whatsapp_url, '_blank');
+        }
+        
+        // If a new doctor was created, refresh the page to show them in the list
+        if (data.doctor_created) {
+          console.log('[DEBUG] New doctor created, refreshing page...');
+          setTimeout(() => {
+            window.location.reload();
+          }, 1000);
+        }
+      } else {
+        throw new Error(data.message || 'Failed to send message');
+      }
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      
+      // Restore button
+      button.disabled = false;
+      button.innerHTML = originalText;
+      
+      // Show error message
+      const errorMsg = document.createElement('div');
+      errorMsg.className = 'alert alert-danger mt-2 mb-0 py-1';
+      errorMsg.textContent = error.message || 'Failed to send message. Please try again.';
+      form.parentNode.insertBefore(errorMsg, form.nextSibling);
+      
+      // Remove error message after 5 seconds
+      setTimeout(() => errorMsg.remove(), 5000);
+    });
+  });
+});
+
+// Handle main form submission (manual doctor addition)
+const mainForm = document.querySelector('form[method="post"]:not(.share-form)');
+console.log('[DEBUG] Main form found:', mainForm);
+if (mainForm) {
+  mainForm.addEventListener('submit', function(e) {
+    console.log('[DEBUG] Main form submitted');
+    e.preventDefault();
+    
+    const formData = new FormData(mainForm);
+    const submitButton = mainForm.querySelector('button[type="submit"]');
+    const originalText = submitButton.innerHTML;
+    
+    console.log('[DEBUG] Form data:', {
+      doctor_name: formData.get('doctor_name'),
+      doctor_whatsapp: formData.get('doctor_whatsapp'),
+      collateral: formData.get('collateral'),
+      fieldrep_id: formData.get('fieldrep_id')
+    });
+    
+    // Show loading state
+    submitButton.disabled = true;
+    submitButton.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Sending...';
+    
+    // Submit the form via AJAX
+    fetch(window.location.href, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+      }
+    })
+    .then(response => {
+      console.log('[DEBUG] Response status:', response.status);
+      return response.json();
+    })
+    .then(data => {
+      console.log('[DEBUG] Manual form response:', data);
+      
+      if (data.success) {
+        // Get form data
+        const doctorName = formData.get('doctor_name');
+        const doctorPhone = formData.get('doctor_whatsapp');
+        const selectedCollateral = formData.get('collateral');
+        
+        console.log('[DEBUG] Doctor created:', data.doctor_created, 'Name:', doctorName, 'Phone:', doctorPhone);
+        
+        // Add doctor to the list dynamically (even if already existed but not in frontend list)
+        if (data.doctor_id && doctorName && doctorPhone) {
+          // Check if doctor already exists in the frontend list
+          const existingDoctor = document.querySelector(`.doctor-row[data-phone="${doctorPhone}"]`);
+          
+          if (!existingDoctor) {
+            console.log('[DEBUG] Adding doctor to list...');
+            addDoctorToList({
+              id: data.doctor_id,
+              name: doctorName,
+              phone: doctorPhone,
+              status: 'shared',
+              specialty: '',
+              city: '',
+              last_shared: new Date()
+            });
+          } else {
+            console.log('[DEBUG] Doctor already exists in list, updating status...');
+            // Update existing doctor status to shared
+            existingDoctor.dataset.status = 'shared';
+            const button = existingDoctor.querySelector('button');
+            if (button) {
+              button.className = 'btn btn-warning btn-sm';
+              button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Shared';
+              button.disabled = true;
+            }
+          }
+        }
+        
+        // Show success message
+        const successMsg = document.createElement('div');
+        successMsg.className = 'alert alert-success mt-3';
+        successMsg.textContent = data.message || 'Collateral shared successfully!';
+        mainForm.appendChild(successMsg);
+        
+        // Open WhatsApp if URL provided
+        if (data.whatsapp_url) {
+          console.log('[DEBUG] Opening WhatsApp:', data.whatsapp_url);
+          window.open(data.whatsapp_url, '_blank');
+        }
+        
+        // Reset form
+        mainForm.reset();
+        
+        // Remove success message after 3 seconds
+        setTimeout(() => successMsg.remove(), 3000);
+      } else {
+        console.error('[DEBUG] Server error:', data.message);
+        throw new Error(data.message || 'Failed to send message');
+      }
+    })
+    .catch(error => {
+      console.error('[DEBUG] Form submission error:', error);
+      
+      // Show error message
+      const errorMsg = document.createElement('div');
+      errorMsg.className = 'alert alert-danger mt-3';
+      errorMsg.textContent = error.message || 'Failed to send message. Please try again.';
+      mainForm.appendChild(errorMsg);
+      
+      // Remove error message after 5 seconds
+      setTimeout(() => errorMsg.remove(), 5000);
+    })
+    .finally(() => {
+      // Restore button
+      submitButton.disabled = false;
+      submitButton.innerHTML = originalText;
+    });
+  });
+} else {
+  console.log('[DEBUG] Main form not found!');
+}
+
+// Function to add doctor to the list dynamically
+function addDoctorToList(doctor) {
+  const doctorList = document.getElementById('doctorList');
+  const emptyMessage = doctorList.querySelector('.list-group-item:empty');
+  
+  // Remove "No doctors" message if it exists
+  if (emptyMessage) {
+    emptyMessage.remove();
+  }
+  
+  // Create new doctor element
+  const doctorElement = document.createElement('div');
+  doctorElement.className = 'list-group-item d-flex justify-content-between align-items-center doctor-row';
+  doctorElement.dataset.id = doctor.id;
+  doctorElement.dataset.name = doctor.name.toLowerCase();
+  doctorElement.dataset.phone = doctor.phone;
+  doctorElement.dataset.status = doctor.status;
+  
+  // Get the first collateral ID for the form
+  const firstCollateral = document.querySelector('select[name="collateral"] option[value]');
+  const collateralId = firstCollateral ? firstCollateral.value : '';
+  
+  doctorElement.innerHTML = `
+    <div>
+      <div class="fw-semibold">${doctor.name}</div>
+      <div class="text-muted small">
+        ${doctor.phone}
+      </div>
+      <div class="last-shared-time text-muted small mt-1">
+        Last shared: just now
+      </div>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <form method="post" class="m-0 share-form" data-doctor-id="${doctor.id}">
+        <input type="hidden" name="doctor_id" value="${doctor.id}">
+        <input type="hidden" name="doctor_name" value="${doctor.name}">
+        <input type="hidden" name="doctor_whatsapp" value="${doctor.phone}">
+        <input type="hidden" name="collateral" value="${collateralId}">
+        <button type="button" class="btn btn-warning btn-sm" disabled data-status="shared">
+          <i class="fas fa-paper-plane me-1"></i> Shared
+        </button>
+      </form>
+    </div>
+  `;
+  
+  // Add to the list
+  doctorList.appendChild(doctorElement);
+  
+  attachShareFormListener(doctorElement.querySelector('.share-form'));
+  
+  console.log('[DEBUG] Doctor added to list:', doctor.name);
+}
+
+// Function to attach share form listener
+function attachShareFormListener(form) {
+  if (!form) return;
+  
+  form.addEventListener('submit', function(e) {
+    e.preventDefault();
+    
+    const formData = new FormData(form);
+    const button = form.querySelector('button');
+    const originalText = button.innerHTML;
+    
+    // Show loading state
+    button.disabled = true;
+    button.innerHTML = '<i class="fas fa-spinner fa-spin me-1"></i> Sending...';
+    
+    // Submit the form via AJAX
+    fetch(window.location.href, {
+      method: 'POST',
+      body: formData,
+      headers: {
+        'X-Requested-With': 'XMLHttpRequest',
+        'X-CSRFToken': formData.get('csrfmiddlewaretoken')
+      }
+    })
+    .then(response => response.json())
+    .then(data => {
+      console.log('[DEBUG] Response data:', data);
+      
+      if (data.success) {
+        // Update button state
+        button.className = 'btn btn-warning btn-sm';
+        button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Shared';
+        button.disabled = true;
+        
+        // Update row status
+        const row = button.closest('.doctor-row');
+        if (row) {
+          row.dataset.status = 'shared';
+        }
+        
+        // Show success message
+        const successMsg = document.createElement('div');
+        successMsg.className = 'alert alert-success mt-2 mb-0 py-1';
+        successMsg.textContent = 'Message sent successfully!';
+        form.parentNode.insertBefore(successMsg, form.nextSibling);
+        
+        // Remove success message after 3 seconds
+        setTimeout(() => successMsg.remove(), 3000);
+        
+        // Open WhatsApp if URL provided
+        if (data.whatsapp_url) {
+          window.open(data.whatsapp_url, '_blank');
+        }
+      } else {
+        throw new Error(data.message || 'Failed to send message');
+      }
+    })
+    .catch(error => {
+      console.error('Error:', error);
+      
+      // Restore button
+      button.disabled = false;
+      button.innerHTML = originalText;
+      
+      // Show error message
+      const errorMsg = document.createElement('div');
+      errorMsg.className = 'alert alert-danger mt-2 mb-0 py-1';
+      errorMsg.textContent = error.message || 'Failed to send message. Please try again.';
+      form.parentNode.insertBefore(errorMsg, form.nextSibling);
+      
+      // Remove error message after 5 seconds
+      setTimeout(() => errorMsg.remove(), 5000);
+    });
+  });
+}
+</script>
 {% endblock %}

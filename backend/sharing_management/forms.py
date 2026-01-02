@@ -361,6 +361,7 @@ class BulkManualShareForm(forms.Form):
         is_6_col_format = any((c or "").strip().lower() in header_keys_6 for c in peek)
         
         created, errors = 0, []
+        success_messages = []
         UserModel = get_user_model()
 
         if is_2_col_format:
@@ -382,25 +383,142 @@ class BulkManualShareForm(forms.Form):
                     if not field_rep_id and not gmail_id:
                         continue
                     
-                    # For 2-column format, we're just validating the field reps exist
-                    # No actual sharing is performed
-                    if field_rep_id:
-                        # Check if field rep exists by field_id
-                        rep = UserModel.objects.filter(role="field_rep", field_id=field_rep_id).first()
-                        if not rep:
-                            # Try by email
-                            rep = UserModel.objects.filter(role="field_rep", email=gmail_id).first()
-                            if not rep:
-                                errors.append(f"Row {row_no}: Field Rep with ID '{field_rep_id}' or email '{gmail_id}' not found")
-                                continue
-                    elif gmail_id:
-                        # Check by email
-                        rep = UserModel.objects.filter(role="field_rep", email=gmail_id).first()
-                        if not rep:
-                            errors.append(f"Row {row_no}: Field Rep with email '{gmail_id}' not found")
-                            continue
+                    # For 2-column format, we're validating the field reps exist
+                    rep_found = False
+                    rep_info = ""
                     
-                    created += 1
+                    if field_rep_id:
+                        # Debug: Show what we're looking for
+                        print(f"DEBUG: Looking for field_rep_id='{field_rep_id}', gmail_id='{gmail_id}'")
+                        
+                        # Check if field rep exists by field_id (exact match)
+                        rep = UserModel.objects.filter(role="field_rep", field_id=field_rep_id).first()
+                        if rep:
+                            rep_found = True
+                            rep_info = f"Field Rep ID '{field_rep_id}'"
+                            print(f"DEBUG: Found exact match: {rep}")
+                        else:
+                            # Try case-insensitive match
+                            rep = UserModel.objects.filter(role="field_rep", field_id__iexact=field_rep_id).first()
+                            if rep:
+                                rep_found = True
+                                rep_info = f"Field Rep ID '{field_rep_id}' (case-insensitive match)"
+                                print(f"DEBUG: Found case-insensitive match: {rep}")
+                            else:
+                                # Try partial match (contains)
+                                reps = UserModel.objects.filter(role="field_rep", field_id__icontains=field_rep_id)
+                                if reps.exists():
+                                    rep = reps.first()
+                                    rep_found = True
+                                    rep_info = f"Field Rep ID '{field_rep_id}' (partial match to '{rep.field_id}')"
+                                    print(f"DEBUG: Found partial match: {rep}")
+                                else:
+                                    # Try by username
+                                    rep = UserModel.objects.filter(role="field_rep", username__iexact=field_rep_id).first()
+                                    if rep:
+                                        rep_found = True
+                                        rep_info = f"Username '{field_rep_id}'"
+                                        print(f"DEBUG: Found username match: {rep}")
+                                    else:
+                                        # Try by email as fallback
+                                        rep = UserModel.objects.filter(role="field_rep", email=gmail_id).first()
+                                        if rep:
+                                            rep_found = True
+                                            rep_info = f"Field Rep with email '{gmail_id}'"
+                                            print(f"DEBUG: Found email fallback match: {rep}")
+                                        else:
+                                            # Try partial email match
+                                            reps = UserModel.objects.filter(role="field_rep", email__icontains=field_rep_id)
+                                            if reps.exists():
+                                                rep = reps.first()
+                                                rep_found = True
+                                                rep_info = f"Partial email match '{field_rep_id}' to '{rep.email}'"
+                                                print(f"DEBUG: Found partial email match: {rep}")
+                                            else:
+                                                print(f"DEBUG: No matches found for field_rep_id='{field_rep_id}', gmail_id='{gmail_id}'")
+                                                
+                                                # AUTO-CREATE field rep if not found
+                                                try:
+                                                    from django.contrib.auth.hashers import make_password
+                                                    import string
+                                                    import random
+                                                    
+                                                    # Generate a default password
+                                                    default_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+                                                    
+                                                    # Create new field rep user
+                                                    new_rep = UserModel.objects.create(
+                                                        username=f'fieldrep_{field_rep_id.lower()}',
+                                                        email=gmail_id if gmail_id else f'{field_rep_id}@example.com',
+                                                        field_id=field_rep_id,
+                                                        role='field_rep',
+                                                        password=make_password(default_password),
+                                                        is_active=True
+                                                    )
+                                                    
+                                                    rep_found = True
+                                                    rep_info = f"Auto-created Field Rep ID '{field_rep_id}' with email '{gmail_id if gmail_id else f'{field_rep_id}@example.com'}'"
+                                                    print(f"DEBUG: Auto-created new field rep: {new_rep}")
+                                                    success_messages.append(f"Row {row_no}: Auto-created new field rep {field_rep_id}")
+                                                    
+                                                except Exception as create_error:
+                                                    print(f"DEBUG: Failed to create field rep: {create_error}")
+                                                    errors.append(f"Row {row_no}: Failed to create Field Rep '{field_rep_id}': {create_error}")
+                                                    continue
+                    elif gmail_id:
+                        # Check by email (exact match)
+                        rep = UserModel.objects.filter(role="field_rep", email=gmail_id).first()
+                        if rep:
+                            rep_found = True
+                            rep_info = f"Field Rep with email '{gmail_id}'"
+                        else:
+                            # Try case-insensitive email match
+                            rep = UserModel.objects.filter(role="field_rep", email__iexact=gmail_id).first()
+                            if rep:
+                                rep_found = True
+                                rep_info = f"Field Rep with email '{gmail_id}' (case-insensitive match)"
+                            else:
+                                # Try partial email match
+                                reps = UserModel.objects.filter(role="field_rep", email__icontains=gmail_id)
+                                if reps.exists():
+                                    rep = reps.first()
+                                    rep_found = True
+                                    rep_info = f"Partial email match '{gmail_id}' to '{rep.email}'"
+                                else:
+                                    # AUTO-CREATE field rep if email not found
+                                    try:
+                                        from django.contrib.auth.hashers import make_password
+                                        import string
+                                        import random
+                                        
+                                        # Generate a default password and field_id
+                                        default_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+                                        auto_field_id = f"FR{random.randint(1000, 9999)}"
+                                        
+                                        # Create new field rep user
+                                        new_rep = UserModel.objects.create(
+                                            username=f'fieldrep_{gmail_id.split("@")[0]}',
+                                            email=gmail_id,
+                                            field_id=auto_field_id,
+                                            role='field_rep',
+                                            password=make_password(default_password),
+                                            is_active=True
+                                        )
+                                        
+                                        rep_found = True
+                                        rep_info = f"Auto-created Field Rep with email '{gmail_id}' and ID '{auto_field_id}'"
+                                        print(f"DEBUG: Auto-created new field rep from email: {new_rep}")
+                                        success_messages.append(f"Row {row_no}: Auto-created new field rep {gmail_id}")
+                                        
+                                    except Exception as create_error:
+                                        print(f"DEBUG: Failed to create field rep from email: {create_error}")
+                                        errors.append(f"Row {row_no}: Failed to create Field Rep from email '{gmail_id}': {create_error}")
+                                        continue
+                    
+                    if rep_found:
+                        created += 1
+                        # Add success message for debugging - show which method matched
+                        success_messages.append(f"Row {row_no}: {rep_info} found and validated")
                     
                 except Exception as exc:
                     errors.append(f"Row {row_no}: {exc}")
@@ -521,10 +639,25 @@ class BulkManualShareForm(forms.Form):
                 except Exception as exc:        # noqa: BLE001
                     errors.append(f"Row {row_no}: {exc}")
         else:
-            # Unknown format
-            errors.append("Invalid CSV format. Please use either 2-column format (Field Rep ID, Gmail ID) or 6-column format (field_rep_email, doctor_name, doctor_contact, collateral_id, share_channel, message_text)")
+            # Unknown format - provide more helpful error
+            if len(peek) == 0:
+                errors.append("CSV file appears to be empty. Please check your file.")
+            elif len(peek) == 1:
+                errors.append("CSV has only 1 column. Expected either 2 columns (Field Rep ID, Gmail ID) or 6 columns (field_rep_email, doctor_name, doctor_contact, collateral_id, share_channel, message_text).")
+            elif len(peek) == 2:
+                # Check if it might be missing headers
+                first_col = (peek[0] or "").strip().lower()
+                if first_col not in ["field rep id", "field_rep_id", "gmail id", "gmail_id"]:
+                    errors.append("CSV appears to be 2-column format but headers are missing or incorrect. Expected headers: 'Field Rep ID, Gmail ID'")
+                else:
+                    errors.append("Invalid CSV format detected. Please check column headers match expected format.")
+            else:
+                errors.append(f"CSV has {len(peek)} columns. Expected either 2 columns (Field Rep ID, Gmail ID) or 6 columns (field_rep_email, doctor_name, doctor_contact, collateral_id, share_channel, message_text).")
+                errors.append("First few columns detected: " + ", ".join([f'"{c}"' for c in peek[:3]]))
 
-        return created, errors
+        # Combine errors and success messages for display
+        all_messages = errors + success_messages
+        return created, all_messages
 
 
 # ─── Bulk *pre‑mapped* upload (new) ────────────────────────────────────────────
@@ -534,11 +667,11 @@ class BulkPreMappedUploadForm(forms.Form):
     """
     CSV with **header row**:
 
-      doctor_name, whatsapp_number, fieldrep_id, collateral_id
+      Doctor Name, Whatsapp Number, Field Rep ID (collateral_id optional)
     """
     csv_file = forms.FileField(
         label="Choose a CSV file",
-        help_text="Columns: doctor_name, whatsapp_number, fieldrep_id, collateral_id",
+        help_text="Columns: Doctor Name, Whatsapp Number, Field Rep ID (collateral_id optional)",
     )
 
     # 1️⃣ basic size & extension checks ----------------------------------------
@@ -611,29 +744,103 @@ class BulkPreMappedUploadForm(forms.Form):
         created = 0
         errors = []
         
-        # Check required columns
-        required = {"doctor_name", "whatsapp_number", "fieldrep_id", "collateral_id"}
-        missing = required - set(reader.fieldnames or [])
-        if missing:
-            errors.append(f"Missing columns: {', '.join(sorted(missing))}")
+        # Check required columns - be more flexible with column names
+        fieldnames = reader.fieldnames or []
+        print(f"DEBUG: CSV columns found: {fieldnames}")
+        
+        # Try multiple column name variations
+        doctor_name_col = None
+        whatsapp_col = None
+        fieldrep_id_col = None
+        collateral_id_col = None
+        
+        for col in fieldnames:
+            col_lower = col.lower().strip()
+            # Prioritize exact headers first
+            if col == 'Doctor Name':
+                doctor_name_col = col
+            elif col == 'Whatsapp Number':
+                whatsapp_col = col
+            elif col == 'Field Rep ID':
+                fieldrep_id_col = col
+            # Fallback to variations
+            elif col_lower in ['doctor_name', 'name', 'doctor', 'doctor name']:
+                doctor_name_col = col
+            elif col_lower in ['whatsapp_number', 'phone', 'whatsapp', 'contact', 'whatsapp number']:
+                whatsapp_col = col
+            elif col_lower in ['fieldrep_id', 'field_rep_id', 'fieldrep', 'field rep id', 'field_rep', 'field rep id']:
+                fieldrep_id_col = col
+            elif col_lower in ['collateral_id', 'collateral', 'collateralid']:
+                collateral_id_col = col
+        
+        # Check if we found required columns (collateral_id is now optional)
+        missing_cols = []
+        if not doctor_name_col:
+            missing_cols.append('doctor_name')
+        if not whatsapp_col:
+            missing_cols.append('whatsapp_number')
+        if not fieldrep_id_col:
+            missing_cols.append('fieldrep_id')
+        # Note: collateral_id is now optional - only check if other required columns are missing
+            
+        if missing_cols:
+            errors.append(f"Missing required columns: {', '.join(missing_cols)}. Found columns: {', '.join(fieldnames)}")
             return 0, errors
 
         for row_no, row in enumerate(reader, start=2):   # header = line 1
             try:
-                name   = (row.get("doctor_name")     or "").strip()
-                phone  = (row.get("whatsapp_number") or "").strip()
-                rep_id = (row.get("fieldrep_id") or "").strip()
-                collateral_id = int(row.get("collateral_id") or 0)
+                name   = (row.get(doctor_name_col)     or "").strip()
+                phone  = (row.get(whatsapp_col) or "").strip()
+                rep_id = (row.get(fieldrep_id_col) or "").strip()
+                collateral_id = int(row.get(collateral_id_col) or 0)
 
-                if not (name and phone and rep_id and collateral_id):
+                if not (name and phone and rep_id):
                     raise ValueError("Missing required column value")
-                if not _whatsapp_re.match(phone):
-                    raise ValueError("Bad phone format")
+                
+                # Handle scientific notation from Excel (e.g., 9.2E+11)
+                try:
+                    if 'E' in phone.upper() or 'e' in phone:
+                        # Convert scientific notation to regular number
+                        phone = str(int(float(phone)))
+                        print(f"DEBUG: Converted scientific notation '{phone}' to '{phone}'")
+                except:
+                    pass  # If conversion fails, use original value
+                
+                # Clean phone number - keep only digits and +
+                digits = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
+                if not digits:
+                    raise ValueError("Bad phone format - no digits found")
+                
+                if not _whatsapp_re.match(digits):
+                    raise ValueError(f"Bad phone format: {phone}")
 
-                # Get collateral and field rep
-                collateral = Collateral.objects.get(id=collateral_id)
-                rep = User.objects.get(pk=rep_id, role="field_rep")
-                doc = self._doctor_for_row(name, phone, rep)
+                # Get collateral and field rep (collateral_id is now optional)
+                if collateral_id and collateral_id > 0:
+                    try:
+                        collateral = Collateral.objects.get(id=collateral_id)
+                    except Collateral.DoesNotExist:
+                        errors.append(f"Row {row_no}: Invalid collateral_id '{collateral_id}'. Collateral not found.")
+                        continue
+                else:
+                    # Use the most recent active collateral as default
+                    collateral = Collateral.objects.filter(is_active=True).order_by('-created_at').first()
+                    if not collateral:
+                        errors.append(f"Row {row_no}: No collateral_id provided and no active collaterals found in system.")
+                        continue
+
+                # Get field rep (accept both numeric and string IDs)
+                try:
+                    # Try numeric conversion first
+                    try:
+                        rep_id_numeric = int(rep_id)
+                        rep = User.objects.get(pk=rep_id_numeric, role="field_rep")
+                    except (ValueError, User.DoesNotExist):
+                        # If numeric fails, try string match
+                        rep = User.objects.get(field_id=rep_id, role="field_rep")
+                except User.DoesNotExist:
+                    errors.append(f"Row {row_no}: Field Rep with ID '{rep_id}' not found")
+                    continue
+                doc = self._doctor_for_row(name, digits, rep)  # Use cleaned phone number
                 log = self._create_link_and_sharelog(doc, collateral, rep)
 
                 created += 1
@@ -647,13 +854,15 @@ class BulkPreMappedUploadForm(forms.Form):
 # ─── Bulk *manual* – WhatsApp‑only ───────────────────────────────────────────
 class BulkManualWhatsappShareForm(forms.Form):
     """
-    CSV (<2 MB) with **five columns, no header**:
+    CSV (<2 MB) with **two or three columns, no header**:
 
-        field_rep_email, doctor_name, phone_number, collateral_id, message_text(optional)
+        field_rep_id, phone_number (doctor_name optional)
     """
     csv_file = forms.FileField(
-        help_text=("CSV: field_rep_email,doctor_name,phone_number,"
-                   "collateral_id,message_text"),
+        help_text=("CSV format: field_rep_id,phone_number (doctor_name optional)<br>"
+                   "Or with headers: Field Rep ID,Field Rep Number<br>"
+                   "Only field_rep_id and phone_number are required<br>"
+                   "Example: FR22,+919876543210 or FR22,Dr. John,+919876543210"),
     )
     MAX_SIZE = 2 * 1024 * 1024  # 2 MB
 
@@ -679,7 +888,7 @@ class BulkManualWhatsappShareForm(forms.Form):
 
         # Auto-detect header
         peek = next(csv.reader(io.StringIO(data)), [])
-        header_keys = {"field_rep_email", "doctor_name", "whatsapp_number", "collateral_id", "message_text"}
+        header_keys = {"field_rep_email", "doctor_name", "whatsapp_number", "field rep i", "field rep nur", "field rep id", "field rep number", "Field Rep ID", "Field Rep Number"}
         has_header = any((c or "").strip().lower() in header_keys for c in peek)
 
         created, errors = 0, []
@@ -690,11 +899,9 @@ class BulkManualWhatsappShareForm(forms.Form):
             reader = csv.DictReader(file_obj)
             rows_iter = (
                 (
-                    r.get("field_rep_email", "").strip(),
-                    r.get("doctor_name", "").strip(),
-                    r.get("whatsapp_number", "").strip(),
-                    r.get("collateral_id", "").strip(),
-                    (r.get("message_text") or "").strip(),
+                    r.get("field_rep_email", "") or r.get("field rep i", "") or r.get("field rep id", "") or r.get("Field Rep ID", ""),
+                    r.get("doctor_name", "") or r.get("doctor", "") or r.get("name", ""),
+                    r.get("whatsapp_number", "") or r.get("field rep nur", "") or r.get("field rep number", "") or r.get("Field Rep Number", "") or r.get("phone", ""),
                 )
                 for r in reader
             )
@@ -703,38 +910,118 @@ class BulkManualWhatsappShareForm(forms.Form):
             file_obj.seek(0)
             reader = csv.reader(file_obj)
             rows_iter = (
-                tuple([c.strip() for c in (row + [""] * 5)[:5]])
+                tuple([c.strip() for c in (row + [""] * 3)[:3]])
                 for row in reader if row and not row[0].strip().startswith("#")
             )
             start_row = 1
 
         for row_no, row in enumerate(rows_iter, start=start_row):
             try:
-                rep_email, doctor_name, phone_number, col_id, message_text = row
+                # Ensure we have at least 2 columns (doctor_name is optional)
+                if len(row) < 2:
+                    raise ValueError(f"Row has only {len(row)} columns. Expected at least 2: field_rep_id, phone_number")
+                
+                # Pad row to 3 columns if doctor_name is missing
+                row = list(row) + [""] * (3 - len(row))
+                rep_email, doctor_name, phone_number = row
+                
+                # Validate required fields
+                doctor_name = doctor_name.strip() if doctor_name else ""
+                # If doctor name is empty, use field rep ID as doctor identifier
+                if not doctor_name:
+                    doctor_name = rep_email  # Use field rep ID as doctor name
 
-                # field‑rep
-                rep = UserModel.objects.get(email=rep_email, role="field_rep")
-
-                # collateral
-                try:
-                    col = Collateral.objects.get(id=int(col_id))
-                except Collateral.DoesNotExist:
-                    # Check if it exists in the other Collateral model
-                    from campaign_management.models import Collateral as CampaignCollateral
+                # field‑rep (accept both email and field rep ID)
+                rep = None
+                rep_email = rep_email.strip() if rep_email else ""
+                
+                if not rep_email:
+                    raise ValueError("Field Rep email/ID cannot be empty")
+                
+                # Try multiple approaches to find the field rep
+                search_attempts = [
+                    # Exact email match
+                    lambda: UserModel.objects.filter(email=rep_email, role="field_rep").first(),
+                    # Case-insensitive email match
+                    lambda: UserModel.objects.filter(email__iexact=rep_email, role="field_rep").first(),
+                    # Exact field_id match
+                    lambda: UserModel.objects.filter(field_id=rep_email, role="field_rep").first(),
+                    # Case-insensitive field_id match
+                    lambda: UserModel.objects.filter(field_id__iexact=rep_email, role="field_rep").first(),
+                    # Partial field_id match
+                    lambda: UserModel.objects.filter(field_id__icontains=rep_email, role="field_rep").first(),
+                    # Username match
+                    lambda: UserModel.objects.filter(username__iexact=rep_email, role="field_rep").first(),
+                ]
+                
+                for attempt in search_attempts:
+                    rep = attempt()
+                    if rep:
+                        break
+                
+                # Try numeric conversion for primary key
+                if not rep:
                     try:
-                        campaign_col = CampaignCollateral.objects.get(id=int(col_id))
-                        raise ValueError(f"Invalid collateral_id «{col_id}». This ID exists in Campaign Management but not in Collateral Management. Please use a collateral from the Collateral Management system.")
-                    except CampaignCollateral.DoesNotExist:
+                        rep_id_numeric = int(rep_email)
+                        rep = UserModel.objects.filter(pk=rep_id_numeric, role="field_rep").first()
+                    except (ValueError, TypeError):
                         pass
-                    
-                    # Provide helpful error with available IDs
-                    available_ids = list(Collateral.objects.filter(is_active=True).values_list('id', flat=True)[:10])
-                    if available_ids:
-                        raise ValueError(f"Invalid collateral_id «{col_id}». Available active IDs: {available_ids}")
-                    else:
-                        raise ValueError(f"Invalid collateral_id «{col_id}». No active collaterals found in database.")
+                
+                if not rep:
+                    # AUTO-CREATE field rep if not found
+                    try:
+                        from django.contrib.auth.hashers import make_password
+                        import string
+                        import random
+                        
+                        # Generate a default password
+                        default_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+                        
+                        # Determine if rep_email looks like an email or field ID
+                        if '@' in rep_email:
+                            # It's an email
+                            email = rep_email
+                            field_id = f"FR{random.randint(1000, 9999)}"
+                            username = f'fieldrep_{rep_email.split("@")[0]}'
+                        else:
+                            # It's likely a field ID
+                            field_id = rep_email
+                            email = f'{rep_email}@example.com'
+                            username = f'fieldrep_{rep_email.lower()}'
+                        
+                        # Create new field rep user
+                        new_rep = UserModel.objects.create(
+                            username=username,
+                            email=email,
+                            field_id=field_id,
+                            role='field_rep',
+                            password=make_password(default_password),
+                            is_active=True
+                        )
+                        
+                        rep = new_rep
+                        print(f"DEBUG: Auto-created new field rep: {new_rep}")
+                        
+                    except Exception as create_error:
+                        print(f"DEBUG: Failed to create field rep: {create_error}")
+                        # Provide helpful error message with available field reps
+                        available_reps = UserModel.objects.filter(role="field_rep").values_list('email', 'field_id', 'username')[:5]
+                        if available_reps:
+                            rep_list = ", ".join([f"{email} ({field_id or 'no ID'})" for email, field_id, username in available_reps])
+                            raise ValueError(f"Field Rep with email or ID '{rep_email}' not found. Available field reps: {rep_list}")
+                        else:
+                            raise ValueError(f"Field Rep with email or ID '{rep_email}' not found. No field representatives exist in the system.")
+
+                # Use the most recent active collateral as default
+                col = Collateral.objects.filter(is_active=True).order_by('-created_at').first()
+                if not col:
+                    raise ValueError("No active collaterals found in system. Please create at least one active collateral first.")
 
                 # quick phone sanity
+                phone_number = phone_number.strip() if phone_number else ""
+                if not phone_number:
+                    raise ValueError("Phone number cannot be empty")
+                
                 # Handle scientific notation from Excel (e.g., 9.19812E+11)
                 try:
                     if 'E' in phone_number.upper() or 'e' in phone_number:
@@ -776,7 +1063,7 @@ class BulkManualWhatsappShareForm(forms.Form):
                     field_rep=rep,
                     doctor_identifier=digits,
                     share_channel="WhatsApp",
-                    message_text=message_text,
+                    message_text="",
                     collateral=col,
                 )
                 created += 1
@@ -788,11 +1075,11 @@ class BulkManualWhatsappShareForm(forms.Form):
 
 class BulkPreFilledWhatsappShareForm(forms.Form):
     """
-    CSV with header: doctor_name, whatsapp_number, fieldrep_id, collateral_id, message_text
+    CSV with header: Doctor Name, Whatsapp Number, Field Rep ID (collateral_id, message_text optional)
     """
     csv_file = forms.FileField(
         label="Choose a CSV file",
-        help_text="CSV must include doctor_name, whatsapp_number, fieldrep_id, collateral_id, message_text",
+        help_text="CSV must include Doctor Name, Whatsapp Number, Field Rep ID (collateral_id, message_text optional)",
     )
 
     MAX_SIZE = 2 * 1024 * 1024
@@ -828,22 +1115,24 @@ class BulkPreFilledWhatsappShareForm(forms.Form):
         stats = {"created": 0, "errors": [], "logs": []}
         UserModel = get_user_model()
 
-        # Check required columns
-        required = {"doctor_name", "whatsapp_number", "fieldrep_id", "collateral_id", "message_text"}
-        missing = required - set(reader.fieldnames or [])
-        if missing:
-            stats["errors"].append(f"Missing columns: {', '.join(sorted(missing))}")
+        # Check required columns - only doctor_name, whatsapp_number, fieldrep_id are required
+        required = {"doctor_name", "whatsapp_number", "fieldrep_id"}
+        # Also accept your exact headers
+        fieldnames_lower = {name.lower() for name in reader.fieldnames or []}
+        if not {"doctor name", "whatsapp number", "field rep id"}.issubset(fieldnames_lower) and not required.issubset(fieldnames_lower):
+            stats["errors"].append("CSV must include: Doctor Name, Whatsapp Number, Field Rep ID")
             return stats
 
         for row_no, row in enumerate(reader, start=2):  # header = row 1
             try:
-                name = (row.get("doctor_name") or "").strip()
-                phone = (row.get("whatsapp_number") or "").strip()
-                rep_id = (row.get("fieldrep_id") or "").strip()
+                # Support both your headers and standard headers
+                name = (row.get("doctor_name") or row.get("Doctor Name") or "").strip()
+                phone = (row.get("whatsapp_number") or row.get("Whatsapp Number") or "").strip()
+                rep_id = (row.get("fieldrep_id") or row.get("Field Rep ID") or "").strip()
                 col_id = (row.get("collateral_id") or "").strip()
                 message_text = (row.get("message_text") or "").strip()
 
-                if not all([name, phone, rep_id, col_id]):
+                if not all([name, phone, rep_id]):
                     raise ValueError("Missing required column value")
 
                 # Get field rep - handle both integer and string field_rep_id
@@ -865,11 +1154,17 @@ class BulkPreFilledWhatsappShareForm(forms.Form):
                 except Exception:
                     raise ValueError(f"Unknown fieldrep_id «{rep_id}»")
 
-                # Get collateral
-                try:
-                    col = CModel.objects.get(id=int(col_id), is_active=True)
-                except Exception:
-                    raise ValueError(f"Unknown/Inactive collateral_id «{col_id}»")
+                # Get collateral (optional - use default if not provided)
+                if col_id:
+                    try:
+                        col = CModel.objects.get(id=int(col_id), is_active=True)
+                    except Exception:
+                        raise ValueError(f"Unknown/Inactive collateral_id «{col_id}»")
+                else:
+                    # Use the most recent active collateral as default
+                    col = CModel.objects.filter(is_active=True).order_by('-created_at').first()
+                    if not col:
+                        raise ValueError("No collateral_id provided and no active collaterals found in system.")
 
                 # Clean phone number
                 # Handle scientific notation from Excel (e.g., 9.19812E+11)
@@ -931,10 +1226,10 @@ class BulkPreFilledWhatsappShareForm(forms.Form):
 class BulkPreMappedByLoginForm(forms.Form):
     """
     Pre-register doctor ↔ collateral without sending via WhatsApp/SMS/Email.
-    CSV with REQUIRED header: doctor_name, whatsapp_number, fieldrep_id, collateral_id
+    CSV with REQUIRED header: Doctor Name, Gmail ID, Field Rep ID (collateral_id optional)
     """
     csv_file = forms.FileField(
-        help_text="CSV with header: doctor_name,whatsapp_number,fieldrep_id,collateral_id"
+        help_text="CSV with header: Doctor Name,Gmail ID,Field Rep ID (collateral_id optional)"
     )
     MAX_SIZE = 2 * 1024 * 1024  # 2 MB
 
@@ -981,13 +1276,18 @@ class BulkPreMappedByLoginForm(forms.Form):
 
         for row_no, row in enumerate(reader, start=2):  # header = row 1
             try:
-                name   = (row.get("doctor_name") or "").strip()
+                # Support both your headers and standard headers
+                name   = (row.get("doctor_name") or row.get("Doctor Name") or "").strip()
+                email  = (row.get("gmail_id") or row.get("Gmail ID") or "").strip()
                 phone  = (row.get("whatsapp_number") or "").strip()
-                rep_id = (row.get("fieldrep_id") or "").strip()
+                rep_id = (row.get("fieldrep_id") or row.get("Field Rep ID") or "").strip()
                 col_id = (row.get("collateral_id") or "").strip()
 
-                if not rep_id or not col_id:
-                    raise ValueError("fieldrep_id and collateral_id are required")
+                if not rep_id:
+                    raise ValueError("Field Rep ID is required")
+                
+                # Use email as primary contact, phone as fallback
+                primary_contact = email if email else phone
 
                 # field rep - handle both integer and string field_rep_id
                 try:
@@ -1008,14 +1308,20 @@ class BulkPreMappedByLoginForm(forms.Form):
                 except Exception:
                     raise ValueError(f"Unknown fieldrep_id «{rep_id}»")
 
-                # collateral
-                try:
-                    col = CModel.objects.get(id=int(col_id), is_active=True)
-                except Exception:
-                    raise ValueError(f"Unknown/Inactive collateral_id «{col_id}»")
+                # collateral (optional - use default if not provided)
+                if col_id:
+                    try:
+                        col = CModel.objects.get(id=int(col_id), is_active=True)
+                    except Exception:
+                        raise ValueError(f"Unknown/Inactive collateral_id «{col_id}»")
+                else:
+                    # Use the most recent active collateral as default
+                    col = CModel.objects.filter(is_active=True).order_by('-created_at').first()
+                    if not col:
+                        raise ValueError("No collateral_id provided and no active collaterals found in system.")
 
-                # doctor
-                doctor, d_created = self._doctor_for_row(rep, name, phone)
+                # doctor - use email as primary contact, phone as fallback
+                doctor, d_created = self._doctor_for_row(rep, name, primary_contact)
                 if d_created:
                     created_doctors += 1
 
@@ -1040,7 +1346,13 @@ class BulkPreMappedByLoginForm(forms.Form):
                     )
                 created_or_existing_links += 1
 
-                short_url = f"{settings.SITE_BASE_URL}/view/{sl.short_code}"
+                # Generate short URL using request context or fallback
+                try:
+                    from django.urls import reverse
+                    short_url = reverse('resolve_shortlink', args=[sl.short_code])
+                except:
+                    # Fallback to relative URL if reverse fails
+                    short_url = f"/view/{sl.short_code}"
                 rows.append({
                     "row": row_no,
                     "doctor": f"{doctor.name} ({doctor.phone})",

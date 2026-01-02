@@ -90,6 +90,42 @@ def find_or_create_short_link(collateral, user):
         is_active=True
     )
 
+def get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_id):
+    """
+    Get or create a Django User object for field representatives.
+    This is needed for functions that require a user object like find_or_create_short_link.
+    """
+    from user_management.models import User
+    from django.contrib.auth.hashers import make_password
+    
+    # Try to find existing user by field_id
+    user = None
+    if field_rep_field_id:
+        try:
+            user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+        except User.DoesNotExist:
+            pass
+    
+    # Try to find by email as fallback
+    if not user and field_rep_email:
+        try:
+            user = User.objects.filter(email=field_rep_email, role='field_rep').first()
+        except:
+            pass
+    
+    # Create new user if not found
+    if not user and field_rep_field_id and field_rep_email:
+        user = User.objects.create(
+            username=f'fieldrep_{field_rep_field_id}',
+            email=field_rep_email,
+            field_id=field_rep_field_id,
+            role='field_rep',
+            password=make_password('defaultpass123'),  # Default password
+            is_active=True
+        )
+    
+    return user
+
 
 def build_wa_link(share_log, request):
     if share_log.share_channel != "WhatsApp":
@@ -467,41 +503,61 @@ def bulk_manual_upload(request):
                 from django.contrib.auth import get_user_model
                 UserModel = get_user_model()
                 existing_field_reps = UserModel.objects.filter(role="field_rep").values_list('email', flat=True)
+                existing_field_ids = UserModel.objects.filter(role="field_rep").values_list('field_id', flat=True).exclude(field_id__isnull=True).exclude(field_id='')
                 print(f"Existing field reps in database: {list(existing_field_reps)}")
+                print(f"Existing field IDs in database: {list(existing_field_ids)}")
                 
                 # Reset file pointer for form processing
                 csv_file.seek(0)
                 
-                created, errors = form.save(user_request=request.user)
-                print(f"Created: {created}, Errors: {errors}")
+                created, all_messages = form.save(user_request=request.user)
+                print(f"Created: {created}, Messages: {all_messages}")
+                
+                # Separate success and error messages
+                success_messages = [msg for msg in all_messages if "Auto-created" in msg or "found and validated" in msg]
+                error_messages = [msg for msg in all_messages if msg not in success_messages]
                 
                 if created and created > 0:
-                    messages.success(request, f"Data is uploaded successfully. {created} rows imported successfully.")
+                    if error_messages:
+                        # Some successes, some errors
+                        messages.success(request, f"Partially processed: {created} rows validated successfully, {len(error_messages)} errors found.")
+                        for msg in success_messages:
+                            messages.success(request, msg)
+                        for msg in error_messages:
+                            messages.error(request, msg)
+                    else:
+                        # All successes
+                        messages.success(request, f"All {created} field representatives processed successfully!")
+                        for msg in success_messages:
+                            messages.success(request, msg)
                     print("Redirecting to bulk_upload_success")
                     return redirect("bulk_upload_success")
                 else:
-                    messages.warning(request, "No rows were created. Please check your CSV file format and data.")
-                    if errors:
-                        messages.info(request, f"Total errors found: {len(errors)}")
-                        # Show available field reps in error message
-                        if existing_field_reps:
-                            messages.info(request, f"Available field rep emails: {', '.join(existing_field_reps)}")
-                        else:
-                            messages.error(request, "No field representatives found in database! Please create field rep users first.")
+                    # No successes
+                    messages.error(request, "No rows were validated. Please check your CSV file format and data.")
+                    if error_messages:
+                        messages.info(request, f"Total errors found: {len(error_messages)}")
+                        for msg in error_messages:
+                            messages.error(request, msg)
                     
-                for err in errors:
-                    messages.error(request, f"Error: {err}")
+                    for msg in success_messages:
+                        messages.success(request, msg)
+                    
+                    # Don't redirect - stay on the same page to show messages
+                    return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
                     
             except Exception as e:
                 print(f"Save error: {e}")
                 messages.error(request, f"Upload failed: {str(e)}")
-                
-            return redirect("bulk_manual_upload")
+                # Don't redirect - stay on the same page to show messages
+                return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
         else:
             print(f"Form errors: {form.errors}")
             for field, field_errors in form.errors.items():
                 for error in field_errors:
                     messages.error(request, f"{field}: {error}")
+            # Don't redirect - stay on the same page to show messages
+            return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
     else:
         form = BulkManualShareForm()
 
@@ -513,16 +569,26 @@ def bulk_upload_success(request):
     Show recently uploaded data from bulk upload
     """
     from datetime import datetime, timedelta
+    from django.contrib.auth import get_user_model
     
-    # Get recent ShareLog entries (last 1 hour) - show all recent uploads, not just current user's
+    # Get recent field reps created in last 1 hour
     recent_time = timezone.now() - timedelta(hours=1)
+    UserModel = get_user_model()
+    recent_field_reps = UserModel.objects.filter(
+        role="field_rep",
+        date_joined__gte=recent_time
+    ).order_by('-date_joined')[:50]
+    
+    # Also get recent ShareLog entries for 6-column format uploads
     recent_uploads = ShareLog.objects.filter(
         created_at__gte=recent_time
     ).select_related('collateral', 'field_rep', 'short_link').order_by('-created_at')[:50]
     
     return render(request, "sharing_management/bulk_upload_success.html", {
+        "recent_field_reps": recent_field_reps,
         "recent_uploads": recent_uploads,
-        "total_count": recent_uploads.count()
+        "total_field_reps": recent_field_reps.count(),
+        "total_uploads": recent_uploads.count()
     })
 
 
@@ -575,7 +641,7 @@ def bulk_pre_mapped_upload(request):
             created, errors = form.save(admin_user=request.user)
             if created:
                 messages.success(request, f"Data is uploaded successfully. {created} rows imported successfully.")
-                return redirect("bulk_upload_success")
+                return redirect("bulk_premapped_success")
             for err in errors:
                 messages.error(request, err)
             return redirect("bulk_pre_mapped_upload")
@@ -872,12 +938,22 @@ def edit_campaign_calendar(request):
 def fieldrep_email_registration(request):
     if request.method == 'POST':
         email = request.POST.get('email')
-        # Redirect to password creation page with email as GET param
-        return redirect(f'/share/fieldrep-create-password/?email={email}')
-    return render(request, 'sharing_management/fieldrep_email_registration.html')
+        brand_campaign_id = request.POST.get('brand_campaign_id') or request.GET.get('campaign')
+        # Redirect to password creation page with email and brand_campaign_id as GET params
+        redirect_url = f'/share/fieldrep-create-password/?email={email}'
+        if brand_campaign_id:
+            redirect_url += f'&campaign={brand_campaign_id}'
+        return redirect(redirect_url)
+    
+    # Get brand_campaign_id from GET parameter for template context
+    brand_campaign_id = request.GET.get('campaign')
+    return render(request, 'sharing_management/fieldrep_email_registration.html', {
+        'brand_campaign_id': brand_campaign_id
+    })
 
 def fieldrep_create_password(request):
     email = request.GET.get('email') or request.POST.get('email')
+    brand_campaign_id = request.GET.get('campaign') or request.POST.get('campaign')
     
     # Fetch security questions from database using Django ORM
     try:
@@ -917,26 +993,34 @@ def fieldrep_create_password(request):
             
             if success:
                 messages.success(request, 'Registration successful! Please login.')
-                return redirect('fieldrep_login')
+                redirect_url = '/share/fieldrep-login/'
+                if brand_campaign_id:
+                    redirect_url += f'?campaign={brand_campaign_id}'
+                return redirect(redirect_url)
             else:
                 return render(request, 'sharing_management/fieldrep_create_password.html', {
                     'email': email,
                     'security_questions': security_questions,
+                    'brand_campaign_id': brand_campaign_id,
                     'error': 'Registration failed. Please try again.'
                 })
         else:
             return render(request, 'sharing_management/fieldrep_create_password.html', {
                 'email': email,
                 'security_questions': security_questions,
+                'brand_campaign_id': brand_campaign_id,
                 'error': 'Passwords do not match.'
             })
     
     return render(request, 'sharing_management/fieldrep_create_password.html', {
         'email': email,
-        'security_questions': security_questions
+        'security_questions': security_questions,
+        'brand_campaign_id': brand_campaign_id
     })
 
 def fieldrep_login(request):
+    brand_campaign_id = request.GET.get('campaign') or request.POST.get('campaign')
+    
     if request.method == 'POST':
         email = request.POST.get('email')
         password = request.POST.get('password')
@@ -961,21 +1045,34 @@ def fieldrep_login(request):
             request.session['field_rep_email'] = user_email
             request.session['field_rep_field_id'] = field_id
             
+            # Store brand_campaign_id in session if available
+            if brand_campaign_id:
+                request.session['brand_campaign_id'] = brand_campaign_id
+            
             messages.success(request, f'Welcome back, {field_id}!')
             
             # Check if user is prefilled or manual based on field_id
             if field_id and field_id.startswith('PREFILLED_'):
                 # Prefilled user - redirect to prefilled share collateral
-                return redirect('prefilled_fieldrep_share_collateral')
+                if brand_campaign_id:
+                    return redirect(f'/share/prefilled-fieldrep-share-collateral/{brand_campaign_id}/')
+                else:
+                    return redirect('prefilled_fieldrep_share_collateral')
             else:
                 # Manual user - redirect to regular share collateral
-                return redirect('fieldrep_share_collateral')
+                if brand_campaign_id:
+                    return redirect(f'/share/fieldrep-share-collateral/{brand_campaign_id}/')
+                else:
+                    return redirect('fieldrep_share_collateral')
         else:
             return render(request, 'sharing_management/fieldrep_login.html', {
-                'error': 'Invalid email or password. Please try again.'
+                'error': 'Invalid email or password. Please try again.',
+                'brand_campaign_id': brand_campaign_id
             })
     
-    return render(request, 'sharing_management/fieldrep_login.html')
+    return render(request, 'sharing_management/fieldrep_login.html', {
+        'brand_campaign_id': brand_campaign_id
+    })
 
 def fieldrep_forgot_password(request):
     if request.method == 'POST':
@@ -1044,42 +1141,350 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
     field_rep_email = request.session.get('field_rep_email')
     field_rep_field_id = request.session.get('field_rep_field_id')
     
-    # If brand_campaign_id not provided in URL, try to get it from GET parameters
+    print(f"[DEBUG] Session data - field_rep_id: {field_rep_id}, field_rep_email: {field_rep_email}, field_rep_field_id: {field_rep_field_id}")
+    
+    # If brand_campaign_id not provided in URL, try to get it from session or GET parameters
+    print(f"[DEBUG] Initial brand_campaign_id from URL: {brand_campaign_id}")
+    if brand_campaign_id is None:
+        brand_campaign_id = request.session.get('brand_campaign_id')
+        print(f"[DEBUG] brand_campaign_id from session: {brand_campaign_id}")
+    if brand_campaign_id is None:
+        brand_campaign_id = request.GET.get('campaign')
+        print(f"[DEBUG] brand_campaign_id from GET 'campaign': {brand_campaign_id}")
     if brand_campaign_id is None:
         brand_campaign_id = request.GET.get('brand_campaign_id')
+        print(f"[DEBUG] brand_campaign_id from GET 'brand_campaign_id': {brand_campaign_id}")
+    
+    print(f"[DEBUG] Final brand_campaign_id: {brand_campaign_id}")
     
     if not field_rep_id:
         messages.error(request, 'Please login first.')
         return redirect('fieldrep_login')
     
+    # Get or create user for short link creation
+    fieldrep_user = get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_id)
+    
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral, CampaignCollateral as CMCampaignCollateral
 
+        print(f"[DEBUG] brand_campaign_id for filtering: {brand_campaign_id}")
+        
         if brand_campaign_id:
             # Limit to collaterals linked to the given brand campaign
+            print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             cc_links = CMCampaignCollateral.objects.filter(campaign__brand_campaign_id=brand_campaign_id).select_related('collateral')
+            print(f"[DEBUG] Found {cc_links.count()} campaign-collateral links")
+            
+            # Debug: Show all linked collaterals with their status
+            print("[DEBUG] All linked collaterals:")
+            for link in cc_links:
+                if link.collateral:
+                    print(f"  - {link.collateral.title} (ID: {link.collateral.id}, Active: {link.collateral.is_active})")
+                else:
+                    print("  - None (collateral was deleted)")
+            
             collaterals = [link.collateral for link in cc_links if link.collateral]
+            print(f"[DEBUG] Found {len(collaterals)} non-deleted collaterals after filtering")
+            
+            # Also filter by is_active status
+            active_collaterals = [c for c in collaterals if c.is_active]
+            print(f"[DEBUG] Found {len(active_collaterals)} active collaterals")
+            collaterals = active_collaterals
         else:
-            collaterals = Collateral.objects.filter(is_active=True)
+            # If no brand_campaign_id, show no collaterals instead of all
+            print("[DEBUG] No brand_campaign_id, showing no collaterals")
+            collaterals = Collateral.objects.none()
         
         # Convert to list format for template
         collaterals_list = []
+        
+        print(f"[DEBUG] Processing {len(collaterals)} collaterals for template")
+        
         for collateral in collaterals:
             # Create short link for each collateral
-            short_link = find_or_create_short_link(collateral, request.user)
-            collaterals_list.append({
+            short_link = find_or_create_short_link(collateral, fieldrep_user)
+            collateral_data = {
                 'id': collateral.id,
                 'name': collateral.title,
                 'description': collateral.description,
                 'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
-            })
+            }
+            collaterals_list.append(collateral_data)
+            print(f"[DEBUG] Added collateral: {collateral.title} (ID: {collateral.id})")
+        
+        print(f"[DEBUG] Final collaterals_list length: {len(collaterals_list)}")
     except Exception as e:
         print(f"Error fetching collaterals: {e}")
         collaterals_list = []
         messages.error(request, 'Error loading collaterals. Please try again.')
     
+    # Add informational message if no collaterals found for this brand campaign
+    if brand_campaign_id and not collaterals_list:
+        messages.info(request, f'No collaterals found for brand campaign: {brand_campaign_id}')
+    
+    print(f"[DEBUG] Rendering template with {len(collaterals_list)} collaterals")
+    
+    # Get doctors assigned to this field rep
+    try:
+        from doctor_viewer.models import Doctor
+        from user_management.models import User
+        
+        print(f"[DEBUG] Fetching doctors for field_rep_id: {field_rep_id} and field_rep_field_id: {field_rep_field_id}")
+        
+        # Get the User object for this field rep
+        try:
+            rep_user = User.objects.get(field_id=field_rep_id, role='field_rep')
+            print(f"[DEBUG] Found rep_user by field_id: {rep_user.id}")
+        except User.DoesNotExist:
+            try:
+                rep_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+                print(f"[DEBUG] Found rep_user by field_rep_field_id: {rep_user.id}")
+            except User.DoesNotExist:
+                print(f"[DEBUG] User not found with either field_id, creating new user")
+                # Create user if doesn't exist
+                rep_user = get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_id)
+                print(f"[DEBUG] Created rep_user: {rep_user.id if rep_user else None}")
+        
+        if not rep_user:
+            print(f"[DEBUG] ERROR: Could not find or create rep_user")
+            doctors = []
+        else:
+            doctors = Doctor.objects.filter(rep=rep_user).order_by('name')
+            print(f"[DEBUG] Found {doctors.count()} doctors for rep_user: {rep_user.id}")
+            
+            # Debug: Print all doctors found
+            for doctor in doctors:
+                print(f"[DEBUG] Doctor: {doctor.name} ({doctor.phone})")
+        
+        # Add status information to doctors
+        doctors_with_status = []
+        for doctor in doctors:
+            # Get sharing status for this doctor
+            from .models import ShareLog
+            print(f"[DEBUG] Checking shares for doctor {doctor.name} ({doctor.phone}) with field_rep_id: {field_rep_id}")
+            
+            # Debug: Show all shares for this doctor
+            all_shares = ShareLog.objects.filter(doctor_identifier=doctor.phone)
+            print(f"[DEBUG] Found {all_shares.count()} total shares for this doctor:")
+            for share in all_shares:
+                print(f"  - field_rep_id: {share.field_rep_id}, share_timestamp: {share.share_timestamp}")
+            
+            latest_share = ShareLog.objects.filter(
+                field_rep_id=field_rep_id,
+                doctor_identifier=doctor.phone  # Use doctor_identifier instead of phone_e164
+            ).order_by('-share_timestamp').first()
+            
+            print(f"[DEBUG] Latest share for {doctor.name}: {latest_share}")
+            
+            doctor.status = 'not_shared'
+            doctor.last_shared = None
+            
+            if latest_share:
+                print(f"[DEBUG] Found share for doctor {doctor.name}: share_timestamp={latest_share.share_timestamp}")
+                
+                if latest_share.share_timestamp:
+                    # Check if it's been more than 6 days since last share
+                    from django.utils import timezone
+                    days_since_share = (timezone.now() - latest_share.share_timestamp).days
+                    print(f"[DEBUG] Days since share for {doctor.name}: {days_since_share}")
+                    
+                    if days_since_share > 6:
+                        doctor.status = 'needs_reminder'
+                        print(f"[DEBUG] Doctor {doctor.name} status: needs_reminder (purple)")
+                    else:
+                        doctor.status = 'shared'
+                        print(f"[DEBUG] Doctor {doctor.name} status: shared (yellow)")
+                    doctor.last_shared = latest_share.share_timestamp
+            else:
+                print(f"[DEBUG] No share found for doctor {doctor.name}: not_shared (red)")
+            
+            doctors_with_status.append(doctor)
+        
+        doctors = doctors_with_status
+        
+    except Exception as e:
+        print(f"Error fetching doctors: {e}")
+        doctors = []
+    
     if request.method == 'POST':
+        # Check if this is an AJAX request from the send message button
+        if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.POST.get('ajax'):
+            try:
+                print(f"[DEBUG] AJAX request received")
+                doctor_name = request.POST.get('doctor_name')
+                doctor_whatsapp = request.POST.get('doctor_whatsapp')
+                collateral_id = request.POST.get('collateral')
+                print(f"[DEBUG] Parsed form data: doctor_name={doctor_name}, doctor_whatsapp={doctor_whatsapp}, collateral_id={collateral_id}")
+                
+                if not collateral_id:
+                    print(f"[DEBUG] ERROR: collateral_id is None or empty")
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Collateral ID is required'
+                    })
+                
+                collateral_id = int(collateral_id)
+                print(f"[DEBUG] Converted collateral_id to int: {collateral_id}")
+                
+                # Find the selected collateral
+                selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
+                print(f"[DEBUG] Selected collateral: {selected_collateral}")
+                print(f"[DEBUG] Available collaterals: {[c['id'] for c in collaterals_list]}")
+                
+                if selected_collateral and doctor_whatsapp:
+                    # Check if doctor exists in database, if not create one
+                    from doctor_viewer.models import Doctor
+                    doctor = None
+                    doctor_created = False
+                    
+                    print(f"[DEBUG] Looking for doctor with phone: {doctor_whatsapp}, field_rep_id: {field_rep_id}")
+                    
+                    # Get the User object for this field rep
+                    from user_management.models import User
+                    try:
+                        rep_user = User.objects.get(field_id=field_rep_id, role='field_rep')
+                        print(f"[DEBUG] Found existing rep_user: {rep_user.id} ({rep_user.username})")
+                    except User.DoesNotExist:
+                        print(f"[DEBUG] User not found, creating new user for field_rep_id: {field_rep_id}")
+                        # Create user if doesn't exist
+                        rep_user = get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_id)
+                        print(f"[DEBUG] Created new rep_user: {rep_user.id if rep_user else None}")
+                        
+                        if not rep_user:
+                            print(f"[DEBUG] ERROR: Failed to create user, trying with different parameters")
+                            # Try creating user with minimal parameters
+                            try:
+                                from user_management.models import User
+                                from django.contrib.auth.hashers import make_password
+                                rep_user = User.objects.create(
+                                    username=f'fieldrep_{field_rep_id}',
+                                    email=f'fieldrep_{field_rep_id}@example.com',
+                                    field_id=field_rep_id,
+                                    role='field_rep',
+                                    password=make_password('defaultpass123'),
+                                    is_active=True
+                                )
+                                print(f"[DEBUG] Successfully created minimal rep_user: {rep_user.id}")
+                            except Exception as e:
+                                print(f"[DEBUG] ERROR: Failed to create minimal user: {e}")
+                                rep_user = None
+                    
+                    if not rep_user:
+                        print(f"[DEBUG] ERROR: rep_user is None!")
+                        return JsonResponse({
+                            'success': False,
+                            'message': 'Unable to find or create field representative user'
+                        })
+                    
+                    print(f"[DEBUG] Using rep_user ID: {rep_user.id} for doctor operations")
+                    
+                    try:
+                        # Try to find existing doctor by phone and rep
+                        doctor = Doctor.objects.get(phone=doctor_whatsapp, rep=rep_user)
+                        print(f"[DEBUG] Found existing doctor: {doctor.name} (ID: {doctor.id})")
+                        doctor_created = False
+                    except Doctor.DoesNotExist:
+                        print(f"[DEBUG] Doctor not found, creating new doctor...")
+                        # Create new doctor if doesn't exist
+                        try:
+                            doctor = Doctor.objects.create(
+                                name=doctor_name,
+                                phone=doctor_whatsapp,
+                                rep=rep_user,
+                                source='manual'
+                            )
+                            doctor_created = True
+                            print(f"[DEBUG] Successfully created new doctor: {doctor.name} (ID: {doctor.id}) with phone {doctor_whatsapp}")
+                        except Exception as e:
+                            print(f"[DEBUG] Error creating doctor: {e}")
+                            return JsonResponse({
+                                'success': False,
+                                'message': f'Error creating doctor: {str(e)}'
+                            })
+                    except Exception as e:
+                        print(f"[DEBUG] Error finding doctor: {e}")
+                        return JsonResponse({
+                            'success': False,
+                            'message': f'Error finding doctor: {str(e)}'
+                        })
+                    
+                    # Ensure we have a doctor object
+                    if not doctor:
+                        print(f"[DEBUG] ERROR: Doctor object is None after search/creation")
+                        return JsonResponse({
+                            'success': False,
+                            'message': 'Unable to find or create doctor record'
+                        })
+                    
+                    print(f"[DEBUG] Doctor object before JsonResponse: {doctor}")
+                    if doctor:
+                        print(f"[DEBUG] Doctor details: {doctor.name} (ID: {doctor.id})")
+                    else:
+                        print(f"[DEBUG] ERROR: Doctor object is None before JsonResponse!")
+                    
+                    # Log the share in database
+                    try:
+                        from .utils.db_operations import log_manual_doctor_share
+                        # Get the short link for this collateral
+                        from collateral_management.models import Collateral
+                        collateral_obj = Collateral.objects.get(id=collateral_id)
+                        short_link = find_or_create_short_link(collateral_obj, fieldrep_user)
+                        
+                        # Log the share
+                        log_manual_doctor_share(
+                            short_link_id=short_link.id,
+                            field_rep_id=field_rep_id,
+                            phone_e164=doctor_whatsapp,
+                            collateral_id=collateral_id
+                        )
+                        
+                        print(f"[DEBUG] Share logged with field_rep_id: {field_rep_id} for doctor: {doctor_name}")
+                        
+                        # Debug: Verify the share was created
+                        from .models import ShareLog
+                        created_share = ShareLog.objects.filter(
+                            field_rep_id=field_rep_id,
+                            doctor_identifier=doctor_whatsapp
+                        ).first()
+                        if created_share:
+                            print(f"[DEBUG] Verified share created: field_rep_id={created_share.field_rep_id}, doctor={created_share.doctor_identifier}")
+                        else:
+                            print(f"[DEBUG] ERROR: Share not found after creation!")
+                        
+                        # Get brand-specific message
+                        message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
+                        wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
+                        
+                        return JsonResponse({
+                            'success': True,
+                            'message': f'Collateral shared successfully with {doctor_name}!',
+                            'whatsapp_url': wa_url,
+                            'doctor_created': doctor_created,
+                            'doctor_id': doctor.id if doctor else None
+                        })
+                        
+                    except Exception as e:
+                        print(f"Error logging share: {e}")
+                        return JsonResponse({
+                            'success': False,
+                            'message': 'Error sharing collateral. Please try again.'
+                        })
+                else:
+                    return JsonResponse({
+                        'success': False,
+                        'message': 'Please provide all required information.'
+                    })
+            except Exception as e:
+                print(f"[DEBUG] Unhandled exception in AJAX handler: {e}")
+                import traceback
+                traceback.print_exc()
+                return JsonResponse({
+                    'success': False,
+                    'message': f'Server error: {str(e)}'
+                })
+        
+        # Regular form submission (original functionality)
         doctor_name = request.POST.get('doctor_name')
         doctor_whatsapp = request.POST.get('doctor_whatsapp')
         collateral_id = int(request.POST.get('collateral'))
@@ -1092,8 +1497,9 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
             try:
                 from .utils.db_operations import log_manual_doctor_share
                 # Get the short link for this collateral
+                from collateral_management.models import Collateral
                 collateral_obj = Collateral.objects.get(id=collateral_id)
-                short_link = find_or_create_short_link(collateral_obj, request.user)
+                short_link = find_or_create_short_link(collateral_obj, fieldrep_user)
                 
                 # Log the share
                 log_manual_doctor_share(
@@ -1123,6 +1529,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
         'fieldrep_email': field_rep_email,
         'collaterals': collaterals_list,
         'brand_campaign_id': brand_campaign_id,
+        'doctors': doctors,
     })
 
 def prefilled_fieldrep_registration(request):
@@ -1416,8 +1823,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
     # Get assigned doctors for this field rep
     try:
         doctors_list = []
-        # Your existing code to fetch doctors
-        # ...
+        
         
         if not doctors_list:
             messages.info(request, "No doctors are assigned to your account.")

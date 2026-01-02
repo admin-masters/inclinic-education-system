@@ -8,6 +8,9 @@
       <h4 class="text-center mb-4">Field Rep Registration</h4>
       <form method="post" autocomplete="off">
         {% csrf_token %}
+        {% if brand_campaign_id %}
+        <input type="hidden" name="brand_campaign_id" value="{{ brand_campaign_id }}">
+        {% endif %}
         <div class="mb-3">
           <label for="email" class="form-label">Email ID:</label>
           <input type="email" class="form-control" id="email" name="email" placeholder="Enter your registered email"
