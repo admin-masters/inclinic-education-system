@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+
+{% block title %}Collateral Messages Management{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>Collateral Messages Management</h2>
+                <a href="{% url 'collateral_message_create' %}" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> Add New Message
+                </a>
+            </div>
+
+            <!-- Search Form -->
+            <div class="card mb-4">
+                <div class="card-body">
+                    <form method="get" class="row g-3">
+                        <div class="col-md-5">
+                            {{ form.brand_campaign_id.label_tag }}
+                            {{ form.brand_campaign_id }}
+                        </div>
+                        <div class="col-md-5">
+                            {{ form.collateral_id.label_tag }}
+                            {{ form.collateral_id }}
+                        </div>
+                        <div class="col-md-2">
+                            <label>&nbsp;</label>
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-outline-primary">
+                                    <i class="fas fa-search"></i> Search
+                                </button>
+                                <a href="{% url 'collateral_message_list' %}" class="btn btn-outline-secondary">
+                                    <i class="fas fa-times"></i> Clear
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <!-- Messages List -->
+            <div class="card">
+                <div class="card-body">
+                    {% if messages %}
+                        <div class="table-responsive">
+                            <table class="table table-striped">
+                                <thead>
+                                    <tr>
+                                        <th>Campaign ID</th>
+                                        <th>Collateral</th>
+                                        <th>Message Preview</th>
+                                        <th>Status</th>
+                                        <th>Created</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for msg in messages %}
+                                    <tr>
+                                        <td>
+                                            <span class="badge bg-primary">{{ msg.campaign.brand_campaign_id }}</span>
+                                        </td>
+                                        <td>
+                                            <strong>{{ msg.collateral.title }}</strong>
+                                            <br>
+                                            <small class="text-muted">ID: {{ msg.collateral.id }} | Type: {{ msg.collateral.get_type_display }}</small>
+                                        </td>
+                                        <td>
+                                            <div class="message-preview" style="max-width: 300px; max-height: 60px; overflow: hidden; text-overflow: ellipsis;">
+                                                {{ msg.message|truncatechars:100 }}
+                                            </div>
+                                        </td>
+                                        <td>
+                                            {% if msg.is_active %}
+                                                <span class="badge bg-success">Active</span>
+                                            {% else %}
+                                                <span class="badge bg-secondary">Inactive</span>
+                                            {% endif %}
+                                        </td>
+                                        <td>{{ msg.created_at|date:"M d, Y" }}</td>
+                                        <td>
+                                            <div class="btn-group" role="group">
+                                                <a href="{% url 'collateral_message_edit' msg.pk %}" class="btn btn-sm btn-outline-primary">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
+                                                <a href="{% url 'collateral_message_delete' msg.pk %}" class="btn btn-sm btn-outline-danger">
+                                                    <i class="fas fa-trash"></i>
+                                                </a>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    {% else %}
+                        <div class="text-center py-5">
+                            <i class="fas fa-comments fa-3x text-muted mb-3"></i>
+                            <h5 class="text-muted">No collateral messages found</h5>
+                            <p class="text-muted">
+                                Start by adding a new message for a specific campaign and collateral.
+                            </p>
+                            <a href="{% url 'collateral_message_create' %}" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Add Your First Message
+                            </a>
+                        </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<style>
+.message-preview {
+    font-size: 0.9em;
+    line-height: 1.4;
+    border-left: 3px solid #007bff;
+    padding-left: 10px;
+}
+</style>
+{% endblock %}

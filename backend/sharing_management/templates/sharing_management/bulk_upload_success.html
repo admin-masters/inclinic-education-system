@@ -122,9 +122,14 @@
 
             <!-- Action Buttons -->
             <div class="text-center mt-4">
-                <a href="{% url 'bulk_manual_upload' %}" class="btn btn-primary me-2">
+                <a href="{% url 'bulk_manual_upload' %}{% if campaign_param %}?campaign={{ campaign_param }}{% endif %}" class="btn btn-primary me-2">
                     <i class="fas fa-upload"></i> Upload More Data
                 </a>
+                {% if campaign_param %}
+                <a href="{% url 'fieldrep_dashboard' %}?campaign={{ campaign_param }}" class="btn btn-success me-2">
+                    <i class="fas fa-users"></i> View Field Rep Portal for {{ campaign_param }}
+                </a>
+                {% endif %}
                 <a href="{% url 'fieldrep_dashboard' %}" class="btn btn-outline-info">
                     <i class="fas fa-dashboard"></i> Back to Dashboard
                 </a>

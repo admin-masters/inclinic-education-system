@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+    <div class="row">
+        <div class="col-12">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <h2>{{ title }}</h2>
+                <a href="{% url 'collateral_message_list' %}" class="btn btn-outline-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Messages
+                </a>
+            </div>
+
+            <div class="card">
+                <div class="card-body">
+                    <form method="post" id="collateral-message-form">
+                        {% csrf_token %}
+                        
+                        <!-- Campaign Selection -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                {{ form.campaign.label_tag }}
+                                {{ form.campaign }}
+                                {% if form.campaign.errors %}
+                                    <div class="text-danger">
+                                        {{ form.campaign.errors }}
+                                    </div>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <!-- Collateral Selection -->
+                        <div class="row mb-3">
+                            <div class="col-md-6">
+                                {{ form.collateral.label_tag }}
+                                {{ form.collateral }}
+                                {% if form.collateral.errors %}
+                                    <div class="text-danger">
+                                        {{ form.collateral.errors }}
+                                    </div>
+                                {% endif %}
+                                <small class="form-text text-muted">
+                                    Select a campaign first to see available collaterals.
+                                </small>
+                            </div>
+                        </div>
+
+                        <!-- Message Content -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                {{ form.message.label_tag }}
+                                {{ form.message }}
+                                {% if form.message.errors %}
+                                    <div class="text-danger">
+                                        {{ form.message.errors }}
+                                    </div>
+                                {% endif %}
+                                <div class="mt-2">
+                                    <small class="form-text text-muted">
+                                        <strong>Important:</strong> Use <code>$collateralLinks</code> as placeholder for the actual collateral link.
+                                    </small>
+                                </div>
+                                
+                                <!-- Message Preview -->
+                                <div class="mt-3">
+                                    <label class="form-label">Message Preview:</label>
+                                    <div id="message-preview" class="border rounded p-3 bg-light" style="min-height: 100px;">
+                                        <em class="text-muted">Start typing to see preview...</em>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Active Status -->
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                <div class="form-check">
+                                    {{ form.is_active }}
+                                    {{ form.is_active.label_tag }}
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Form Errors -->
+                        {% if form.non_field_errors %}
+                            <div class="row mb-3">
+                                <div class="col-12">
+                                    <div class="alert alert-danger">
+                                        {% for error in form.non_field_errors %}
+                                            {{ error }}
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+                        {% endif %}
+
+                        <!-- Submit Buttons -->
+                        <div class="row">
+                            <div class="col-12">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> {{ action }} Message
+                                </button>
+                                <a href="{% url 'collateral_message_list' %}" class="btn btn-outline-secondary ms-2">
+                                    <i class="fas fa-times"></i> Cancel
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const campaignSelect = document.getElementById('campaign-select');
+    const collateralSelect = document.getElementById('collateral-select');
+    const messageTextarea = document.getElementById('message-textarea');
+    const messagePreview = document.getElementById('message-preview');
+    
+    // Load collaterals when campaign changes
+    campaignSelect.addEventListener('change', function() {
+        const campaignId = this.value;
+        
+        if (campaignId) {
+            fetch('/collateral-messages/get-collaterals/?campaign_id=' + campaignId)
+                .then(response => response.json())
+                .then(data => {
+                    collateralSelect.innerHTML = '<option value="">Select Collateral</option>';
+                    
+                    if (data.collaterals) {
+                        data.collaterals.forEach(function(collateral) {
+                            const option = document.createElement('option');
+                            option.value = collateral.id;
+                            option.textContent = collateral.title + ' (' + collateral.type + ')';
+                            collateralSelect.appendChild(option);
+                        });
+                    }
+                })
+                .catch(function(error) {
+                    console.error('Error loading collaterals:', error);
+                    collateralSelect.innerHTML = '<option value="">Error loading collaterals</option>';
+                });
+        } else {
+            collateralSelect.innerHTML = '<option value="">First select a campaign</option>';
+        }
+    });
+    
+    // Update message preview
+    messageTextarea.addEventListener('input', function() {
+        const message = this.value;
+        if (message.trim()) {
+            // Replace $collateralLinks with a sample link for preview
+            const previewMessage = message.replace(
+                /\$collateralLinks/g, 
+                '<a href="#" target="_blank" style="color: #007bff;">View Collateral</a>'
+            );
+            messagePreview.innerHTML = previewMessage.replace(/\n/g, '<br>');
+        } else {
+            messagePreview.innerHTML = '<em class="text-muted">Start typing to see preview...</em>';
+        }
+    });
+    
+    // Load existing data if editing
+    {% if message %}
+        // Trigger campaign change to load collaterals
+        if (campaignSelect.value) {
+            campaignSelect.dispatchEvent(new Event('change'));
+            
+            // Set collateral after a delay to allow options to load
+            setTimeout(function() {
+                collateralSelect.value = '{{ message.collateral.id }}';
+                // Trigger message preview update
+                messageTextarea.dispatchEvent(new Event('input'));
+            }, 500);
+        }
+    {% endif %}
+});
+</script>
+
+<style>
+#message-preview {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    white-space: pre-wrap;
+}
+</style>
+{% endblock %}

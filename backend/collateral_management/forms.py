@@ -1,7 +1,7 @@
 # collateral_management/forms.py
 from django import forms
 from django.core.exceptions import ValidationError
-from .models import Collateral, CampaignCollateral
+from .models import Collateral, CampaignCollateral, CollateralMessage
 from campaign_management.models import Campaign
 
 class CampaignCollateralDateForm(forms.ModelForm):
@@ -157,6 +157,75 @@ class CampaignCollateralForm(forms.ModelForm):
     class Meta:
         model  = CampaignCollateral
         fields = ['campaign', 'collateral', 'start_date', 'end_date']
+
+
+class CollateralMessageForm(forms.ModelForm):
+    """Form for adding custom WhatsApp messages for specific collaterals"""
+    
+    class Meta:
+        model = CollateralMessage
+        fields = ['campaign', 'collateral', 'message', 'is_active']
+        widgets = {
+            'campaign': forms.Select(attrs={'class': 'form-control', 'id': 'campaign-select'}),
+            'collateral': forms.Select(attrs={'class': 'form-control', 'id': 'collateral-select'}),
+            'message': forms.Textarea(attrs={
+                'class': 'form-control', 
+                'rows': 8, 
+                'placeholder': 'Enter your custom WhatsApp message here. Use $collateralLinks as placeholder for the actual link.',
+                'id': 'message-textarea'
+            }),
+            'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+        }
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        # Filter campaigns to only active ones
+        self.fields['campaign'].queryset = Campaign.objects.filter(is_active=True).order_by('brand_campaign_id')
+        self.fields['campaign'].empty_label = "Select Campaign"
+        
+        # Initially empty collateral queryset - will be populated via JavaScript
+        self.fields['collateral'].queryset = Collateral.objects.none()
+        self.fields['collateral'].empty_label = "First select a campaign"
+    
+    def clean(self):
+        cleaned_data = super().clean()
+        campaign = cleaned_data.get('campaign')
+        collateral = cleaned_data.get('collateral')
+        
+        # Check if message already exists for this campaign-collateral combination
+        if campaign and collateral:
+            existing_message = CollateralMessage.objects.filter(
+                campaign=campaign, 
+                collateral=collateral
+            ).exclude(pk=self.instance.pk if self.instance.pk else None)
+            
+            if existing_message.exists():
+                raise forms.ValidationError(
+                    f"A message already exists for {campaign.brand_campaign_id} - {collateral.title}. "
+                    "Please edit the existing message instead of creating a duplicate."
+                )
+        
+        return cleaned_data
+
+
+class CollateralMessageSearchForm(forms.Form):
+    """Form for searching existing collateral messages"""
+    brand_campaign_id = forms.CharField(
+        max_length=100,
+        required=False,
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter Brand Campaign ID (e.g., test2323)'
+        })
+    )
+    collateral_id = forms.IntegerField(
+        required=False,
+        widget=forms.NumberInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Enter Collateral ID'
+        })
+    )
 
 
 

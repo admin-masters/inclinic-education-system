@@ -84,13 +84,23 @@ def bulk_upload_fieldreps(request):
     if request.method == "POST":
         form = FieldRepBulkUploadForm(request.POST, request.FILES)
         if form.is_valid():
-            created, updated, errors = form.save(request.user)
+            created, updated, campaign_assignments, errors = form.save(request.user)
             messages.success(request, f"Created {created}, updated {updated}.")
+            if campaign_assignments > 0:
+                messages.success(request, f"Created {campaign_assignments} campaign assignments.")
             for err in errors:
                 messages.warning(request, err)
             return redirect("admin_dashboard:bulk_upload")
     else:
         form = FieldRepBulkUploadForm()
+        # Pre-select campaign if provided in URL
+        campaign_id = request.GET.get('campaign_id') or request.GET.get('campaign')
+        if campaign_id:
+            try:
+                campaign = Campaign.objects.get(pk=campaign_id)
+                form.fields['campaign'].initial = campaign
+            except Campaign.DoesNotExist:
+                pass
     return render(request, "admin_dashboard/bulk_upload.html", {"form": form})
 
 # ─────────────────────────────────────────────────────────
@@ -115,7 +125,7 @@ class FieldRepListView(StaffRequiredMixin, ListView):
         # If no campaign parameter in URL, check session
         if not campaign_param and not brand_campaign_id and hasattr(self.request, 'session'):
             brand_campaign_id = self.request.session.get('brand_campaign_id')
-
+        
         # If we have a campaign filter
         if campaign_param or brand_campaign_id:
             # If we have a brand_campaign_id, use it directly
@@ -125,7 +135,7 @@ class FieldRepListView(StaffRequiredMixin, ListView):
                     field_rep__is_active=True
                 ).values_list("field_rep_id", flat=True))
             else:
-                # Try to interpret as campaign ID
+                # Try to interpret as campaign ID or brand_campaign_id
                 try:
                     campaign_pk = int(campaign_param)
                     rep_ids = list(FieldRepCampaign.objects.filter(

@@ -12,10 +12,12 @@ from reporting_etl.models import EtlState
 
 # List the models you want to replicate
 MODEL_PATHS = [
+    'user_management.models.User',
     'campaign_management.models.Campaign',
     'collateral_management.models.Collateral',
     'shortlink_management.models.ShortLink',
     'sharing_management.models.ShareLog',
+    'doctor_viewer.models.Doctor',
     'doctor_viewer.models.DoctorEngagement',
 ]
 
@@ -37,8 +39,16 @@ class Command(BaseCommand):
         last_ts  = state.last_synced
         now_ts   = timezone.now()
 
-        # rows changed since last sync
-        qs = model.objects.using('default').filter(updated_at__gt=last_ts)
+        # rows changed since last sync - check if model has updated_at field
+        filter_kwargs = {}
+        if hasattr(model, 'updated_at'):
+            filter_kwargs['updated_at__gt'] = last_ts
+        else:
+            # For models without updated_at, use a simple approach for now
+            # In production, you might want to track creation dates or use other timestamps
+            filter_kwargs = {}  # This will get all records, which is inefficient but works
+        
+        qs = model.objects.using('default').filter(**filter_kwargs)
 
         if not qs.exists():
             return

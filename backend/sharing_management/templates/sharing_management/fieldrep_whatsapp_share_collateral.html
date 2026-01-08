@@ -2,7 +2,7 @@
 {% load static %}
 
 {% block extra_css %}
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+<!-- Flatpickr CSS removed as date fields are no longer needed -->
 {% endblock %}
 
 {% block content %}
@@ -40,16 +40,7 @@
             maxlength="10" pattern="\d{10}" required id="doctorPhone">
           <small class="form-text text-muted">Enter 10 digit mobile number</small>
         </div>
-        <div class="row mb-3">
-          <div class="col-md-6">
-            <label class="form-label">Start Date of the Campaign</label>
-            <input type="text" class="form-control datepicker" id="startDate" name="start_date" placeholder="Select start date" required>
-          </div>
-          <div class="col-md-6">
-            <label class="form-label">End Date of the Campaign</label>
-            <input type="text" class="form-control datepicker" id="endDate" name="end_date" placeholder="Select end date" required>
-          </div>
-        </div>
+
         <div class="mb-3">
           <label class="form-label">Select Collaterals:</label>
           <select class="form-select" name="collateral" required id="collateralSelect">
@@ -124,27 +115,9 @@
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
+<!-- Flatpickr JS removed as date fields are no longer needed -->
 <script>
-  // Initialize date picker
-  document.addEventListener('DOMContentLoaded', function() {
-    const today = new Date();
-    const nextMonth = new Date();
-    nextMonth.setMonth(today.getMonth() + 1);
-    
-    const startDatePicker = flatpickr('#startDate', {
-      minDate: 'today',
-      dateFormat: 'Y-m-d',
-      onChange: function(selectedDates, dateStr) {
-        endDatePicker.set('minDate', dateStr);
-      }
-    });
-    
-    const endDatePicker = flatpickr('#endDate', {
-      minDate: 'today',
-      dateFormat: 'Y-m-d'
-    });
-  });
+  // Date picker functionality removed as date fields are no longer needed
 
   // Search and filter functionality for assigned doctors
   const searchInput = document.getElementById('doctorSearch');

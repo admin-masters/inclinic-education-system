@@ -135,7 +135,7 @@ def build_wa_link(share_log, request):
         f"/shortlinks/go/{share_log.short_link.short_code}/"
     )
     msg_text = (
-        f"{share_log.message_text} {short_url}"
+        share_log.message_text.replace('$collateralLinks', short_url)
         if share_log.message_text
         else f"Hello Doctor, please check this: {short_url}"
     )
@@ -165,7 +165,7 @@ def get_brand_specific_message(collateral_id, collateral_name, collateral_link):
             return message_text
     
     # Fallback to default message
-    return f"Dear Doctor,%0A%0Aalkem testing brings you the following Practical Education topic from Indian Academy of Pediatrics%0A%0AThis IAP Education topic is {collateral_name}%0A%0APlease click on the link given below to view it:%0A{collateral_link}"
+    return f"Hello Doctor, IAP's latest expert module— Mini CME on Managing Drug-Resistant Infections in Pediatrics Strategies for using cefixime, cephalosporins, and carbapenems in complex cases, by Dr. Shekhar Biswas, covers strategies for using cefixime, cephalosporins, and carbapenems in complex pediatric cases. The presentation dives into understanding drug resistance, clinical evidence, and advanced therapeutic approaches to tackle multi-drug-resistant pathogens, along with antibiotic stewardship and infection control measures.\n\nView it here: {collateral_link}\n\nThis content is shared with you under a distribution license obtained from IAP by Alkem Laboratories Ltd."
 
 
 @field_rep_required
@@ -175,9 +175,15 @@ def share_content(request):
     initial = {}
     if collateral_id:
         initial['collateral'] = collateral_id
-    brand_campaign_id = request.POST.get('brand_campaign_id') or brand_campaign_id
+    brand_campaign_id = request.POST.get('brand_campaign_id') or request.GET.get('brand_campaign_id')
+    
+    # Debug logging
+    print(f"[share_content] GET brand_campaign_id: {request.GET.get('brand_campaign_id')}")
+    print(f"[share_content] POST brand_campaign_id: {request.POST.get('brand_campaign_id')}")
+    print(f"[share_content] Final brand_campaign_id: {brand_campaign_id}")
+    
     if request.method == 'POST':
-        form = ShareForm(request.POST)
+        form = ShareForm(request.POST, user=request.user, brand_campaign_id=brand_campaign_id)
         if form.is_valid():
             collateral = form.cleaned_data['collateral']
             doctor_contact = form.cleaned_data['doctor_contact'].strip()
@@ -190,7 +196,7 @@ def share_content(request):
                 f"/shortlinks/go/{short_link.short_code}/"
             )
             default_msg = f"Hello Doctor, please check this: {short_url}"
-            full_msg = f"{message_text} {short_url}".strip() or default_msg
+            full_msg = message_text.replace('$collateralLinks', short_url).strip() or default_msg
 
             try:
                 if share_channel == "WhatsApp":
@@ -230,7 +236,7 @@ def share_content(request):
 
             return redirect("share_success", share_log_id=share_log.id)
     else:
-        form = ShareForm(initial=initial)
+        form = ShareForm(user=request.user, initial=initial, brand_campaign_id=brand_campaign_id)
         if collateral_id:
             form.fields['collateral'].widget.attrs['hidden'] = True
 
@@ -481,13 +487,27 @@ def fieldrep_campaign_detail(request, campaign_id):
 
 
 def bulk_manual_upload(request):
+    # Get campaign parameter to preserve context
+    campaign_param = request.GET.get('campaign', '')
+    campaign = None
+    
+    # Get campaign object if parameter provided
+    if campaign_param:
+        try:
+            from campaign_management.models import Campaign
+            campaign = Campaign.objects.get(brand_campaign_id=campaign_param)
+        except Campaign.DoesNotExist:
+            campaign = None
+    
     if request.method == "POST":
         print(f"POST request received with files: {request.FILES}")
         
         # Simple test redirect first
         if 'test_redirect' in request.POST:
             messages.success(request, "Test redirect working!")
-            return redirect("bulk_upload_success")
+            if campaign_param:
+                return redirect(f"{reverse('fieldrep_dashboard')}?campaign={campaign_param}")
+            return redirect("fieldrep_dashboard")
         
         form = BulkManualShareForm(request.POST, request.FILES)
         print(f"Form is valid: {form.is_valid()}")
@@ -510,57 +530,38 @@ def bulk_manual_upload(request):
                 # Reset file pointer for form processing
                 csv_file.seek(0)
                 
-                created, all_messages = form.save(user_request=request.user)
-                print(f"Created: {created}, Messages: {all_messages}")
+                created, all_messages, errors = form.save(user_request=request.user, campaign=campaign)
+                print(f"Created: {created}, Messages: {all_messages}, Errors: {errors}")
                 
-                # Separate success and error messages
-                success_messages = [msg for msg in all_messages if "Auto-created" in msg or "found and validated" in msg]
-                error_messages = [msg for msg in all_messages if msg not in success_messages]
+                # Display all messages
+                for msg in all_messages:
+                    if "Auto-created" in msg or "found and validated" in msg or "Assigned" in msg:
+                        messages.success(request, msg)
+                    else:
+                        messages.info(request, msg)
+                
+                for error in errors:
+                    messages.error(request, error)
                 
                 if created and created > 0:
-                    if error_messages:
-                        # Some successes, some errors
-                        messages.success(request, f"Partially processed: {created} rows validated successfully, {len(error_messages)} errors found.")
-                        for msg in success_messages:
-                            messages.success(request, msg)
-                        for msg in error_messages:
-                            messages.error(request, msg)
-                    else:
-                        # All successes
-                        messages.success(request, f"All {created} field representatives processed successfully!")
-                        for msg in success_messages:
-                            messages.success(request, msg)
-                    print("Redirecting to bulk_upload_success")
-                    return redirect("bulk_upload_success")
+                    print("Redirecting to admin dashboard with campaign context")
+                    # Redirect to admin dashboard field reps page with campaign parameter
+                    if campaign_param:
+                        return redirect(f"/admin-dashboard/fieldreps/?campaign={campaign_param}")
+                    return redirect("/admin-dashboard/fieldreps/")
                 else:
                     # No successes
                     messages.error(request, "No rows were validated. Please check your CSV file format and data.")
-                    if error_messages:
-                        messages.info(request, f"Total errors found: {len(error_messages)}")
-                        for msg in error_messages:
-                            messages.error(request, msg)
-                    
-                    for msg in success_messages:
-                        messages.success(request, msg)
-                    
-                    # Don't redirect - stay on the same page to show messages
-                    return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
-                    
             except Exception as e:
-                print(f"Save error: {e}")
-                messages.error(request, f"Upload failed: {str(e)}")
-                # Don't redirect - stay on the same page to show messages
-                return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
+                print(f"Error in bulk_manual_upload: {str(e)}")
+                messages.error(request, f"An error occurred: {str(e)}")
         else:
+            messages.error(request, "Form is not valid. Please check your file and try again.")
             print(f"Form errors: {form.errors}")
-            for field, field_errors in form.errors.items():
-                for error in field_errors:
-                    messages.error(request, f"{field}: {error}")
-            # Don't redirect - stay on the same page to show messages
-            return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
+    
     else:
         form = BulkManualShareForm()
-
+    
     return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
 
 
@@ -570,6 +571,9 @@ def bulk_upload_success(request):
     """
     from datetime import datetime, timedelta
     from django.contrib.auth import get_user_model
+    
+    # Get campaign parameter from URL
+    campaign_param = request.GET.get('campaign', '')
     
     # Get recent field reps created in last 1 hour
     recent_time = timezone.now() - timedelta(hours=1)
@@ -588,7 +592,8 @@ def bulk_upload_success(request):
         "recent_field_reps": recent_field_reps,
         "recent_uploads": recent_uploads,
         "total_field_reps": recent_field_reps.count(),
-        "total_uploads": recent_uploads.count()
+        "total_uploads": recent_uploads.count(),
+        "campaign_param": campaign_param  # Pass campaign parameter to template
     })
 
 
@@ -1173,8 +1178,20 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
         if brand_campaign_id:
             # Limit to collaterals linked to the given brand campaign
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
-            cc_links = CMCampaignCollateral.objects.filter(campaign__brand_campaign_id=brand_campaign_id).select_related('collateral')
-            print(f"[DEBUG] Found {cc_links.count()} campaign-collateral links")
+            
+            from django.utils import timezone
+            from django.db.models import Q
+            current_date = timezone.now().date()
+            
+            # Filter by campaign dates - only show collaterals that are currently active (not future-dated)
+            cc_links = CMCampaignCollateral.objects.filter(
+                campaign__brand_campaign_id=brand_campaign_id
+            ).filter(
+                # Apply date filtering - exclude future-dated campaigns
+                Q(start_date__lte=current_date, end_date__gte=current_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
+            ).select_related('collateral')
+            print(f"[DEBUG] Found {cc_links.count()} campaign-collateral links (after date filtering)")
             
             # Debug: Show all linked collaterals with their status
             print("[DEBUG] All linked collaterals:")
@@ -1692,10 +1709,28 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
     
     # Get real collaterals from database
     try:
-        from collateral_management.models import Collateral
+        from collateral_management.models import Collateral, CampaignCollateral as CMCampaignCollateral
         from user_management.models import User
+        from django.utils import timezone
+        from django.db.models import Q
         
-        collaterals = Collateral.objects.filter(is_active=True)
+        current_date = timezone.now().date()
+        
+        if brand_campaign_id:
+            # Filter collaterals by campaign with date filtering - only show currently active campaigns
+            campaign_links = CMCampaignCollateral.objects.filter(
+                campaign__brand_campaign_id=brand_campaign_id,
+                collateral__is_active=True
+            ).filter(
+                # Apply date filtering - exclude future-dated campaigns
+                Q(start_date__lte=current_date, end_date__gte=current_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
+            ).select_related('collateral')
+            
+            collaterals = [link.collateral for link in campaign_links if link.collateral]
+        else:
+            # If no campaign specified, show all active collaterals
+            collaterals = Collateral.objects.filter(is_active=True)
         
         # Get or create a user for this field rep (for short link creation)
         try:
@@ -2075,23 +2110,41 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
-            # First from campaign_management.CampaignCollateral
+            from django.utils import timezone
+            from django.db.models import Q
+            current_date = timezone.now().date()
+            
+            # First from campaign_management.CampaignCollateral with date filtering
             cc_links = CMCampaignCollateral2.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
+            ).filter(
+                # Apply date filtering
+                Q(start_date__lte=current_date, end_date__gte=current_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral', 'campaign')
-            campaign_collaterals = [link.collateral for link in cc_links if link.collateral and getattr(link.collateral, 'is_active', True)]
+            # Note: campaign_management.Collateral doesn't have is_active field, so we don't filter on it
+            campaign_collaterals = [link.collateral for link in cc_links if link.collateral]
             
-            # Then from collateral_management.CampaignCollateral
+            # Then from collateral_management.CampaignCollateral with date filtering
             collateral_links = CMCampaignCollateral.objects.filter(
-                campaign__brand_campaign_id=brand_campaign_id
+                campaign__brand_campaign_id=brand_campaign_id,
+                collateral__is_active=True
+            ).filter(
+                # Apply date filtering
+                Q(start_date__lte=current_date, end_date__gte=current_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral', 'campaign')
             collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and getattr(link.collateral, 'is_active', True)]
             
             # Combine and deduplicate collaterals
             collaterals = list({c.id: c for c in campaign_collaterals + collateral_collaterals if hasattr(c, 'id')}.values())
             
+            print(f"[DEBUG] Found {len(collaterals)} active collaterals for current date")
+            for c in collaterals:
+                print(f"[DEBUG] - {c.title} (ID: {c.id})")
+            
             if not collaterals:
-                messages.info(request, f"No collaterals found for campaign {brand_campaign_id}")
+                messages.info(request, f"No active collaterals found for campaign {brand_campaign_id}")
         else:
             # Show all active collaterals if no brand campaign ID provided
             collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
@@ -2862,7 +2915,7 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
 
                     # WhatsApp message text
                     message = (
-                        f"{share_log.message_text} {short_url}"
+                        share_log.message_text.replace('$collateralLinks', short_url)
                         if share_log.message_text
                         else f"Hello Doctor, please check this: {short_url}"
                     )
@@ -3102,11 +3155,19 @@ def fieldrep_whatsapp_login(request):
                 if user_data['field_id'] and user_data['field_id'].startswith('PREFILLED_'):
                     # Prefilled user - redirect to prefilled share collateral
                     print(f"DEBUG: Redirecting to prefilled share collateral")
-                    return redirect('prefilled_fieldrep_share_collateral')
+                    campaign_param = request.GET.get('campaign', '')
+                    if campaign_param:
+                        return redirect(f"{reverse('prefilled_fieldrep_share_collateral')}?campaign={campaign_param}")
+                    else:
+                        return redirect('prefilled_fieldrep_share_collateral')
                 else:
                     # Manual user - redirect to whatsapp share collateral
                     print(f"DEBUG: Redirecting to manual whatsapp share collateral")
-                    return redirect('fieldrep_whatsapp_share_collateral')
+                    campaign_param = request.GET.get('campaign', '')
+                    if campaign_param:
+                        return redirect(f"{reverse('fieldrep_whatsapp_share_collateral')}?campaign={campaign_param}")
+                    else:
+                        return redirect('fieldrep_whatsapp_share_collateral')
             else:
                 messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
         else:
@@ -3153,20 +3214,32 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
-            # First from campaign_management.CampaignCollateral
+            from django.utils import timezone
+            from django.db.models import Q
+            current_date = timezone.now().date()
+            
+            # First from campaign_management.CampaignCollateral with date filtering
             cc_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
+            ).filter(
+                # Apply date filtering - exclude future-dated campaigns
+                Q(start_date__lte=current_date, end_date__gte=current_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral', 'campaign')
-            print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management")
+            print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management (after date filtering)")
             
             campaign_collaterals = [link.collateral for link in cc_links if link.collateral and getattr(link.collateral, 'is_active', True)]
             print(f"[DEBUG] After filtering, {len(campaign_collaterals)} active campaign collaterals")
             
-            # Then from collateral_management.CampaignCollateral
+            # Then from collateral_management.CampaignCollateral with date filtering
             collateral_links = CampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
+            ).filter(
+                # Apply date filtering - exclude future-dated campaigns
+                Q(start_date__lte=current_date, end_date__gte=current_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral', 'campaign')
-            print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management")
+            print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management (after date filtering)")
             
             collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and getattr(link.collateral, 'is_active', True)]
             print(f"[DEBUG] After filtering, {len(collateral_collaterals)} active collaterals from collateral_management")
@@ -3927,8 +4000,8 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management")
             
-            campaign_collaterals = [link.collateral for link in cc_links if link.collateral and link.collateral.is_active]
-            print(f"[DEBUG] After filtering, {len(campaign_collaterals)} active campaign collaterals")
+            campaign_collaterals = [link.collateral for link in cc_links if link.collateral]
+            print(f"[DEBUG] After filtering, {len(campaign_collaterals)} campaign collaterals (no is_active filter for campaign_management)")
             
             # Then from collateral_management.CampaignCollateral
             collateral_links = CampaignCollateral.objects.filter(
@@ -3952,18 +4025,10 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         else:
             # Show all active collaterals if no brand campaign ID provided and no assigned campaign found
             collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
-            collaterals_list = [{'id': c.id, 'name': c.name} for c in collaterals]
-            
-            # Debug output
-            print(f"[DEBUG] Found {len(doctors_list)} doctors and {len(collaterals_list)} collaterals")
-            
-            # Ensure we have a list, even if empty
-            collaterals = list(collaterals) if collaterals else []
-            
-            # Pick latest by default
-            latest_collateral_id = collaterals[0].id if collaterals else None
-            selected_collateral_id = int(request.POST.get('collateral')) if request.method == 'POST' and request.POST.get('collateral') else latest_collateral_id
-            
+            print(f"[DEBUG] No campaign specified, fetching {len(collaterals)} active collaterals")
+        
+        # Common code for both cases - create collaterals_list from the filtered collaterals
+        if collaterals:
             # Resolve a user for short link creation
             try:
                 actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
@@ -3972,43 +4037,29 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             
             collaterals_list = []
             for collateral in collaterals:
-                short_link = find_or_create_short_link(collateral, actual_user)
-                # Handle both collateral models - campaign_management and collateral_management
-                collateral_name = getattr(collateral, 'title', getattr(collateral, 'item_name', 'Unknown'))
-                collateral_description = getattr(collateral, 'description', '')
-                collaterals_list.append({
-                    'id': collateral.id,
-                    'name': collateral_name,
-                    'description': collateral_description,
-                    'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
-                })
+                # Only include active collaterals (additional safety check)
+                if hasattr(collateral, 'is_active') and collateral.is_active:
+                    short_link = find_or_create_short_link(collateral, actual_user)
+                    # Handle both collateral models - campaign_management and collateral_management
+                    collateral_name = getattr(collateral, 'title', getattr(collateral, 'item_name', 'Unknown'))
+                    collateral_description = getattr(collateral, 'description', '')
+                    collaterals_list.append({
+                        'id': collateral.id,
+                        'name': collateral_name,
+                        'description': collateral_description,
+                        'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
+                    })
             
             # Sort collaterals by creation date (newest first)
             collaterals_list.sort(key=lambda x: next((c.created_at for c in collaterals if c.id == x['id']), timezone.now()), reverse=True)
+            
+            print(f"[DEBUG] Final collaterals_list contains {len(collaterals_list)} active collaterals")
+        else:
+            collaterals_list = []
+        
+        # Set default collateral selection
         latest_collateral_id = collaterals[0].id if collaterals else None
         selected_collateral_id = int(request.POST.get('collateral')) if request.method == 'POST' and request.POST.get('collateral') else latest_collateral_id
-        
-        # Resolve a user for short link creation
-        try:
-            actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
-        except User.DoesNotExist:
-            actual_user = request.user if request.user.is_authenticated else None
-        
-        collaterals_list = []
-        for collateral in collaterals:
-            short_link = find_or_create_short_link(collateral, actual_user)
-            # Handle both collateral models - campaign_management and collateral_management
-            collateral_name = getattr(collateral, 'title', getattr(collateral, 'item_name', 'Unknown'))
-            collateral_description = getattr(collateral, 'description', '')
-            collaterals_list.append({
-                'id': collateral.id,
-                'name': collateral_name,
-                'description': collateral_description,
-                'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
-            })
-        
-        # Sort collaterals by creation date (newest first)
-        collaterals_list.sort(key=lambda x: next((c.created_at for c in collaterals if c.id == x['id']), timezone.now()), reverse=True)
     except Exception:
         collaterals_list = []
         selected_collateral_id = None

@@ -228,19 +228,19 @@
     >Edit Calendar</a
   >
   {% endif %}
-  <a href="{% url 'bulk_manual_upload' %}" class="btn btn-primary"
+  <a href="{% url 'bulk_manual_upload' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary"
     >Bulk Registration for Manual Collateral Sharing</a
   >
-  <a href="{% url 'bulk_pre_mapped_upload' %}" class="btn btn-primary"
+  <a href="{% url 'bulk_pre_mapped_upload' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary"
     >Bulk Registration for Pre-mapped Doctors Collateral Sharing</a
   >
-  <a href="{% url 'bulk_manual_upload_whatsapp' %}" class="btn btn-primary"
+  <a href="{% url 'bulk_manual_upload_whatsapp' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary"
     >Bulk Registration for Manual Collateral Sharing Whatsapp</a
   >
-  <a href="{% url 'bulk_pre_filled_share_whatsapp' %}" class="btn btn-primary"
+  <a href="{% url 'bulk_pre_filled_share_whatsapp' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary"
     >Bulk Registration for Pre-mapped Doctors Collateral by Whatsapp</a
   >
-  <a href="{% url 'bulk_pre_mapped_by_login' %}" class="btn btn-primary">
+  <a href="{% url 'bulk_pre_mapped_by_login' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary">
     Bulk Registration for Pre-mapped Collateral Sharing by login
   </a>
 

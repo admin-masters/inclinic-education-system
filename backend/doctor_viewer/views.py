@@ -251,6 +251,51 @@ def doctor_collateral_verify(request):
 
                         pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
 
+            # Generate video thumbnail for Vimeo videos
+            video_preview_image = None
+            if collateral.type in ['video', 'pdf_video'] and collateral.vimeo_url:
+                try:
+                    import requests
+                    from urllib.parse import urlparse
+                    
+                    # Extract video ID from vimeo_url (it might be just the ID)
+                    vimeo_id = collateral.vimeo_url
+                    if 'vimeo.com' in vimeo_id:
+                        # Extract ID from full URL
+                        if '/video/' in vimeo_id:
+                            vimeo_id = vimeo_url.split('/video/')[-1].split('?')[0]
+                        else:
+                            vimeo_id = vimeo_url.strip('/').split('/')[-1]
+                    
+                    # Clean the ID to be numeric only
+                    vimeo_id = ''.join(filter(str.isdigit, vimeo_id))
+                    
+                    if vimeo_id:
+                        # Get Vimeo thumbnail URL
+                        thumbnail_url = f"https://vumbnail.com/{vimeo_id}.jpg"
+                        
+                        # Download thumbnail
+                        response = requests.get(thumbnail_url, timeout=10)
+                        if response.status_code == 200:
+                            preview_dir = os.path.join(settings.MEDIA_ROOT, "previews")
+                            os.makedirs(preview_dir, exist_ok=True)
+                            video_preview_filename = f"video_preview_{collateral.id}.jpg"
+                            video_preview_path = os.path.join(preview_dir, video_preview_filename)
+                            
+                            with open(video_preview_path, "wb") as f:
+                                f.write(response.content)
+                            
+                            video_preview_image = f"{settings.MEDIA_URL}previews/{video_preview_filename}"
+                            print(f"Generated video thumbnail: {video_preview_image}")
+                        else:
+                            print(f"Failed to fetch Vimeo thumbnail: {response.status_code}")
+                    else:
+                        print("Invalid Vimeo ID format")
+                        
+                except Exception as e:
+                    print(f"Error generating video thumbnail: {e}")
+                    video_preview_image = None
+
             return render(
                 request,
                 "doctor_viewer/doctor_collateral_verify.html",
@@ -259,6 +304,7 @@ def doctor_collateral_verify(request):
                     "collateral": collateral,
                     "pdf_preview_url": pdf_preview_url,
                     "pdf_preview_image": pdf_preview_image,
+                    "video_preview_image": video_preview_image,
                 },
             )
 

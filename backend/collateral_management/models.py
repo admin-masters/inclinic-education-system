@@ -98,9 +98,9 @@ class Collateral(models.Model):
                 clean_url = self.vimeo_url.split('?')[0]
                 # Extract the video ID (handles both /video/123 and /123 formats)
                 if '/video/' in clean_url:
-                    self.vimeo_url = clean_url.split('/video/')[-1]
+                    self.vimeo_url = clean_url.split('/video/')[-1].split('/')[-1]
                 else:
-                    self.vimeo_url = clean_url.strip('/').split('/')[-1]
+                    self.vimeo_url = clean_url.split('/')[-1]
         
         super().save(*args, **kwargs)
     
@@ -136,3 +136,30 @@ class CampaignCollateral(models.Model):
 
     def __str__(self):
         return f"{self.campaign.name} – {self.collateral.title}"
+
+
+class CollateralMessage(models.Model):
+    """Model to store custom WhatsApp messages for specific collaterals"""
+    campaign = models.ForeignKey(
+        "campaign_management.Campaign", 
+        on_delete=models.CASCADE, 
+        related_name='collateral_messages'
+    )
+    collateral = models.ForeignKey(
+        Collateral, 
+        on_delete=models.CASCADE, 
+        related_name='custom_messages'
+    )
+    message = models.TextField(
+        help_text="Custom WhatsApp message for this collateral. Use $collateralLinks as placeholder for the actual link."
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        unique_together = ['campaign', 'collateral']  # Ensure unique message per campaign-collateral combination
+    
+    def __str__(self):
+        return f"{self.campaign.brand_campaign_id} - {self.collateral.title} Message"

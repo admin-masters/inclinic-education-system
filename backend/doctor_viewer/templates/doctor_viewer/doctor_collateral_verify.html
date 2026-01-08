@@ -32,9 +32,73 @@
           {% endif %}
         </div>
 
+    <!-- Banner Images Section -->
+    {% if collateral.banner_1 or collateral.banner_2 %}
+    <div style="text-align: center; padding: 20px; background: #f8f9fa;">
+      {% if collateral.banner_1 %}
+        <div style="margin-bottom: 15px;">
+          <h5 style="margin-bottom: 10px; color: #333;">Banner 1</h5>
+          {% if collateral.banner_1.url %}
+            <img src="{{ collateral.banner_1.url }}" alt="Banner 1" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          {% else %}
+            <p style="color: #666; font-style: italic;">Banner 1 image not available</p>
+          {% endif %}
+        </div>
+      {% endif %}
+      
+      {% if collateral.banner_2 %}
+        <div style="margin-bottom: 15px;">
+          <h5 style="margin-bottom: 10px; color: #333;">Banner 2</h5>
+          {% if collateral.banner_2.url %}
+            <img src="{{ collateral.banner_2.url }}" alt="Banner 2" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+          {% else %}
+            <p style="color: #666; font-style: italic;">Banner 2 image not available</p>
+          {% endif %}
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
+    <!-- Webinar Details Section -->
+    {% if collateral.webinar_title or collateral.webinar_description or collateral.webinar_url or collateral.webinar_date %}
+    <div style="padding: 20px; background: #e8f4fd; border-left: 4px solid #1877f2; margin: 20px 0;">
+      <h4 style="color: #1877f2; margin-bottom: 15px;">
+        <i class="fas fa-video" style="margin-right: 8px;"></i>Webinar Details
+      </h4>
+      
+      {% if collateral.webinar_title %}
+        <div style="margin-bottom: 12px;">
+          <strong style="color: #333;">Title:</strong> {{ collateral.webinar_title }}
+        </div>
+      {% endif %}
+      
+      {% if collateral.webinar_description %}
+        <div style="margin-bottom: 12px;">
+          <strong style="color: #333;">Description:</strong>
+          <p style="margin: 5px 0; line-height: 1.5;">{{ collateral.webinar_description }}</p>
+        </div>
+      {% endif %}
+      
+      {% if collateral.webinar_date %}
+        <div style="margin-bottom: 12px;">
+          <strong style="color: #333;">Date:</strong> {{ collateral.webinar_date|date:"F d, Y" }}
+        </div>
+      {% endif %}
+      
+      {% if collateral.webinar_url %}
+        <div style="margin-bottom: 12px;">
+          <strong style="color: #333;">Webinar Link:</strong>
+          <a href="{{ collateral.webinar_url }}" target="_blank" style="color: #1877f2; text-decoration: none;">
+            <i class="fas fa-external-link-alt" style="margin-right: 5px;"></i>Join Webinar
+          </a>
+        </div>
+      {% endif %}
+    </div>
+    {% endif %}
+
         <div class="content-preview" style="height: calc(100vh - 80px); overflow: hidden">
           {% if pdf_preview_image %}
-          <!-- Preview image -->
+          <!-- Preview image for PDF -->
           <div
             style="
               width: 100%;
@@ -55,6 +119,65 @@
                 border-radius: 8px;
               "
             />
+          </div>
+          {% elif video_preview_image %}
+          <!-- Preview image for Video -->
+          <div
+            style="
+              width: 100%;
+              height: 100%;
+              text-align: center;
+              padding: 10px;
+              background: #f8f9fa;
+              position: relative;
+            "
+          >
+            <img
+              src="{{ video_preview_image }}"
+              alt="Video Preview"
+              style="
+                max-width: 100%;
+                max-height: 100%;
+                object-fit: contain;
+                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+                border-radius: 8px;
+              "
+            />
+            <!-- Video play button overlay -->
+            <div
+              style="
+                position: absolute;
+                top: 50%;
+                left: 50%;
+                transform: translate(-50%, -50%);
+                width: 80px;
+                height: 80px;
+                background: rgba(0, 0, 0, 0.7);
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                pointer-events: none;
+              "
+            >
+              <i class="fas fa-play" style="color: white; font-size: 30px; margin-left: 8px;"></i>
+            </div>
+            <!-- Video type indicator -->
+            <div
+              style="
+                position: absolute;
+                top: 20px;
+                right: 20px;
+                background: rgba(0, 0, 0, 0.7);
+                color: white;
+                padding: 8px 16px;
+                border-radius: 20px;
+                font-size: 14px;
+                font-weight: bold;
+              "
+            >
+              <i class="fas fa-video me-2"></i>Video
+            </div>
           </div>
           {% else %}
           <!-- Direct content link fallback -->

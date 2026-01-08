@@ -126,11 +126,64 @@ class ShareForm(forms.Form):
     )
 
     def __init__(self, user, *args, **kwargs):
+        brand_campaign_id = kwargs.pop('brand_campaign_id', None)
         super().__init__(*args, **kwargs)
         self.user = user
         
-        # Set initial collateral to the most recent one
-        latest_collateral = Collateral.objects.filter(is_active=True).order_by('-created_at').first()
+        # Debug logging
+        print(f"[ShareForm] brand_campaign_id: {brand_campaign_id}")
+        
+        # Filter collaterals based on brand_campaign_id if provided
+        if brand_campaign_id:
+            from campaign_management.models import Campaign
+            try:
+                campaign = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
+                current_date = timezone.now().date()
+                
+                print(f"[ShareForm] Found campaign: {campaign.name}")
+                print(f"[ShareForm] Current date: {current_date}")
+                
+                # Get collaterals that are active for this campaign
+                # A collateral is active if:
+                # 1. The campaign itself is active AND
+                # 2. Either the collateral has no specific date restrictions OR its dates include today
+                campaign_collaterals = CMCampaignCollateral.objects.filter(
+                    campaign=campaign,
+                    collateral__is_active=True
+                ).filter(
+                    # Collateral must be active based on its specific dates OR have no date restrictions
+                    Q(start_date__lte=current_date, end_date__gte=current_date) |
+                    Q(start_date__isnull=True, end_date__isnull=True)
+                ).select_related('collateral')
+                
+                print(f"[ShareForm] Filtered campaign_collaterals count: {campaign_collaterals.count()}")
+                
+                # Get the collateral IDs from the filtered campaign collaterals
+                collateral_ids = campaign_collaterals.values_list('collateral_id', flat=True)
+                
+                # Create the final queryset
+                queryset = Collateral.objects.filter(
+                    id__in=collateral_ids,
+                    is_active=True
+                ).order_by('-created_at')
+                
+                print(f"[ShareForm] Final queryset count: {queryset.count()}")
+                for collateral in queryset:
+                    print(f"[ShareForm] - {collateral.title} (ID: {collateral.id})")
+                
+                self.fields['collateral'].queryset = queryset
+                
+            except Campaign.DoesNotExist:
+                print(f"[ShareForm] Campaign {brand_campaign_id} not found")
+                # If campaign doesn't exist, show all active collaterals
+                self.fields['collateral'].queryset = Collateral.objects.filter(is_active=True).order_by('-created_at')
+        else:
+            print("[ShareForm] No brand_campaign_id provided")
+            # No brand_campaign_id provided, show all active collaterals
+            self.fields['collateral'].queryset = Collateral.objects.filter(is_active=True).order_by('-created_at')
+        
+        # Set initial collateral to the most recent one in the filtered queryset
+        latest_collateral = self.fields['collateral'].queryset.first()
         if latest_collateral:
             self.fields['collateral'].initial = latest_collateral
         
@@ -338,15 +391,21 @@ class BulkManualShareForm(forms.Form):
         return f
 
     # 2️⃣ parse & validate ------------------------------------------------------
-    def save(self, *, user_request):
+    def save(self, *, user_request, campaign=None):
         """
         Reads the file, creates `ShareLog` rows,
         returns tuple (created_count, errors[list]).
+        
+        Args:
+            user_request: The user making the request
+            campaign: Optional Campaign object to assign field reps to
         """
         from django.contrib.auth import get_user_model
         from django.contrib.auth import get_user_model
         from django.utils import timezone
         from datetime import timedelta
+        from campaign_management.models import CampaignAssignment
+        from admin_dashboard.models import FieldRepCampaign
 
         data = self.cleaned_data["csv_file"].read().decode()
         file_obj = io.StringIO(data)
@@ -363,6 +422,7 @@ class BulkManualShareForm(forms.Form):
         created, errors = 0, []
         success_messages = []
         UserModel = get_user_model()
+        campaign_assignments_created = 0
 
         if is_2_col_format:
             # Handle 2-column format: Field Rep ID, Gmail ID
@@ -519,6 +579,27 @@ class BulkManualShareForm(forms.Form):
                         created += 1
                         # Add success message for debugging - show which method matched
                         success_messages.append(f"Row {row_no}: {rep_info} found and validated")
+                        
+                        # Create campaign assignment if campaign is provided
+                        if campaign and rep:
+                            try:
+                                # Create CampaignAssignment for field rep portal
+                                assignment, assignment_created = CampaignAssignment.objects.get_or_create(
+                                    field_rep=rep,
+                                    campaign=campaign
+                                )
+                                if assignment_created:
+                                    campaign_assignments_created += 1
+                                    success_messages.append(f"Row {row_no}: Assigned {rep_info} to campaign {campaign.brand_campaign_id}")
+                                
+                                # Also create FieldRepCampaign for admin dashboard compatibility
+                                FieldRepCampaign.objects.get_or_create(
+                                    field_rep=rep,
+                                    campaign=campaign
+                                )
+                            except Exception as assignment_error:
+                                print(f"DEBUG: Failed to create campaign assignment: {assignment_error}")
+                                errors.append(f"Row {row_no}: Failed to assign {rep_info} to campaign: {assignment_error}")
                     
                 except Exception as exc:
                     errors.append(f"Row {row_no}: {exc}")
@@ -657,7 +738,7 @@ class BulkManualShareForm(forms.Form):
 
         # Combine errors and success messages for display
         all_messages = errors + success_messages
-        return created, all_messages
+        return created, all_messages, []
 
 
 # ─── Bulk *pre‑mapped* upload (new) ────────────────────────────────────────────
@@ -848,7 +929,7 @@ class BulkPreMappedUploadForm(forms.Form):
             except Exception as exc:                     # noqa: BLE001
                 errors.append(f"Line {row_no}: {exc}")
 
-        return created, errors
+        return created, success_messages, errors
 
 
 # ─── Bulk *manual* – WhatsApp‑only ───────────────────────────────────────────

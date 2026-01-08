@@ -23,7 +23,13 @@
 
       {% if collateral.vimeo_url %}
         <div class="ratio ratio-16x9 mb-3">
-          <iframe src="{{ collateral.vimeo_url }}" allowfullscreen></iframe>
+          {% if "vimeo.com" in collateral.vimeo_url %}
+            <!-- Full Vimeo URL provided -->
+            <iframe src="{{ collateral.vimeo_url }}" allowfullscreen></iframe>
+          {% else %}
+            <!-- Vimeo video ID provided, construct full URL -->
+            <iframe src="https://player.vimeo.com/video/{{ collateral.vimeo_url }}" allowfullscreen></iframe>
+          {% endif %}
         </div>
       {% endif %}
 
