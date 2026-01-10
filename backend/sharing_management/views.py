@@ -4027,38 +4027,20 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
-            # First from campaign_management.CampaignCollateral
-            cc_links = CMCampaignCollateral.objects.filter(
-                campaign__brand_campaign_id=brand_campaign_id
-            ).select_related('collateral', 'campaign')
-            print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management")
+            # Use the dedicated function to get collaterals for the brand campaign
+            collaterals = get_active_collaterals_for_brand_campaign(brand_campaign_id)
+            print(f"[DEBUG] Found {collaterals.count()} active collaterals for campaign {brand_campaign_id}")
             
-            campaign_collaterals = [link.collateral for link in cc_links if link.collateral]
-            print(f"[DEBUG] After filtering, {len(campaign_collaterals)} campaign collaterals (no is_active filter for campaign_management)")
-            
-            # Then from collateral_management.CampaignCollateral
-            collateral_links = CampaignCollateral.objects.filter(
-                campaign__brand_campaign_id=brand_campaign_id
-            ).select_related('collateral', 'campaign')
-            print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management")
-            
-            collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and link.collateral.is_active]
-            print(f"[DEBUG] After filtering, {len(collateral_collaterals)} active collaterals from collateral_management")
-            
-            # Combine and deduplicate collaterals
-            all_collaterals = campaign_collaterals + collateral_collaterals
-            print(f"[DEBUG] Total collaterals before deduplication: {len(all_collaterals)}")
-            
-            collaterals = list({c.id: c for c in all_collaterals}.values())
-            print(f"[DEBUG] Total unique collaterals after deduplication: {len(collaterals)}")
-            
-            # If no collaterals found, show a message
-            if not collaterals:
-                messages.info(request, f"No collaterals found for campaign {brand_campaign_id}")
+            # IMPORTANT: no fallback to "all collaterals" when campaign is specified.
+            if not collaterals.exists():
+                messages.info(
+                    request,
+                    f"No active collaterals available for campaign {brand_campaign_id} today."
+                )
         else:
             # Show all active collaterals if no brand campaign ID provided and no assigned campaign found
             collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
-            print(f"[DEBUG] No campaign specified, fetching {len(collaterals)} active collaterals")
+            print(f"[DEBUG] No campaign specified, fetching {collaterals.count()} active collaterals")
         
         # Common code for both cases - create collaterals_list from the filtered collaterals
         if collaterals:
@@ -4091,7 +4073,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             collaterals_list = []
         
         # Set default collateral selection
-        latest_collateral_id = collaterals[0].id if collaterals else None
+        latest_collateral_id = collaterals[0].id if collaterals and len(collaterals) > 0 else None
         selected_collateral_id = int(request.POST.get('collateral')) if request.method == 'POST' and request.POST.get('collateral') else latest_collateral_id
     except Exception:
         collaterals_list = []
@@ -4197,7 +4179,6 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         'status_by_doctor': status_by_doctor,
         'brand_campaign_id': brand_campaign_id,
     })
-
 @csrf_exempt
 def get_doctor_status(doctor, collateral):
     """Determine the status of a doctor for a given collateral"""
