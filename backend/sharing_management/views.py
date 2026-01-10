@@ -61,6 +61,39 @@ import random
 import string
 import re
 
+from django.utils import timezone
+from collateral_management.models import Collateral
+
+def get_active_collaterals_for_brand_campaign(brand_campaign_id: str):
+    """
+    Returns ONLY collaterals that are:
+      1) is_active=True (Collateral flag)
+      2) associated to the campaign via collateral_management.CampaignCollateral
+      3) ACTIVE today: start_date <= today <= end_date (inclusive)
+
+    Uses DATE comparison (not datetime) to match business definition and avoid
+    edge cases where end_date time is midnight.
+    """
+    today = timezone.localdate()
+
+    # CampaignCollateral has:
+    #   collateral FK related_name="campaign_collaterals"
+    #   start_date/end_date DateTimeField (nullable)
+    # so we filter through the reverse relation.
+    return (
+        Collateral.objects.filter(
+            is_active=True,
+            campaign_collaterals__campaign__brand_campaign_id=brand_campaign_id,
+            campaign_collaterals__start_date__isnull=False,
+            campaign_collaterals__end_date__isnull=False,
+            campaign_collaterals__start_date__date__lte=today,
+            campaign_collaterals__end_date__date__gte=today,
+        )
+        .distinct()
+        .order_by("-created_at")
+    )
+
+
 def _send_email(to_addr: str, subject: str, body: str) -> None:
     send_mail(
         subject=subject,
