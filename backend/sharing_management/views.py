@@ -2807,38 +2807,38 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                 print(f"[DEBUG] Fetching collaterals for campaign: {campaign.id} - {campaign.name}")
                 try:
                     # Get active campaign collaterals with related collateral data
+                    today = timezone.localdate()
+                    
                     campaign_collaterals = CampaignCollateral.objects.filter(
                         campaign=campaign,
-                        collateral__is_active=True
-                    ).select_related('collateral').order_by('-collateral__created_at')
-                    
-                    print(f"[DEBUG] Found {campaign_collaterals.count()} campaign collaterals")
-                    
+                        collateral__is_active=True,
+                        start_date__isnull=False,
+                        end_date__isnull=False,
+                        start_date__date__lte=today,
+                        end_date__date__gte=today,
+                    ).select_related("collateral").order_by("-collateral__created_at")
+
                     if campaign_collaterals.exists():
-                        collaterals = [{
-                            'id': cc.collateral.id,
-                            'name': cc.collateral.title or f'Collateral {cc.collateral.id}'
-                        } for cc in campaign_collaterals]
+                        collaterals = [
+                            {
+                                "id": cc.collateral.id,
+                                "name": cc.collateral.title or f"Collateral {cc.collateral.id}",
+                            }
+                            for cc in campaign_collaterals
+                        ]
                         print(f"[DEBUG] Found {len(collaterals)} active collaterals for campaign")
                     else:
+                        # IMPORTANT: campaign specified but no ACTIVE collaterals => return empty list
                         print("[WARNING] No active collaterals found for campaign")
-                        all_collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
-                        collaterals = [{
-                            'id': c.id,
-                            'name': c.title or f'Collateral {c.id}'
-                        } for c in all_collaterals]
-                        print(f"[DEBUG] Falling back to {len(collaterals)} active collaterals")
+                        collaterals = []
                         
                 except Exception as e:
                     print(f"[ERROR] Error fetching campaign collaterals: {e}")
                     import traceback
                     traceback.print_exc()
-                    all_collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
-                    collaterals = [{
-                        'id': c.id,
-                        'name': c.title or f'Collateral {c.id}'
-                    } for c in all_collaterals]
-                    print(f"[DEBUG] Error occurred, falling back to {len(collaterals)} active collaterals")
+                    # Fallback to empty list when campaign is specified but no active collaterals
+                    collaterals = []
+                    print(f"[DEBUG] Error occurred, returning empty collaterals list")
             else:
                 print("[DEBUG] No campaign specified, fetching all active collaterals")
                 all_collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
@@ -3247,45 +3247,16 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
-            from django.utils import timezone
-            from django.db.models import Q
-            current_date = timezone.now().date()
+            # Use the dedicated function to get collaterals for the brand campaign
+            collaterals = get_active_collaterals_for_brand_campaign(brand_campaign_id)
+            print(f"[DEBUG] Found {collaterals.count()} active collaterals for campaign {brand_campaign_id}")
             
-            # First from campaign_management.CampaignCollateral with date filtering
-            cc_links = CMCampaignCollateral.objects.filter(
-                campaign__brand_campaign_id=brand_campaign_id
-            ).filter(
-                # Apply date filtering - exclude future-dated campaigns
-                Q(start_date__lte=current_date, end_date__gte=current_date) |
-                Q(start_date__isnull=True, end_date__isnull=True)
-            ).select_related('collateral', 'campaign')
-            print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management (after date filtering)")
-            
-            campaign_collaterals = [link.collateral for link in cc_links if link.collateral and getattr(link.collateral, 'is_active', True)]
-            print(f"[DEBUG] After filtering, {len(campaign_collaterals)} active campaign collaterals")
-            
-            # Then from collateral_management.CampaignCollateral with date filtering
-            collateral_links = CampaignCollateral.objects.filter(
-                campaign__brand_campaign_id=brand_campaign_id
-            ).filter(
-                # Apply date filtering - exclude future-dated campaigns
-                Q(start_date__lte=current_date, end_date__gte=current_date) |
-                Q(start_date__isnull=True, end_date__isnull=True)
-            ).select_related('collateral', 'campaign')
-            print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management (after date filtering)")
-            
-            collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and getattr(link.collateral, 'is_active', True)]
-            print(f"[DEBUG] After filtering, {len(collateral_collaterals)} active collaterals from collateral_management")
-            
-            # Combine and deduplicate collaterals
-            all_collaterals = campaign_collaterals + collateral_collaterals
-            print(f"[DEBUG] Total collaterals before deduplication: {len(all_collaterals)}")
-            
-            collaterals = list({c.id: c for c in all_collaterals if hasattr(c, 'id')}.values())
-            print(f"[DEBUG] Total unique collaterals after deduplication: {len(collaterals)}")
-            
-            if not collaterals:
-                messages.info(request, f"No collaterals found for campaign {brand_campaign_id}")
+            # IMPORTANT: no fallback to "all collaterals" when campaign is specified.
+            if not collaterals.exists():
+                messages.info(
+                    request,
+                    f"No active collaterals available for campaign {brand_campaign_id} today."
+                )
             else:
                 # Initialize selected collateral from GET or default to first one
                 selected_collateral_id = request.GET.get('collateral')
