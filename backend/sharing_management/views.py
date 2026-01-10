@@ -27,7 +27,7 @@ from campaign_management.models import CampaignCollateral
 from doctor_viewer.models import Doctor
 from django.db.models import Max, Q, F, ExpressionWrapper, DateTimeField
 from django.utils import timezone
-from datetime import timedelta
+from datetime import timedelta, datetime, time
 from .decorators import field_rep_required
 from .forms import (
     ShareForm,
@@ -67,28 +67,57 @@ from collateral_management.models import Collateral
 def get_active_collaterals_for_brand_campaign(brand_campaign_id: str):
     """
     Returns ONLY collaterals that are:
-      1) is_active=True (Collateral flag)
-      2) associated to the campaign via collateral_management.CampaignCollateral
-      3) ACTIVE today: start_date <= today <= end_date (inclusive)
+      1) Collateral.is_active=True
+      2) tied to the given brand campaign (via the bridge table, and also supports legacy direct FK)
+      3) ACTIVE "today" by campaign collateral window rules (inclusive).
 
-    Uses DATE comparison (not datetime) to match business definition and avoid
-    edge cases where end_date time is midnight.
+    Window rules for collateral_management.CampaignCollateral (DateTimeField, nullable):
+      - start_date NULL => no lower bound (active from the beginning)
+      - end_date   NULL => no upper bound (active indefinitely)
+      - Inclusive day semantics in *current* timezone:
+            start_date <= end_of_today  AND  end_date >= start_of_today
+
+    This fixes the previous bug where collaterals disappeared when start/end dates were NULL.
     """
-    today = timezone.localdate()
 
-    # CampaignCollateral has:
-    #   collateral FK related_name="campaign_collaterals"
-    #   start_date/end_date DateTimeField (nullable)
-    # so we filter through the reverse relation.
-    return (
+    if not brand_campaign_id:
+        return Collateral.objects.none()
+
+    # Build "today" boundaries in the current Django timezone
+    tz = timezone.get_current_timezone()
+    today = timezone.localdate()
+    start_of_today = timezone.make_aware(datetime.combine(today, time.min), tz)
+    end_of_today = timezone.make_aware(datetime.combine(today, time.max.replace(microsecond=0)), tz)
+
+    # 1) Collaterals linked via the bridge table and active today
+    active_bridge_collateral_ids = (
+        CMCampaignCollateral.objects.filter(
+            campaign__brand_campaign_id=brand_campaign_id,
+            collateral__is_active=True,
+        )
+        .filter(
+            (Q(start_date__lte=end_of_today) | Q(start_date__isnull=True)) &
+            (Q(end_date__gte=start_of_today) | Q(end_date__isnull=True))
+        )
+        .values_list("collateral_id", flat=True)
+    )
+
+    # 2) Legacy safety: collaterals directly tied to the campaign FK *without* a bridge row
+    #    (If a bridge row exists for that campaign, the schedule above is the source of truth.)
+    direct_ids_without_bridge = (
         Collateral.objects.filter(
             is_active=True,
-            campaign_collaterals__campaign__brand_campaign_id=brand_campaign_id,
-            campaign_collaterals__start_date__isnull=False,
-            campaign_collaterals__end_date__isnull=False,
-            campaign_collaterals__start_date__date__lte=today,
-            campaign_collaterals__end_date__date__gte=today,
+            campaign__brand_campaign_id=brand_campaign_id,
         )
+        .exclude(
+            campaign_collaterals__campaign__brand_campaign_id=brand_campaign_id
+        )
+        .values_list("id", flat=True)
+    )
+
+    return (
+        Collateral.objects.filter(is_active=True)
+        .filter(Q(id__in=active_bridge_collateral_ids) | Q(id__in=direct_ids_without_bridge))
         .distinct()
         .order_by("-created_at")
     )
@@ -2423,7 +2452,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     from doctor_viewer.models import Doctor
     from sharing_management.models import ShareLog
     from django.utils import timezone
-    from datetime import timedelta
+    from datetime import timedelta, datetime, time
     from django.db.models import Q
 
     from user_management.models import User as UMUser
@@ -2621,7 +2650,7 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
         from django.db.models import OuterRef, Exists, Q, F, Max, BooleanField
         from django.db.models.functions import Coalesce
         from django.db.models.expressions import ExpressionWrapper, Value
-        from datetime import timedelta
+        from datetime import timedelta, datetime, time
         from django.contrib import messages
         from django.shortcuts import redirect, render
         from django.http import JsonResponse
@@ -3601,7 +3630,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         from sharing_management.models import ShareLog
         from doctor_viewer.models import DoctorEngagement
         from django.utils import timezone
-        from datetime import timedelta
+        from datetime import timedelta, datetime, time
 
         now = timezone.now()
         for d in doctors_list:
