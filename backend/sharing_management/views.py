@@ -27,7 +27,7 @@ from campaign_management.models import CampaignCollateral
 from doctor_viewer.models import Doctor
 from django.db.models import Max, Q, F, ExpressionWrapper, DateTimeField
 from django.utils import timezone
-from datetime import timedelta, datetime, time
+from datetime import timedelta
 from .decorators import field_rep_required
 from .forms import (
     ShareForm,
@@ -67,57 +67,28 @@ from collateral_management.models import Collateral
 def get_active_collaterals_for_brand_campaign(brand_campaign_id: str):
     """
     Returns ONLY collaterals that are:
-      1) Collateral.is_active=True
-      2) tied to the given brand campaign (via the bridge table, and also supports legacy direct FK)
-      3) ACTIVE "today" by campaign collateral window rules (inclusive).
+      1) is_active=True (Collateral flag)
+      2) associated to the campaign via collateral_management.CampaignCollateral
+      3) ACTIVE today: start_date <= today <= end_date (inclusive)
 
-    Window rules for collateral_management.CampaignCollateral (DateTimeField, nullable):
-      - start_date NULL => no lower bound (active from the beginning)
-      - end_date   NULL => no upper bound (active indefinitely)
-      - Inclusive day semantics in *current* timezone:
-            start_date <= end_of_today  AND  end_date >= start_of_today
-
-    This fixes the previous bug where collaterals disappeared when start/end dates were NULL.
+    Uses DATE comparison (not datetime) to match business definition and avoid
+    edge cases where end_date time is midnight.
     """
-
-    if not brand_campaign_id:
-        return Collateral.objects.none()
-
-    # Build "today" boundaries in the current Django timezone
-    tz = timezone.get_current_timezone()
     today = timezone.localdate()
-    start_of_today = timezone.make_aware(datetime.combine(today, time.min), tz)
-    end_of_today = timezone.make_aware(datetime.combine(today, time.max.replace(microsecond=0)), tz)
 
-    # 1) Collaterals linked via the bridge table and active today
-    active_bridge_collateral_ids = (
-        CMCampaignCollateral.objects.filter(
-            campaign__brand_campaign_id=brand_campaign_id,
-            collateral__is_active=True,
-        )
-        .filter(
-            (Q(start_date__lte=end_of_today) | Q(start_date__isnull=True)) &
-            (Q(end_date__gte=start_of_today) | Q(end_date__isnull=True))
-        )
-        .values_list("collateral_id", flat=True)
-    )
-
-    # 2) Legacy safety: collaterals directly tied to the campaign FK *without* a bridge row
-    #    (If a bridge row exists for that campaign, the schedule above is the source of truth.)
-    direct_ids_without_bridge = (
+    # CampaignCollateral has:
+    #   collateral FK related_name="campaign_collaterals"
+    #   start_date/end_date DateTimeField (nullable)
+    # so we filter through the reverse relation.
+    return (
         Collateral.objects.filter(
             is_active=True,
-            campaign__brand_campaign_id=brand_campaign_id,
+            campaign_collaterals__campaign__brand_campaign_id=brand_campaign_id,
+            campaign_collaterals__start_date__isnull=False,
+            campaign_collaterals__end_date__isnull=False,
+            campaign_collaterals__start_date__date__lte=today,
+            campaign_collaterals__end_date__date__gte=today,
         )
-        .exclude(
-            campaign_collaterals__campaign__brand_campaign_id=brand_campaign_id
-        )
-        .values_list("id", flat=True)
-    )
-
-    return (
-        Collateral.objects.filter(is_active=True)
-        .filter(Q(id__in=active_bridge_collateral_ids) | Q(id__in=direct_ids_without_bridge))
         .distinct()
         .order_by("-created_at")
     )
@@ -2452,7 +2423,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     from doctor_viewer.models import Doctor
     from sharing_management.models import ShareLog
     from django.utils import timezone
-    from datetime import timedelta, datetime, time
+    from datetime import timedelta
     from django.db.models import Q
 
     from user_management.models import User as UMUser
@@ -2650,7 +2621,7 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
         from django.db.models import OuterRef, Exists, Q, F, Max, BooleanField
         from django.db.models.functions import Coalesce
         from django.db.models.expressions import ExpressionWrapper, Value
-        from datetime import timedelta, datetime, time
+        from datetime import timedelta
         from django.contrib import messages
         from django.shortcuts import redirect, render
         from django.http import JsonResponse
@@ -2836,38 +2807,38 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                 print(f"[DEBUG] Fetching collaterals for campaign: {campaign.id} - {campaign.name}")
                 try:
                     # Get active campaign collaterals with related collateral data
-                    today = timezone.localdate()
-                    
                     campaign_collaterals = CampaignCollateral.objects.filter(
                         campaign=campaign,
-                        collateral__is_active=True,
-                        start_date__isnull=False,
-                        end_date__isnull=False,
-                        start_date__date__lte=today,
-                        end_date__date__gte=today,
-                    ).select_related("collateral").order_by("-collateral__created_at")
-
+                        collateral__is_active=True
+                    ).select_related('collateral').order_by('-collateral__created_at')
+                    
+                    print(f"[DEBUG] Found {campaign_collaterals.count()} campaign collaterals")
+                    
                     if campaign_collaterals.exists():
-                        collaterals = [
-                            {
-                                "id": cc.collateral.id,
-                                "name": cc.collateral.title or f"Collateral {cc.collateral.id}",
-                            }
-                            for cc in campaign_collaterals
-                        ]
+                        collaterals = [{
+                            'id': cc.collateral.id,
+                            'name': cc.collateral.title or f'Collateral {cc.collateral.id}'
+                        } for cc in campaign_collaterals]
                         print(f"[DEBUG] Found {len(collaterals)} active collaterals for campaign")
                     else:
-                        # IMPORTANT: campaign specified but no ACTIVE collaterals => return empty list
                         print("[WARNING] No active collaterals found for campaign")
-                        collaterals = []
+                        all_collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
+                        collaterals = [{
+                            'id': c.id,
+                            'name': c.title or f'Collateral {c.id}'
+                        } for c in all_collaterals]
+                        print(f"[DEBUG] Falling back to {len(collaterals)} active collaterals")
                         
                 except Exception as e:
                     print(f"[ERROR] Error fetching campaign collaterals: {e}")
                     import traceback
                     traceback.print_exc()
-                    # Fallback to empty list when campaign is specified but no active collaterals
-                    collaterals = []
-                    print(f"[DEBUG] Error occurred, returning empty collaterals list")
+                    all_collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
+                    collaterals = [{
+                        'id': c.id,
+                        'name': c.title or f'Collateral {c.id}'
+                    } for c in all_collaterals]
+                    print(f"[DEBUG] Error occurred, falling back to {len(collaterals)} active collaterals")
             else:
                 print("[DEBUG] No campaign specified, fetching all active collaterals")
                 all_collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
@@ -3276,16 +3247,45 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
-            # Use the dedicated function to get collaterals for the brand campaign
-            collaterals = get_active_collaterals_for_brand_campaign(brand_campaign_id)
-            print(f"[DEBUG] Found {collaterals.count()} active collaterals for campaign {brand_campaign_id}")
+            from django.utils import timezone
+            from django.db.models import Q
+            current_date = timezone.now().date()
             
-            # IMPORTANT: no fallback to "all collaterals" when campaign is specified.
-            if not collaterals.exists():
-                messages.info(
-                    request,
-                    f"No active collaterals available for campaign {brand_campaign_id} today."
-                )
+            # First from campaign_management.CampaignCollateral with date filtering
+            cc_links = CMCampaignCollateral.objects.filter(
+                campaign__brand_campaign_id=brand_campaign_id
+            ).filter(
+                # Apply date filtering - exclude future-dated campaigns
+                Q(start_date__lte=current_date, end_date__gte=current_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
+            ).select_related('collateral', 'campaign')
+            print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management (after date filtering)")
+            
+            campaign_collaterals = [link.collateral for link in cc_links if link.collateral and getattr(link.collateral, 'is_active', True)]
+            print(f"[DEBUG] After filtering, {len(campaign_collaterals)} active campaign collaterals")
+            
+            # Then from collateral_management.CampaignCollateral with date filtering
+            collateral_links = CampaignCollateral.objects.filter(
+                campaign__brand_campaign_id=brand_campaign_id
+            ).filter(
+                # Apply date filtering - exclude future-dated campaigns
+                Q(start_date__lte=current_date, end_date__gte=current_date) |
+                Q(start_date__isnull=True, end_date__isnull=True)
+            ).select_related('collateral', 'campaign')
+            print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management (after date filtering)")
+            
+            collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and getattr(link.collateral, 'is_active', True)]
+            print(f"[DEBUG] After filtering, {len(collateral_collaterals)} active collaterals from collateral_management")
+            
+            # Combine and deduplicate collaterals
+            all_collaterals = campaign_collaterals + collateral_collaterals
+            print(f"[DEBUG] Total collaterals before deduplication: {len(all_collaterals)}")
+            
+            collaterals = list({c.id: c for c in all_collaterals if hasattr(c, 'id')}.values())
+            print(f"[DEBUG] Total unique collaterals after deduplication: {len(collaterals)}")
+            
+            if not collaterals:
+                messages.info(request, f"No collaterals found for campaign {brand_campaign_id}")
             else:
                 # Initialize selected collateral from GET or default to first one
                 selected_collateral_id = request.GET.get('collateral')
@@ -3630,7 +3630,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         from sharing_management.models import ShareLog
         from doctor_viewer.models import DoctorEngagement
         from django.utils import timezone
-        from datetime import timedelta, datetime, time
+        from datetime import timedelta
 
         now = timezone.now()
         for d in doctors_list:
@@ -4027,20 +4027,38 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
-            # Use the dedicated function to get collaterals for the brand campaign
-            collaterals = get_active_collaterals_for_brand_campaign(brand_campaign_id)
-            print(f"[DEBUG] Found {collaterals.count()} active collaterals for campaign {brand_campaign_id}")
+            # First from campaign_management.CampaignCollateral
+            cc_links = CMCampaignCollateral.objects.filter(
+                campaign__brand_campaign_id=brand_campaign_id
+            ).select_related('collateral', 'campaign')
+            print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management")
             
-            # IMPORTANT: no fallback to "all collaterals" when campaign is specified.
-            if not collaterals.exists():
-                messages.info(
-                    request,
-                    f"No active collaterals available for campaign {brand_campaign_id} today."
-                )
+            campaign_collaterals = [link.collateral for link in cc_links if link.collateral]
+            print(f"[DEBUG] After filtering, {len(campaign_collaterals)} campaign collaterals (no is_active filter for campaign_management)")
+            
+            # Then from collateral_management.CampaignCollateral
+            collateral_links = CampaignCollateral.objects.filter(
+                campaign__brand_campaign_id=brand_campaign_id
+            ).select_related('collateral', 'campaign')
+            print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management")
+            
+            collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and link.collateral.is_active]
+            print(f"[DEBUG] After filtering, {len(collateral_collaterals)} active collaterals from collateral_management")
+            
+            # Combine and deduplicate collaterals
+            all_collaterals = campaign_collaterals + collateral_collaterals
+            print(f"[DEBUG] Total collaterals before deduplication: {len(all_collaterals)}")
+            
+            collaterals = list({c.id: c for c in all_collaterals}.values())
+            print(f"[DEBUG] Total unique collaterals after deduplication: {len(collaterals)}")
+            
+            # If no collaterals found, show a message
+            if not collaterals:
+                messages.info(request, f"No collaterals found for campaign {brand_campaign_id}")
         else:
             # Show all active collaterals if no brand campaign ID provided and no assigned campaign found
             collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
-            print(f"[DEBUG] No campaign specified, fetching {collaterals.count()} active collaterals")
+            print(f"[DEBUG] No campaign specified, fetching {len(collaterals)} active collaterals")
         
         # Common code for both cases - create collaterals_list from the filtered collaterals
         if collaterals:
@@ -4073,7 +4091,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             collaterals_list = []
         
         # Set default collateral selection
-        latest_collateral_id = collaterals[0].id if collaterals and len(collaterals) > 0 else None
+        latest_collateral_id = collaterals[0].id if collaterals else None
         selected_collateral_id = int(request.POST.get('collateral')) if request.method == 'POST' and request.POST.get('collateral') else latest_collateral_id
     except Exception:
         collaterals_list = []
@@ -4179,6 +4197,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         'status_by_doctor': status_by_doctor,
         'brand_campaign_id': brand_campaign_id,
     })
+
 @csrf_exempt
 def get_doctor_status(doctor, collateral):
     """Determine the status of a doctor for a given collateral"""
