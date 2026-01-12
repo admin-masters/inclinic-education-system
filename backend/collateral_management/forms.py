@@ -183,48 +183,44 @@ class CollateralMessageForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Campaign queryset
+        # --- Campaign queryset (adjusted for field existence)
         try:
-            self.fields['campaign'].queryset = Campaign.objects.filter(is_active=True).order_by('brand_campaign_id')
-        except FieldError:
+            self.fields['campaign'].queryset = Campaign.objects.filter(status='active').order_by('brand_campaign_id')
+        except Exception:
             self.fields['campaign'].queryset = Campaign.objects.all().order_by('brand_campaign_id')
         self.fields['campaign'].empty_label = "Select Campaign"
 
-        # Collateral queryset depends on campaign
+        # --- Determine selected campaign
         campaign_id = None
-
-        # Case: POST data
         if self.data.get('campaign'):
             try:
                 campaign_id = int(self.data.get('campaign'))
             except (ValueError, TypeError):
                 campaign_id = None
-        # Case: editing existing instance
         elif self.instance.pk and self.instance.campaign:
             campaign_id = self.instance.campaign.pk
 
+        # --- Collateral queryset depends on campaign
         if campaign_id:
-            qs = Collateral.objects.filter(
-                campaigncollateral__campaign_id=campaign_id
-            ).distinct().order_by('title')
+            from django.db.models import Q
+            try:
+                from .models import CampaignCollateral
+                qs = Collateral.objects.filter(
+                    Q(campaigncollateral__campaign_id=campaign_id) |
+                    Q(campaign__id=campaign_id)
+                ).distinct().order_by('title')
+            except Exception:
+                # fallback if bridge table not available
+                qs = Collateral.objects.filter(campaign__id=campaign_id).order_by('title')
             self.fields['collateral'].queryset = qs
         else:
             self.fields['collateral'].queryset = Collateral.objects.none()
             self.fields['collateral'].empty_label = "First select a campaign"
 
-        # 🔹 Debugging: print on screen the initial POST values
-        print("DEBUG INIT: campaign_id =", campaign_id)
-        print("DEBUG INIT: POST data =", self.data)
-        print("DEBUG INIT: collateral queryset IDs =", [c.pk for c in self.fields['collateral'].queryset])
-
     def clean(self):
         cleaned_data = super().clean()
         campaign = cleaned_data.get('campaign')
         collateral = cleaned_data.get('collateral')
-
-        # 🔹 Debugging: print cleaned data
-        print("DEBUG CLEAN: campaign =", campaign)
-        print("DEBUG CLEAN: collateral =", collateral)
 
         if campaign and collateral:
             existing_message = CollateralMessage.objects.filter(
@@ -238,7 +234,6 @@ class CollateralMessageForm(forms.ModelForm):
                     "Please edit the existing message instead of creating a duplicate."
                 )
         return cleaned_data
-
 
 class CollateralMessageSearchForm(forms.Form):
     """Form for searching existing collateral messages"""
