@@ -181,45 +181,42 @@ class CollateralMessageForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # Filter campaigns to only active ones, fallback if no 'is_active' field
+        # Campaign queryset
         try:
             self.fields['campaign'].queryset = Campaign.objects.filter(is_active=True).order_by('brand_campaign_id')
         except FieldError:
             self.fields['campaign'].queryset = Campaign.objects.all().order_by('brand_campaign_id')
         self.fields['campaign'].empty_label = "Select Campaign"
 
-        # Determine campaign_id from form data or instance (editing)
+        # Collateral queryset: handle initial, POST, and instance
+        self.fields['collateral'].queryset = Collateral.objects.none()
+        self.fields['collateral'].empty_label = "First select a campaign"
+
         campaign_id = None
+
+        # Case 1: POST data
         if 'campaign' in self.data:
             try:
                 campaign_id = int(self.data.get('campaign'))
             except (ValueError, TypeError):
                 campaign_id = None
+        # Case 2: Editing existing instance
         elif self.instance.pk and self.instance.campaign:
-            campaign_id = self.instance.campaign.id
+            campaign_id = self.instance.campaign.pk
 
+        # Populate collateral queryset if campaign_id is known
         if campaign_id:
-            try:
-                # Adjust this filter if your related_name on CampaignCollateral differs
-                self.fields['collateral'].queryset = Collateral.objects.filter(
-                    campaigncollateral__campaign_id=campaign_id
-                ).order_by('title')
-                self.fields['collateral'].empty_label = "Select Collateral"
-            except Exception as e:
-                # For debugging, print error; replace with logging in production
-                print(f"Error setting collateral queryset: {e}")
-                self.fields['collateral'].queryset = Collateral.objects.none()
-                self.fields['collateral'].empty_label = "First select a campaign"
-        else:
-            self.fields['collateral'].queryset = Collateral.objects.none()
-            self.fields['collateral'].empty_label = "First select a campaign"
+            # Adjust the filter based on your related_name / model relationship
+            self.fields['collateral'].queryset = Collateral.objects.filter(
+                campaigncollateral__campaign_id=campaign_id
+            ).distinct().order_by('title')
+            self.fields['collateral'].empty_label = "Select Collateral"
 
     def clean(self):
         cleaned_data = super().clean()
         campaign = cleaned_data.get('campaign')
         collateral = cleaned_data.get('collateral')
 
-        # Check if message already exists for this campaign-collateral combination
         if campaign and collateral:
             existing_message = CollateralMessage.objects.filter(
                 campaign=campaign,
