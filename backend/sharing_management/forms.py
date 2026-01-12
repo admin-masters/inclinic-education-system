@@ -1,4 +1,7 @@
 import csv, io, re
+import logging
+
+from django.db import transaction
 from datetime import datetime, timedelta
 from django import forms
 from django.db.models import Q, Count, Max, Case, When, Value, BooleanField
@@ -13,8 +16,6 @@ from collateral_management.models import Collateral
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
 from campaign_management.models import Campaign
 from .models import ShareLog
-from campaign_management.models import CampaignAssignment
-
 
 # ─── Common constants ──────────────────────────────────────────────────────────
 CHANNEL_CHOICES = (
@@ -28,6 +29,44 @@ class DoctorChoiceField(forms.ModelChoiceField):
         return f"{obj.name} ({obj.phone or 'No phone'})"
 
 class ShareForm(forms.Form):
+
+    collateral = forms.ModelChoiceField(
+        queryset=Collateral.objects.none(),
+        label="Select Collateral",
+        widget=forms.Select(attrs={
+            'class': 'form-select',
+        })
+    )
+
+    existing_doctor = forms.ModelChoiceField(
+        queryset=Doctor.objects.none(),
+        required=False,
+        label="Select Existing Doctor",
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+
+    new_doctor_name = forms.CharField(
+        max_length=100,
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+
+    doctor_contact = forms.CharField(
+        max_length=20,
+        required=False,
+        widget=forms.TextInput(attrs={'class': 'form-control'})
+    )
+
+    share_channel = forms.ChoiceField(
+        choices=CHANNEL_CHOICES,
+        initial="WhatsApp",
+        widget=forms.Select(attrs={'class': 'form-select'})
+    )
+
+    message_text = forms.CharField(
+        required=False,
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3})
+    )
     # Main fields
     collateral = forms.ModelChoiceField(
         queryset=Collateral.objects.filter(is_active=True).order_by('-created_at'),
@@ -130,67 +169,66 @@ class ShareForm(forms.Form):
     def __init__(self, user, *args, **kwargs):
         brand_campaign_id = kwargs.pop('brand_campaign_id', None)
         super().__init__(*args, **kwargs)
+
         self.user = user
-        
-        # Debug logging
-        print(f"[ShareForm] brand_campaign_id: {brand_campaign_id}")
-        
-        # Filter collaterals based on brand_campaign_id if provided
+        from django.utils import timezone
+        from django.db.models import Q
+        from campaign_management.models import Campaign
+        from collateral_management.models import CampaignCollateral as CMCampaignCollateral
+
+        today = timezone.now().date()
+
+        # --------------------------------------------------
+        # STEP 1: Filter collaterals safely
+        # --------------------------------------------------
         if brand_campaign_id:
-            from campaign_management.models import Campaign
             try:
                 campaign = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
-                current_date = timezone.now().date()
-                
-                print(f"[ShareForm] Found campaign: {campaign.name}")
-                print(f"[ShareForm] Current date: {current_date}")
-                
-                # Get collaterals that are active for this campaign
-                # A collateral is active if:
-                # 1. The campaign itself is active AND
-                # 2. Either the collateral has no specific date restrictions OR its dates include today
-                campaign_collaterals = CMCampaignCollateral.objects.filter(
+
+                cc_qs = CMCampaignCollateral.objects.filter(
                     campaign=campaign,
                     collateral__is_active=True
                 ).filter(
-                    # Collateral must be active based on its specific dates OR have no date restrictions
-                    Q(start_date__lte=current_date, end_date__gte=current_date) |
-                    Q(start_date__isnull=True, end_date__isnull=True)
-                ).select_related('collateral')
-                
-                print(f"[ShareForm] Filtered campaign_collaterals count: {campaign_collaterals.count()}")
-                
-                # Get the collateral IDs from the filtered campaign collaterals
-                collateral_ids = campaign_collaterals.values_list('collateral_id', flat=True)
-                
-                # Create the final queryset
-                queryset = Collateral.objects.filter(
-                    id__in=collateral_ids,
+                    Q(start_date__isnull=True) | Q(start_date__lte=today),
+                    Q(end_date__isnull=True) | Q(end_date__gte=today),
+                )
+
+                self.fields['collateral'].queryset = Collateral.objects.filter(
+                    id__in=cc_qs.values_list('collateral_id', flat=True),
                     is_active=True
                 ).order_by('-created_at')
-                
-                print(f"[ShareForm] Final queryset count: {queryset.count()}")
-                for collateral in queryset:
-                    print(f"[ShareForm] - {collateral.title} (ID: {collateral.id})")
-                
-                self.fields['collateral'].queryset = queryset
-                
+
             except Campaign.DoesNotExist:
-                print(f"[ShareForm] Campaign {brand_campaign_id} not found")
-                # If campaign doesn't exist, show all active collaterals
-                self.fields['collateral'].queryset = Collateral.objects.filter(is_active=True).order_by('-created_at')
+                self.fields['collateral'].queryset = Collateral.objects.none()
         else:
-            print("[ShareForm] No brand_campaign_id provided")
-            # No brand_campaign_id provided, show all active collaterals
-            self.fields['collateral'].queryset = Collateral.objects.filter(is_active=True).order_by('-created_at')
-        
-        # Set initial collateral to the most recent one in the filtered queryset
-        latest_collateral = self.fields['collateral'].queryset.first()
-        if latest_collateral:
-            self.fields['collateral'].initial = latest_collateral
-        
-        # Update doctor queryset to show only assigned doctors
-        self.fields['existing_doctor'].queryset = self.get_doctors_with_status()
+            # No campaign = no collaterals (important for safety)
+            self.fields['collateral'].queryset = Collateral.objects.none()
+
+        # --------------------------------------------------
+        # STEP 2: Default select latest active collateral
+        # --------------------------------------------------
+        latest = self.fields['collateral'].queryset.first()
+        if latest:
+            self.fields['collateral'].initial = latest
+
+        # --------------------------------------------------
+        # STEP 3: Load doctors for this rep
+        # --------------------------------------------------
+        self.fields['existing_doctor'].queryset = Doctor.objects.filter(
+            rep=user
+        ).order_by('name')
+
+    # --------------------------------------------------
+    # STEP 4: Final server-side validation
+    # --------------------------------------------------
+    def clean_collateral(self):
+        collateral = self.cleaned_data.get('collateral')
+
+        if not collateral or not collateral.is_active:
+            raise forms.ValidationError("Invalid collateral selected.")
+
+        return collateral
+
     
     def get_doctors_with_status(self):
         """Get doctors with their sharing status for the selected collateral"""
@@ -232,30 +270,22 @@ class ShareForm(forms.Form):
     
     def clean(self):
         cleaned_data = super().clean()
-        
-        # Check if either existing doctor or new doctor info is provided
+
         existing_doctor = cleaned_data.get('existing_doctor')
         new_doctor_name = cleaned_data.get('new_doctor_name')
         doctor_contact = cleaned_data.get('doctor_contact')
-        
-        if not existing_doctor and not (new_doctor_name and doctor_contact):
-            raise ValidationError("Please select an existing doctor or enter new doctor details.")
-        
-        if existing_doctor and (new_doctor_name or doctor_contact):
-            raise ValidationError("Please either select an existing doctor OR enter new doctor details, not both.")
-        
-        # Validate contact if new doctor
-        if new_doctor_name and doctor_contact:
-            if not doctor_contact.strip():
-                raise ValidationError("Please enter a contact number for the new doctor.")
-            
-            # Basic phone validation
-            digits = "".join(ch for ch in doctor_contact if ch.isdigit() or ch == "+")
-            if len(digits) < 8:
-                raise ValidationError("Please enter a valid phone number.")
-            
-            cleaned_data['doctor_contact'] = digits
 
+        if not existing_doctor and not (new_doctor_name and doctor_contact):
+            raise forms.ValidationError(
+                "Please select an existing doctor or enter new doctor details."
+            )
+
+        if existing_doctor and (new_doctor_name or doctor_contact):
+            raise forms.ValidationError(
+                "Choose either an existing doctor OR enter new doctor details."
+            )
+
+        return cleaned_data
 
 # ─── Calendar update form for Campaign ↔ Collateral (bridging in collateral_management) ───
 class CalendarCampaignCollateralForm(forms.ModelForm):
@@ -369,10 +399,10 @@ class CalendarCampaignCollateralForm(forms.ModelForm):
 class BulkManualShareForm(forms.Form):
     """
     Expects a CSV with header row:
-    
+
     Option 1: For field reps only (2 columns):
       Field Rep ID, Gmail ID
-    
+
     Option 2: Full format (6 columns):
       field_rep_email, doctor_name, doctor_contact, collateral_id,
       share_channel (WhatsApp/SMS/Email), message_text(optional)
@@ -383,390 +413,197 @@ class BulkManualShareForm(forms.Form):
                    "collateral_id,share_channel,message_text"),
     )
 
-    MAX_SIZE = 2 * 1024 * 1024       # 2 MB
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
 
-    # 1️⃣ basic size check ------------------------------------------------------
     def clean_csv_file(self):
         f = self.cleaned_data["csv_file"]
         if f.size > self.MAX_SIZE:
-            raise ValidationError("CSV larger than 2 MB")
+            raise ValidationError("CSV larger than 2 MB")
         return f
 
-    # 2️⃣ parse & validate ------------------------------------------------------
     def save(self, *, user_request, campaign=None):
         """
-        Reads the file, creates `ShareLog` rows,
-        returns tuple (created_count, errors[list]).
-        
-        Args:
-            user_request: The user making the request
-            campaign: Optional Campaign object to assign field reps to
+        Returns:
+            created_count, all_messages, errors
         """
-        from django.contrib.auth import get_user_model
         from django.contrib.auth import get_user_model
         from django.utils import timezone
         from datetime import timedelta
         from campaign_management.models import CampaignAssignment
+        from admin_dashboard.models import FieldRepCampaign
+        from shortlink_management.models import ShortLink
+        from shortlink_management.utils import generate_short_code
+
+        UserModel = get_user_model()
 
         data = self.cleaned_data["csv_file"].read().decode()
         file_obj = io.StringIO(data)
 
-        # Auto-detect header and format
         peek = next(csv.reader(io.StringIO(data)), [])
         header_keys_2 = {"field rep id", "gmail id", "field_rep_id", "gmail_id"}
-        header_keys_6 = {"field_rep_email", "doctor_name", "doctor_contact", "collateral_id", "share_channel", "message_text"}
-        
-        # Detect format
+        header_keys_6 = {"field_rep_email", "doctor_name", "doctor_contact",
+                         "collateral_id", "share_channel", "message_text"}
+
         is_2_col_format = any((c or "").strip().lower() in header_keys_2 for c in peek[:2])
         is_6_col_format = any((c or "").strip().lower() in header_keys_6 for c in peek)
-        
-        created, errors = 0, []
-        success_messages = []
-        UserModel = get_user_model()
-        campaign_assignments_created = 0
 
+        created = 0
+        errors = []
+        success_messages = []
+
+        # ---------------- 2 COLUMN FORMAT ----------------
         if is_2_col_format:
-            # Handle 2-column format: Field Rep ID, Gmail ID
             file_obj.seek(0)
             reader = csv.DictReader(file_obj)
-            rows_iter = (
-                (
-                    r.get("Field Rep ID", "").strip() or r.get("field_rep_id", "").strip(),
-                    r.get("Gmail ID", "").strip() or r.get("gmail_id", "").strip(),
-                )
-                for r in reader
-            )
-            start_row = 2  # header is row 1
-            
-            for row_no, (field_rep_id, gmail_id) in enumerate(rows_iter, start=start_row):
+
+            for row_no, r in enumerate(reader, start=2):
+                field_rep_id = (r.get("Field Rep ID") or r.get("field_rep_id") or "").strip()
+                gmail_id = (r.get("Gmail ID") or r.get("gmail_id") or "").strip()
+
+                if not field_rep_id and not gmail_id:
+                    continue
+
                 try:
-                    # Skip empty rows
-                    if not field_rep_id and not gmail_id:
-                        continue
-                    
-                    # For 2-column format, we're validating the field reps exist
-                    rep_found = False
-                    rep_info = ""
-                    
+                    rep = None
+
                     if field_rep_id:
-                        # Debug: Show what we're looking for
-                        print(f"DEBUG: Looking for field_rep_id='{field_rep_id}', gmail_id='{gmail_id}'")
-                        
-                        # Check if field rep exists by field_id (exact match)
-                        rep = UserModel.objects.filter(role="field_rep", field_id=field_rep_id).first()
-                        if rep:
-                            rep_found = True
-                            rep_info = f"Field Rep ID '{field_rep_id}'"
-                            print(f"DEBUG: Found exact match: {rep}")
-                        else:
-                            # Try case-insensitive match
-                            rep = UserModel.objects.filter(role="field_rep", field_id__iexact=field_rep_id).first()
-                            if rep:
-                                rep_found = True
-                                rep_info = f"Field Rep ID '{field_rep_id}' (case-insensitive match)"
-                                print(f"DEBUG: Found case-insensitive match: {rep}")
-                            else:
-                                # Try partial match (contains)
-                                reps = UserModel.objects.filter(role="field_rep", field_id__icontains=field_rep_id)
-                                if reps.exists():
-                                    rep = reps.first()
-                                    rep_found = True
-                                    rep_info = f"Field Rep ID '{field_rep_id}' (partial match to '{rep.field_id}')"
-                                    print(f"DEBUG: Found partial match: {rep}")
-                                else:
-                                    # Try by username
-                                    rep = UserModel.objects.filter(role="field_rep", username__iexact=field_rep_id).first()
-                                    if rep:
-                                        rep_found = True
-                                        rep_info = f"Username '{field_rep_id}'"
-                                        print(f"DEBUG: Found username match: {rep}")
-                                    else:
-                                        # Try by email as fallback
-                                        rep = UserModel.objects.filter(role="field_rep", email=gmail_id).first()
-                                        if rep:
-                                            rep_found = True
-                                            rep_info = f"Field Rep with email '{gmail_id}'"
-                                            print(f"DEBUG: Found email fallback match: {rep}")
-                                        else:
-                                            # Try partial email match
-                                            reps = UserModel.objects.filter(role="field_rep", email__icontains=field_rep_id)
-                                            if reps.exists():
-                                                rep = reps.first()
-                                                rep_found = True
-                                                rep_info = f"Partial email match '{field_rep_id}' to '{rep.email}'"
-                                                print(f"DEBUG: Found partial email match: {rep}")
-                                            else:
-                                                print(f"DEBUG: No matches found for field_rep_id='{field_rep_id}', gmail_id='{gmail_id}'")
-                                                
-                                                # AUTO-CREATE field rep if not found
-                                                try:
-                                                    from django.contrib.auth.hashers import make_password
-                                                    import string
-                                                    import random
-                                                    
-                                                    # Generate a default password
-                                                    default_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-                                                    
-                                                    # Create new field rep user
-                                                    new_rep = UserModel.objects.create(
-                                                        username=f'fieldrep_{field_rep_id.lower()}',
-                                                        email=gmail_id if gmail_id else f'{field_rep_id}@example.com',
-                                                        field_id=field_rep_id,
-                                                        role='field_rep',
-                                                        password=make_password(default_password),
-                                                        is_active=True
-                                                    )
-                                                    
-                                                    rep_found = True
-                                                    rep_info = f"Auto-created Field Rep ID '{field_rep_id}' with email '{gmail_id if gmail_id else f'{field_rep_id}@example.com'}'"
-                                                    print(f"DEBUG: Auto-created new field rep: {new_rep}")
-                                                    success_messages.append(f"Row {row_no}: Auto-created new field rep {field_rep_id}")
-                                                    
-                                                except Exception as create_error:
-                                                    print(f"DEBUG: Failed to create field rep: {create_error}")
-                                                    errors.append(f"Row {row_no}: Failed to create Field Rep '{field_rep_id}': {create_error}")
-                                                    continue
-                    elif gmail_id:
-                        # Check by email (exact match)
-                        rep = UserModel.objects.filter(role="field_rep", email=gmail_id).first()
-                        if rep:
-                            rep_found = True
-                            rep_info = f"Field Rep with email '{gmail_id}'"
-                        else:
-                            # Try case-insensitive email match
-                            rep = UserModel.objects.filter(role="field_rep", email__iexact=gmail_id).first()
-                            if rep:
-                                rep_found = True
-                                rep_info = f"Field Rep with email '{gmail_id}' (case-insensitive match)"
-                            else:
-                                # Try partial email match
-                                reps = UserModel.objects.filter(role="field_rep", email__icontains=gmail_id)
-                                if reps.exists():
-                                    rep = reps.first()
-                                    rep_found = True
-                                    rep_info = f"Partial email match '{gmail_id}' to '{rep.email}'"
-                                else:
-                                    # AUTO-CREATE field rep if email not found
-                                    try:
-                                        from django.contrib.auth.hashers import make_password
-                                        import string
-                                        import random
-                                        
-                                        # Generate a default password and field_id
-                                        default_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
-                                        auto_field_id = f"FR{random.randint(1000, 9999)}"
-                                        
-                                        # Create new field rep user
-                                        new_rep = UserModel.objects.create(
-                                            username=f'fieldrep_{gmail_id.split("@")[0]}',
-                                            email=gmail_id,
-                                            field_id=auto_field_id,
-                                            role='field_rep',
-                                            password=make_password(default_password),
-                                            is_active=True
-                                        )
-                                        
-                                        rep_found = True
-                                        rep_info = f"Auto-created Field Rep with email '{gmail_id}' and ID '{auto_field_id}'"
-                                        print(f"DEBUG: Auto-created new field rep from email: {new_rep}")
-                                        success_messages.append(f"Row {row_no}: Auto-created new field rep {gmail_id}")
-                                        
-                                    except Exception as create_error:
-                                        print(f"DEBUG: Failed to create field rep from email: {create_error}")
-                                        errors.append(f"Row {row_no}: Failed to create Field Rep from email '{gmail_id}': {create_error}")
-                                        continue
-                    
-                    if rep_found:
-                        created += 1
-                        success_messages.append(
-                            f"Row {row_no}: {rep_info} found and validated"
+                        rep = UserModel.objects.filter(role="field_rep", field_id__iexact=field_rep_id).first()
+
+                    if not rep and gmail_id:
+                        rep = UserModel.objects.filter(role="field_rep", email__iexact=gmail_id).first()
+
+                    # AUTO-CREATE FIELD REP
+                    if not rep:
+                        from django.contrib.auth.hashers import make_password
+                        import random, string
+
+                        rep = UserModel.objects.create(
+                            username=f"fieldrep_{field_rep_id or gmail_id.split('@')[0]}",
+                            email=gmail_id or f"{field_rep_id}@example.com",
+                            field_id=field_rep_id or f"FR{random.randint(1000,9999)}",
+                            role="field_rep",
+                            password=make_password(
+                                ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+                            ),
+                            is_active=True,
                         )
 
-                        if campaign and rep:
-                            try:
-                                assignment, assignment_created = CampaignAssignment.objects.get_or_create(
-                                    field_rep=rep,
-                                    campaign=campaign
-                                )
+                        # ✅ MARK AS MANUALLY CREATED
+                        if hasattr(rep, "created_by"):
+                            rep.created_by = user_request
+                            rep.save()
 
-                                if assignment_created:
-                                    campaign_assignments_created += 1
-                                    success_messages.append(
-                                        f"Row {row_no}: Assigned {rep_info} "
-                                        f"to campaign {campaign.brand_campaign_id}"
-                                    )
+                        success_messages.append(f"Row {row_no}: Auto-created field rep {rep.field_id}")
 
-                            except Exception as assignment_error:
-                                print(f"DEBUG: Failed to create campaign assignment: {assignment_error}")
-                                errors.append(
-                                    f"Row {row_no}: Failed to assign {rep_info} "
-                                    f"to campaign: {assignment_error}"
-                                )
+                    created += 1
+                    success_messages.append(f"Row {row_no}: Field rep {rep.field_id} validated")
+
+                    # campaign assignment
+                    if campaign:
+                        CampaignAssignment.objects.get_or_create(field_rep=rep, campaign=campaign)
+                        FieldRepCampaign.objects.get_or_create(field_rep=rep, campaign=campaign)
 
                 except Exception as exc:
                     errors.append(f"Row {row_no}: {exc}")
-        
+
+        # ---------------- 6 COLUMN FORMAT ----------------
         elif is_6_col_format:
-            # Handle original 6-column format
             file_obj.seek(0)
             reader = csv.DictReader(file_obj)
-            rows_iter = (
-                (
-                    r.get("field_rep_email", "").strip(),
-                    r.get("doctor_name", "").strip(),
-                    r.get("doctor_contact", "").strip(),
-                    r.get("collateral_id", "").strip(),
-                    r.get("share_channel", "").strip(),
-                    (r.get("message_text") or "").strip(),
-                )
-                for r in reader
-            )
-            start_row = 2  # header is row 1
 
-            for row_no, row in enumerate(rows_iter, start=start_row):
+            for row_no, r in enumerate(reader, start=2):
                 try:
-                    rep_email, doctor_name, doctor_contact, col_id, share_channel, message_text = row
+                    rep_email = r.get("field_rep_email", "").strip()
+                    doctor_name = r.get("doctor_name", "").strip()
+                    doctor_contact = r.get("doctor_contact", "").strip()
+                    col_id = r.get("collateral_id", "").strip()
+                    share_channel = r.get("share_channel", "").strip() or "WhatsApp"
+                    message_text = (r.get("message_text") or "").strip()
 
-                    # Skip empty rows
-                    if not any(row):
+                    if not any([rep_email, doctor_name, doctor_contact]):
                         continue
 
-                    # field rep
-                    try:
-                        rep = UserModel.objects.get(email=rep_email, role="field_rep")
-                    except UserModel.DoesNotExist:
-                        # Try to find any field rep or use current user as fallback
-                        rep = UserModel.objects.filter(role="field_rep").first()
-                        if not rep:
-                            rep = user_request
-                        if not rep:
-                            raise ValueError(f"No field representatives available in system")
+                    rep = UserModel.objects.filter(role="field_rep", email__iexact=rep_email).first()
+                    if not rep:
+                        raise ValueError(f"Field rep {rep_email} not found")
 
-                    # collateral
+                    col = None
                     if col_id:
-                        try:
-                            col = Collateral.objects.get(id=int(col_id))
-                        except Collateral.DoesNotExist:
-                            # Check if it exists in the other Collateral model
-                            from campaign_management.models import Collateral as CampaignCollateral
-                            try:
-                                campaign_col = CampaignCollateral.objects.get(id=int(col_id))
-                                raise ValueError(f"Invalid collateral_id «{col_id}». This ID exists in Campaign Management but not in Collateral Management. Please use a collateral from the Collateral Management system.")
-                            except CampaignCollateral.DoesNotExist:
-                                pass
-                            
-                            # Provide helpful error with available IDs
-                            available_ids = list(Collateral.objects.filter(is_active=True).values_list('id', flat=True)[:10])
-                            if available_ids:
-                                raise ValueError(f"Invalid collateral_id «{col_id}». Available active IDs: {available_ids}")
-                            else:
-                                raise ValueError(f"Invalid collateral_id «{col_id}». No active collaterals found in database.")
-                    else:
-                        col = None
+                        col = Collateral.objects.get(id=int(col_id))
 
-                    # phone / e‑mail quick check
-                    if col and share_channel == "Email":
-                        validate_email(doctor_contact)
-                    elif col:
-                        # Handle scientific notation from Excel (e.g., 9.19812E+11)
-                        try:
-                            if 'E' in doctor_contact.upper() or 'e' in doctor_contact:
-                                # Convert scientific notation to regular number
-                                doctor_contact = str(int(float(doctor_contact)))
-                        except:
-                            pass  # If conversion fails, use original value
-                        
-                        digits = "".join(ch for ch in doctor_contact if ch.isdigit())
-                        if len(digits) < 8:
-                            raise ValueError("doctor_contact looks too short")
+                    cutoff = timezone.now() - timedelta(hours=24)
+                    if ShareLog.objects.filter(
+                        field_rep=rep,
+                        doctor_identifier=doctor_contact or doctor_name,
+                        collateral=col,
+                        share_channel=share_channel,
+                        share_timestamp__gte=cutoff
+                    ).exists():
+                        continue
 
-                    # If we have a collateral, create share log
-                    if col:
-                        # Check for duplicate in last 24 hours
-                        cutoff_time = timezone.now() - timedelta(hours=24)
-                        duplicate_exists = ShareLog.objects.filter(
-                            field_rep=rep,
-                            doctor_identifier=doctor_contact or doctor_name,
-                            collateral=col,
-                            share_channel=share_channel or "WhatsApp",
-                            share_timestamp__gte=cutoff_time
-                        ).exists()
+                    sl, _ = ShortLink.objects.get_or_create(
+                        resource_type="collateral",
+                        resource_id=col.id,
+                        defaults=dict(
+                            short_code=generate_short_code(),
+                            is_active=True,
+                            created_by=user_request,
+                        ),
+                    )
 
-                        if duplicate_exists:
-                            continue  # Skip duplicate
+                    ShareLog.objects.create(
+                        short_link=sl,
+                        field_rep=rep,
+                        doctor_identifier=doctor_contact or doctor_name,
+                        share_channel=share_channel,
+                        message_text=message_text,
+                        collateral=col,
+                        uploaded_by=user_request,   # ✅ THIS IS THE FIX
+                    )
 
-                        # short‑link (create or reuse)
-                        from shortlink_management.models import ShortLink
-                        from shortlink_management.utils import generate_short_code
-                        
-                        sl, _ = ShortLink.objects.get_or_create(
-                            resource_type="collateral",
-                            resource_id=col.id,
-                            defaults=dict(
-                                short_code=generate_short_code(),
-                                is_active=True,
-                                created_by=user_request,
-                            ),
-                        )
-
-                        ShareLog.objects.create(
-                            short_link=sl,
-                            field_rep=rep,
-                            doctor_identifier=doctor_contact or doctor_name,
-                            share_channel=share_channel or "WhatsApp",
-                            message_text=message_text,
-                            collateral=col,
-                        )
                     created += 1
 
-                except Exception as exc:        # noqa: BLE001
+                except Exception as exc:
                     errors.append(f"Row {row_no}: {exc}")
-        else:
-            # Unknown format - provide more helpful error
-            if len(peek) == 0:
-                errors.append("CSV file appears to be empty. Please check your file.")
-            elif len(peek) == 1:
-                errors.append("CSV has only 1 column. Expected either 2 columns (Field Rep ID, Gmail ID) or 6 columns (field_rep_email, doctor_name, doctor_contact, collateral_id, share_channel, message_text).")
-            elif len(peek) == 2:
-                # Check if it might be missing headers
-                first_col = (peek[0] or "").strip().lower()
-                if first_col not in ["field rep id", "field_rep_id", "gmail id", "gmail_id"]:
-                    errors.append("CSV appears to be 2-column format but headers are missing or incorrect. Expected headers: 'Field Rep ID, Gmail ID'")
-                else:
-                    errors.append("Invalid CSV format detected. Please check column headers match expected format.")
-            else:
-                errors.append(f"CSV has {len(peek)} columns. Expected either 2 columns (Field Rep ID, Gmail ID) or 6 columns (field_rep_email, doctor_name, doctor_contact, collateral_id, share_channel, message_text).")
-                errors.append("First few columns detected: " + ", ".join([f'"{c}"' for c in peek[:3]]))
 
-        # Combine errors and success messages for display
-        return created, success_messages, errors
+        else:
+            errors.append("Invalid CSV format. Please use the provided template.")
+
+        all_messages = success_messages + errors
+        return created, all_messages, errors
 
 # ─── Bulk *pre‑mapped* upload (new) ────────────────────────────────────────────
 _whatsapp_re = re.compile(r"^\+?\d{8,15}$")   # very loose
 
+logger = logging.getLogger(__name__)
+
+_whatsapp_re = re.compile(r"^\+?\d{10,15}$")
+
+
 class BulkPreMappedUploadForm(forms.Form):
     """
-    CSV with **header row**:
+    CSV with header row:
 
-      Doctor Name, Whatsapp Number, Field Rep ID (collateral_id optional)
+    Doctor Name, Whatsapp Number, Field Rep ID (collateral_id optional)
     """
+
     csv_file = forms.FileField(
         label="Choose a CSV file",
         help_text="Columns: Doctor Name, Whatsapp Number, Field Rep ID (collateral_id optional)",
     )
 
-    # 1️⃣ basic size & extension checks ----------------------------------------
-    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
+    MAX_SIZE = 2 * 1024 * 1024  # 2 MB
 
+    # 1️⃣ basic size & extension checks
     def clean_csv_file(self):
         f = self.cleaned_data["csv_file"]
         if f.size > self.MAX_SIZE:
-            raise ValidationError("File larger than 2 MB.")
+            raise ValidationError("File larger than 2 MB.")
         if not f.name.lower().endswith(".csv"):
             raise ValidationError("Only .csv files are accepted.")
         return f
 
-    # 2️⃣ helper – get / create doctor -----------------------------------------
+    # 2️⃣ helper – get / create doctor
     def _doctor_for_row(self, name: str, phone: str, rep: User) -> Doctor:
         obj, _ = Doctor.objects.get_or_create(
             rep=rep,
@@ -775,161 +612,159 @@ class BulkPreMappedUploadForm(forms.Form):
         )
         return obj
 
-    # 3️⃣ helper – create map + share‑log --------------------------------------
-    def _create_link_and_sharelog(
-        self, doctor: Doctor, collateral: Collateral, rep: User
-    ) -> ShareLog:
-        # link doctor ↔ collateral
+    # 3️⃣ helper – create map + share-log
+    def _create_link_and_sharelog(self, doctor, collateral, rep):
+        from shortlink_management.models import ShortLink
+        from shortlink_management.utils import generate_short_code
+
         DoctorCollateral.objects.get_or_create(
             doctor=doctor,
             collateral=collateral,
         )
 
-        # find / create short‑link
-        from shortlink_management.models import ShortLink
-        from shortlink_management.utils  import generate_short_code
-
         short = (
-            ShortLink.objects
-            .filter(resource_type="collateral",
-                    resource_id=collateral.id, is_active=True)
-            .first()
+            ShortLink.objects.filter(
+                resource_type="collateral",
+                resource_id=collateral.id,
+                is_active=True,
+            ).first()
             or ShortLink.objects.create(
-                short_code   = generate_short_code(8),
-                resource_type= "collateral",
-                resource_id  = collateral.id,
-                created_by   = rep,
-                is_active    = True,
+                short_code=generate_short_code(8),
+                resource_type="collateral",
+                resource_id=collateral.id,
+                created_by=rep,
+                is_active=True,
             )
         )
 
-        # share‑log row
         return ShareLog.objects.create(
-            short_link        = short,
-            field_rep         = rep,
-            doctor_identifier = doctor.phone,
-            share_channel     = "WhatsApp",
-            message_text      = "",   # user may edit later
-            collateral        = collateral,
+            short_link=short,
+            field_rep=rep,
+            doctor_identifier=doctor.phone,
+            share_channel="WhatsApp",
+            message_text="",
+            collateral=collateral,
         )
 
-    # 4️⃣ parse, validate & save -----------------------------------------------
-    def save(self, *, admin_user) -> tuple:
+    # 4️⃣ parse, validate & save
+    def save(self, *, admin_user):
         """
         Returns (created_count, errors_list)
         """
         from collateral_management.models import Collateral
-        
-        f      = io.StringIO(self.cleaned_data["csv_file"].read().decode())
-        reader = csv.DictReader(f)
+
         created = 0
         errors = []
-        
-        # Check required columns - be more flexible with column names
+
+        try:
+            content = self.cleaned_data["csv_file"].read().decode(
+                "utf-8", errors="ignore"
+            )
+        except Exception as exc:
+            return 0, [f"Failed to read CSV file: {exc}"]
+
+        reader = csv.DictReader(io.StringIO(content))
         fieldnames = reader.fieldnames or []
-        print(f"DEBUG: CSV columns found: {fieldnames}")
-        
-        # Try multiple column name variations
-        doctor_name_col = None
-        whatsapp_col = None
-        fieldrep_id_col = None
-        collateral_id_col = None
-        
+
+        logger.debug("CSV columns detected: %s", fieldnames)
+
+        doctor_name_col = whatsapp_col = fieldrep_id_col = collateral_id_col = None
+
         for col in fieldnames:
-            col_lower = col.lower().strip()
-            # Prioritize exact headers first
-            if col == 'Doctor Name':
+            col_l = col.lower().strip()
+
+            if col == "Doctor Name":
                 doctor_name_col = col
-            elif col == 'Whatsapp Number':
+            elif col == "Whatsapp Number":
                 whatsapp_col = col
-            elif col == 'Field Rep ID':
+            elif col == "Field Rep ID":
                 fieldrep_id_col = col
-            # Fallback to variations
-            elif col_lower in ['doctor_name', 'name', 'doctor', 'doctor name']:
+            elif col_l in {"doctor_name", "doctor", "name"}:
                 doctor_name_col = col
-            elif col_lower in ['whatsapp_number', 'phone', 'whatsapp', 'contact', 'whatsapp number']:
+            elif col_l in {"whatsapp", "whatsapp number", "phone", "contact"}:
                 whatsapp_col = col
-            elif col_lower in ['fieldrep_id', 'field_rep_id', 'fieldrep', 'field rep id', 'field_rep', 'field rep id']:
+            elif col_l in {"fieldrep_id", "field_rep_id", "field rep id"}:
                 fieldrep_id_col = col
-            elif col_lower in ['collateral_id', 'collateral', 'collateralid']:
+            elif col_l in {"collateral_id", "collateral"}:
                 collateral_id_col = col
-        
-        # Check if we found required columns (collateral_id is now optional)
-        missing_cols = []
+
+        missing = []
         if not doctor_name_col:
-            missing_cols.append('doctor_name')
+            missing.append("doctor_name")
         if not whatsapp_col:
-            missing_cols.append('whatsapp_number')
+            missing.append("whatsapp_number")
         if not fieldrep_id_col:
-            missing_cols.append('fieldrep_id')
-        # Note: collateral_id is now optional - only check if other required columns are missing
-            
-        if missing_cols:
-            errors.append(f"Missing required columns: {', '.join(missing_cols)}. Found columns: {', '.join(fieldnames)}")
-            return 0, errors
+            missing.append("fieldrep_id")
 
-        for row_no, row in enumerate(reader, start=2):   # header = line 1
+        if missing:
+            return 0, [
+                f"Missing required columns: {', '.join(missing)}. "
+                f"Found columns: {', '.join(fieldnames)}"
+            ]
+
+        for row_no, row in enumerate(reader, start=2):
             try:
-                name   = (row.get(doctor_name_col)     or "").strip()
-                phone  = (row.get(whatsapp_col) or "").strip()
-                rep_id = (row.get(fieldrep_id_col) or "").strip()
-                collateral_id = int(row.get(collateral_id_col) or 0)
+                name = (row.get(doctor_name_col) or "").strip()
+                phone_raw = (row.get(whatsapp_col) or "").strip()
+                rep_id_raw = (row.get(fieldrep_id_col) or "").strip()
+                collateral_raw = row.get(collateral_id_col)
 
-                if not (name and phone and rep_id):
+                if not (name and phone_raw and rep_id_raw):
                     raise ValueError("Missing required column value")
-                
-                # Handle scientific notation from Excel (e.g., 9.2E+11)
-                try:
-                    if 'E' in phone.upper() or 'e' in phone:
-                        # Convert scientific notation to regular number
-                        phone = str(int(float(phone)))
-                        print(f"DEBUG: Converted scientific notation '{phone}' to '{phone}'")
-                except:
-                    pass  # If conversion fails, use original value
-                
-                # Clean phone number - keep only digits and +
-                digits = "".join(ch for ch in phone if ch.isdigit() or ch == "+")
-                if not digits:
-                    raise ValueError("Bad phone format - no digits found")
-                
-                if not _whatsapp_re.match(digits):
-                    raise ValueError(f"Bad phone format: {phone}")
 
-                # Get collateral and field rep (collateral_id is now optional)
-                if collateral_id and collateral_id > 0:
+                # Handle Excel scientific notation
+                phone = phone_raw
+                if "e" in phone.lower():
+                    original = phone
+                    phone = str(int(float(phone)))
+                    logger.debug("Converted phone %s → %s", original, phone)
+
+                phone = re.sub(r"[^\d+]", "", phone)
+
+                if not _whatsapp_re.match(phone):
+                    raise ValueError(f"Invalid WhatsApp number: {phone_raw}")
+
+                # Resolve collateral
+                if collateral_raw:
                     try:
-                        collateral = Collateral.objects.get(id=collateral_id)
-                    except Collateral.DoesNotExist:
-                        errors.append(f"Row {row_no}: Invalid collateral_id '{collateral_id}'. Collateral not found.")
-                        continue
+                        collateral = Collateral.objects.get(id=int(collateral_raw))
+                    except (ValueError, Collateral.DoesNotExist):
+                        raise ValueError(f"Invalid collateral_id '{collateral_raw}'")
                 else:
-                    # Use the most recent active collateral as default
-                    collateral = Collateral.objects.filter(is_active=True).order_by('-created_at').first()
+                    collateral = (
+                        Collateral.objects.filter(is_active=True)
+                        .order_by("-created_at")
+                        .first()
+                    )
                     if not collateral:
-                        errors.append(f"Row {row_no}: No collateral_id provided and no active collaterals found in system.")
-                        continue
+                        raise ValueError("No active collateral available")
 
-                # Get field rep (accept both numeric and string IDs)
+                # Resolve field rep
                 try:
-                    # Try numeric conversion first
+                    rep = User.objects.get(pk=int(rep_id_raw), role="field_rep")
+                except (ValueError, User.DoesNotExist):
                     try:
-                        rep_id_numeric = int(rep_id)
-                        rep = User.objects.get(pk=rep_id_numeric, role="field_rep")
-                    except (ValueError, User.DoesNotExist):
-                        # If numeric fails, try string match
-                        rep = User.objects.get(field_id=rep_id, role="field_rep")
-                except User.DoesNotExist:
-                    errors.append(f"Row {row_no}: Field Rep with ID '{rep_id}' not found")
-                    continue
-                doc = self._doctor_for_row(name, digits, rep)  # Use cleaned phone number
-                log = self._create_link_and_sharelog(doc, collateral, rep)
+                        rep = User.objects.get(
+                            field_id=rep_id_raw, role="field_rep"
+                        )
+                    except User.DoesNotExist:
+                        raise ValueError(
+                            f"Field Rep '{rep_id_raw}' not found"
+                        )
+
+                with transaction.atomic():
+                    doctor = self._doctor_for_row(name, phone, rep)
+                    self._create_link_and_sharelog(
+                        doctor, collateral, rep
+                    )
 
                 created += 1
 
-            except Exception as exc:                     # noqa: BLE001
+            except Exception as exc:
                 errors.append(f"Line {row_no}: {exc}")
 
-        return created, success_messages, errors
+        return created, errors
+
 
 
 # ─── Bulk *manual* – WhatsApp‑only ───────────────────────────────────────────
