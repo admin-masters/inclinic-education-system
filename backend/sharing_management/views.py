@@ -174,30 +174,31 @@ def build_wa_link(share_log, request):
     )
     return f"https://wa.me/{share_log.doctor_identifier}?text={quote(msg_text)}"
 
+from collateral_management.models import CollateralMessage
+from campaign_management.models import CampaignCollateral
+
 def get_brand_specific_message(collateral_id, collateral_name, collateral_link):
     """
-    Get brand-specific message for a collateral, or fallback to default message.
+    Get the custom message for a collateral in a campaign,
+    or fallback to default message if none exists.
     """
-    from campaign_management.models import CampaignCollateral, CampaignMessage
-    
-    # Find the campaign for this collateral
+    # Find the campaign associated with this collateral
     campaign_collateral = CampaignCollateral.objects.filter(collateral_id=collateral_id).first()
     
     if campaign_collateral and campaign_collateral.campaign:
-        # Get the first active message for this campaign
-        brand_message = CampaignMessage.objects.filter(
+        # Look for an active CollateralMessage for this campaign & collateral
+        custom_message = CollateralMessage.objects.filter(
             campaign=campaign_collateral.campaign,
+            collateral_id=collateral_id,
             is_active=True
         ).first()
         
-        if brand_message:
-            # Use brand-specific message
-            message_text = brand_message.message_text
-            # Replace placeholder with actual link
-            message_text = message_text.replace('$collateralLinks', collateral_link)
+        if custom_message and custom_message.message:
+            # Replace placeholder with actual collateral link
+            message_text = custom_message.message.replace('$collateralLinks', collateral_link)
             return message_text
-    
-    # Fallback to default message
+
+    # Fallback default message
     return f"Hello Doctor, IAP's latest expert module— Mini CME on Managing Drug-Resistant Infections in Pediatrics Strategies for using cefixime, cephalosporins, and carbapenems in complex cases, by Dr. Shekhar Biswas, covers strategies for using cefixime, cephalosporins, and carbapenems in complex pediatric cases. The presentation dives into understanding drug resistance, clinical evidence, and advanced therapeutic approaches to tackle multi-drug-resistant pathogens, along with antibiotic stewardship and infection control measures.\n\nView it here: {collateral_link}\n\nThis content is shared with you under a distribution license obtained from IAP by Alkem Laboratories Ltd."
 
 
