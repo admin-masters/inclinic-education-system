@@ -15,6 +15,7 @@ from campaign_management.models import Campaign
 from .models import ShareLog
 from campaign_management.models import CampaignAssignment
 
+
 # ─── Common constants ──────────────────────────────────────────────────────────
 CHANNEL_CHOICES = (
     ("WhatsApp", "WhatsApp"),
