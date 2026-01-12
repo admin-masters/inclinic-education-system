@@ -161,8 +161,6 @@ class CampaignCollateralForm(forms.ModelForm):
         fields = ['campaign', 'collateral', 'start_date', 'end_date']
 
 class CollateralMessageForm(forms.ModelForm):
-    """Form for adding custom WhatsApp messages for specific collaterals (with debugging)"""
-
     class Meta:
         model = CollateralMessage
         fields = ['campaign', 'collateral', 'message', 'is_active']
@@ -170,7 +168,7 @@ class CollateralMessageForm(forms.ModelForm):
             'campaign': forms.Select(attrs={'class': 'form-control', 'id': 'campaign-select'}),
             'collateral': forms.Select(attrs={'class': 'form-control', 'id': 'collateral-select'}),
             'message': forms.Textarea(attrs={
-                'class': 'form-control',
+                'class': 'form-control', 
                 'rows': 8,
                 'placeholder': 'Enter your custom WhatsApp message here. Use $collateralLinks as placeholder for the actual link.',
                 'id': 'message-textarea'
@@ -188,42 +186,32 @@ class CollateralMessageForm(forms.ModelForm):
             self.fields['campaign'].queryset = Campaign.objects.all().order_by('brand_campaign_id')
         self.fields['campaign'].empty_label = "Select Campaign"
 
-        # Collateral queryset: initially empty
-        self.fields['collateral'].queryset = Collateral.objects.none()
-        self.fields['collateral'].empty_label = "First select a campaign"
-
+        # Collateral queryset
         campaign_id = None
 
-        # Case 1: POST data
-        if 'campaign' in self.data:
+        # Case: POST data
+        if self.data.get('campaign'):
             try:
                 campaign_id = int(self.data.get('campaign'))
             except (ValueError, TypeError):
                 campaign_id = None
-        # Case 2: Editing existing instance
+        # Case: Editing existing instance
         elif self.instance.pk and self.instance.campaign:
             campaign_id = self.instance.campaign.pk
 
-        # Populate collateral queryset if campaign_id is known
         if campaign_id:
             qs = Collateral.objects.filter(
                 campaigncollateral__campaign_id=campaign_id
             ).distinct().order_by('title')
             self.fields['collateral'].queryset = qs
-            self.fields['collateral'].empty_label = "Select Collateral"
-
-            # DEBUG: print to console/log
-            print("DEBUG: Campaign ID =", campaign_id)
-            print("DEBUG: Collateral queryset =", list(qs.values('id', 'title')))
+        else:
+            self.fields['collateral'].queryset = Collateral.objects.none()
+            self.fields['collateral'].empty_label = "First select a campaign"
 
     def clean(self):
         cleaned_data = super().clean()
         campaign = cleaned_data.get('campaign')
         collateral = cleaned_data.get('collateral')
-
-        # DEBUG: print submitted IDs
-        print("DEBUG: Submitted campaign =", campaign)
-        print("DEBUG: Submitted collateral =", collateral)
 
         if campaign and collateral:
             existing_message = CollateralMessage.objects.filter(
@@ -236,11 +224,6 @@ class CollateralMessageForm(forms.ModelForm):
                     f"A message already exists for {campaign.brand_campaign_id} - {collateral.title}. "
                     "Please edit the existing message instead of creating a duplicate."
                 )
-
-        # Extra debugging: if collateral is None, show an error on form
-        if campaign and not collateral:
-            self.add_error('collateral', f"No valid collateral found for campaign {campaign.brand_campaign_id}. Check your queryset!")
-
         return cleaned_data
 
 class CollateralMessageSearchForm(forms.Form):
