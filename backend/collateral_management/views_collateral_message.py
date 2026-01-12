@@ -44,6 +44,9 @@ def collateral_message_create(request):
             form.save()
             messages.success(request, 'Collateral message created successfully!')
             return redirect('collateral_message_list')
+        else:
+            # 🔹 Debug: print form errors in server log
+            print("FORM VALIDATION ERRORS:", form.errors)
     else:
         form = CollateralMessageForm()
     
