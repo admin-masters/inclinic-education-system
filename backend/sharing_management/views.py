@@ -9,7 +9,6 @@ import re
 
 from django.conf import settings
 from django.contrib import messages
-from django.contrib.admin.views.decorators import staff_member_required
 from django.core.mail import send_mail
 from django.core.paginator import Paginator
 from django.db.models import Count
@@ -20,7 +19,6 @@ from django.db import connection
 from django.views.decorators.csrf import csrf_exempt
 from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth import get_user_model, login
-from django.contrib.auth.models import User  # Add this line
 
 from .models import ShareLog, VideoTrackingLog, FieldRepresentative
 from campaign_management.models import CampaignCollateral
@@ -57,22 +55,51 @@ from .utils.db_operations import (
     generate_and_store_otp,
     verify_otp
 )
-import random
-import string
-import re
 
-from django.utils import timezone
-from collateral_management.models import Collateral
+
+def _active_window_filter(prefix: str = "", today=None) -> Q:
+    """Build a Q() filter for CampaignCollateral-style start/end date windows.
+
+    Semantics:
+      - start_date is optional: if null, treat as started.
+      - end_date is optional: if null, treat as no end date.
+      - Comparison is done on the DATE portion of DateTimeFields to avoid
+        “midnight cutoff” issues.
+    """
+    if today is None:
+        today = timezone.localdate()
+    if prefix and not prefix.endswith("__"):
+        prefix = f"{prefix}__"
+    return (
+        (Q(**{f"{prefix}start_date__isnull": True}) | Q(**{f"{prefix}start_date__date__lte": today}))
+        & (Q(**{f"{prefix}end_date__isnull": True}) | Q(**{f"{prefix}end_date__date__gte": today}))
+    )
+
+
+def build_whatsapp_url(phone_raw: str, message: str, default_country_code: str = "91") -> str:
+    """Return a wa.me URL for a phone number and message.
+
+    WhatsApp's wa.me expects digits only (no +, spaces, dashes). For common India
+    inputs, this will add country code 91 when a 10-digit number is provided.
+    """
+    digits = re.sub(r"\D", "", phone_raw or "")
+    if not digits:
+        return ""
+    if len(digits) == 10 and default_country_code:
+        digits = f"{default_country_code}{digits}"
+    encoded = quote(message or "", safe="")
+    return f"https://wa.me/{digits}?text={encoded}"
+
 
 def get_active_collaterals_for_brand_campaign(brand_campaign_id: str):
     """
     Returns ONLY collaterals that are:
       1) is_active=True (Collateral flag)
       2) associated to the campaign via collateral_management.CampaignCollateral
-      3) ACTIVE today: start_date <= today <= end_date (inclusive)
+      3) ACTIVE today, where start/end dates (if present) include today.
 
-    Uses DATE comparison (not datetime) to match business definition and avoid
-    edge cases where end_date time is midnight.
+    Uses DATE comparison (not datetime) to avoid edge cases where a DateTime
+    end_date at midnight would unintentionally hide same-day collaterals.
     """
     today = timezone.localdate()
 
@@ -84,11 +111,8 @@ def get_active_collaterals_for_brand_campaign(brand_campaign_id: str):
         Collateral.objects.filter(
             is_active=True,
             campaign_collaterals__campaign__brand_campaign_id=brand_campaign_id,
-            campaign_collaterals__start_date__isnull=False,
-            campaign_collaterals__end_date__isnull=False,
-            campaign_collaterals__start_date__date__lte=today,
-            campaign_collaterals__end_date__date__gte=today,
         )
+        .filter(_active_window_filter(prefix="campaign_collaterals", today=today))
         .distinct()
         .order_by("-created_at")
     )
@@ -172,7 +196,7 @@ def build_wa_link(share_log, request):
         if share_log.message_text
         else f"Hello Doctor, please check this: {short_url}"
     )
-    return f"https://wa.me/{share_log.doctor_identifier}?text={quote(msg_text)}"
+    return build_whatsapp_url(str(getattr(share_log, "doctor_identifier", "")), msg_text)
 
 def get_brand_specific_message(collateral_id, collateral_name, collateral_link):
     """
@@ -249,6 +273,7 @@ def share_content(request):
 
             share_log = ShareLog.objects.create(
                 short_link=short_link,
+                collateral=collateral,
                 field_rep=request.user,
                 doctor_identifier=doctor_contact,
                 share_channel=share_channel,
@@ -1213,16 +1238,14 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
             from django.utils import timezone
-            from django.db.models import Q
-            current_date = timezone.now().date()
+            today = timezone.localdate()
             
             # Filter by campaign dates - only show collaterals that are currently active (not future-dated)
             cc_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
             ).filter(
-                # Apply date filtering - exclude future-dated campaigns
-                Q(start_date__lte=current_date, end_date__gte=current_date) |
-                Q(start_date__isnull=True, end_date__isnull=True)
+                # Apply date filtering using DATE comparison to avoid midnight cutoff issues.
+                _active_window_filter(today=today)
             ).select_related('collateral')
             print(f"[DEBUG] Found {cc_links.count()} campaign-collateral links (after date filtering)")
             
@@ -1504,7 +1527,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                         
                         # Get brand-specific message
                         message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
-                        wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
+                        wa_url = build_whatsapp_url(doctor_whatsapp, message)
                         
                         return JsonResponse({
                             'success': True,
@@ -1561,7 +1584,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 
                 # Get brand-specific message
                 message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
-                wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
+                wa_url = build_whatsapp_url(doctor_whatsapp, message)
                 
                 messages.success(request, f'Collateral shared successfully with {doctor_name}!')
                 return redirect(wa_url)
@@ -1745,20 +1768,14 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
         from collateral_management.models import Collateral, CampaignCollateral as CMCampaignCollateral
         from user_management.models import User
         from django.utils import timezone
-        from django.db.models import Q
-        
-        current_date = timezone.now().date()
+        today = timezone.localdate()
         
         if brand_campaign_id:
             # Filter collaterals by campaign with date filtering - only show currently active campaigns
             campaign_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id,
                 collateral__is_active=True
-            ).filter(
-                # Apply date filtering - exclude future-dated campaigns
-                Q(start_date__lte=current_date, end_date__gte=current_date) |
-                Q(start_date__isnull=True, end_date__isnull=True)
-            ).select_related('collateral')
+            ).filter(_active_window_filter(today=today)).select_related('collateral')
             
             collaterals = [link.collateral for link in campaign_links if link.collateral]
         else:
@@ -1869,7 +1886,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                     message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
                     # Clean phone number for WhatsApp URL (remove +91, +, spaces, etc.)
                     clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
-                    wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
+                    wa_url = build_whatsapp_url(clean_phone, message)
                     
                     messages.success(request, f'Collateral shared successfully with {selected_doctor["name"]}!')
                     return redirect(wa_url)
@@ -2010,7 +2027,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                     message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
                     # Clean phone number for WhatsApp URL (remove +91, +, spaces, etc.)
                     clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
-                    wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
+                    wa_url = build_whatsapp_url(clean_phone, message)
                     
                     messages.success(request, f'Collateral shared successfully with {selected_doctor["name"]}!')
                     return redirect(wa_url)
@@ -2144,16 +2161,13 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
             from django.utils import timezone
-            from django.db.models import Q
-            current_date = timezone.now().date()
+            today = timezone.localdate()
             
             # First from campaign_management.CampaignCollateral with date filtering
             cc_links = CMCampaignCollateral2.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
             ).filter(
-                # Apply date filtering
-                Q(start_date__lte=current_date, end_date__gte=current_date) |
-                Q(start_date__isnull=True, end_date__isnull=True)
+                _active_window_filter(today=today)
             ).select_related('collateral', 'campaign')
             # Note: campaign_management.Collateral doesn't have is_active field, so we don't filter on it
             campaign_collaterals = [link.collateral for link in cc_links if link.collateral]
@@ -2163,9 +2177,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 campaign__brand_campaign_id=brand_campaign_id,
                 collateral__is_active=True
             ).filter(
-                # Apply date filtering
-                Q(start_date__lte=current_date, end_date__gte=current_date) |
-                Q(start_date__isnull=True, end_date__isnull=True)
+                _active_window_filter(today=today)
             ).select_related('collateral', 'campaign')
             collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and getattr(link.collateral, 'is_active', True)]
             
@@ -2311,7 +2323,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 if success:
                     message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
                     clean_phone = (doc.phone or '').replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
-                    wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
+                    wa_url = build_whatsapp_url(clean_phone, message)
                     messages.success(request, f"Message prepared for {doc.name}. Redirecting to WhatsApp…")
                     return redirect(wa_url)
                 else:
@@ -3248,16 +3260,13 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
             from django.utils import timezone
-            from django.db.models import Q
-            current_date = timezone.now().date()
+            today = timezone.localdate()
             
             # First from campaign_management.CampaignCollateral with date filtering
             cc_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
             ).filter(
-                # Apply date filtering - exclude future-dated campaigns
-                Q(start_date__lte=current_date, end_date__gte=current_date) |
-                Q(start_date__isnull=True, end_date__isnull=True)
+                _active_window_filter(today=today)
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management (after date filtering)")
             
@@ -3268,9 +3277,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
             collateral_links = CampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
             ).filter(
-                # Apply date filtering - exclude future-dated campaigns
-                Q(start_date__lte=current_date, end_date__gte=current_date) |
-                Q(start_date__isnull=True, end_date__isnull=True)
+                _active_window_filter(today=today)
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management (after date filtering)")
             
@@ -3456,7 +3463,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                 if success:
                     message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
                     clean_phone = (doc.phone or '').replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
-                    wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
+                    wa_url = build_whatsapp_url(clean_phone, message)
                     messages.success(request, f"Message prepared for {doc.name}. Redirecting to WhatsApp…")
                     return redirect(wa_url)
                 else:
@@ -3530,7 +3537,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     
                     # Clean phone number for WhatsApp URL
                     whatsapp_phone = clean_phone  # Already cleaned to 10 digits
-                    wa_url = f"https://wa.me/91{whatsapp_phone}?text={urllib.parse.quote(message)}"
+                    wa_url = build_whatsapp_url(whatsapp_phone, message)
                     
                     # Add success message and redirect to WhatsApp
                     messages.success(request, f'Collateral shared successfully with {doctor_name}!')
@@ -4179,7 +4186,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             if success:
                 message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
                 clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
-                wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
+                wa_url = build_whatsapp_url(clean_phone, message)
                 messages.success(request, f"Message sent to {selected_doctor['name']}")
                 return redirect(wa_url)
             messages.error(request, 'Error sharing collateral. Please try again.')
