@@ -13,6 +13,7 @@ from collateral_management.models import Collateral
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
 from campaign_management.models import Campaign
 from .models import ShareLog
+from campaign_management.models import CampaignAssignment
 
 # ─── Common constants ──────────────────────────────────────────────────────────
 CHANNEL_CHOICES = (
@@ -405,7 +406,6 @@ class BulkManualShareForm(forms.Form):
         from django.utils import timezone
         from datetime import timedelta
         from campaign_management.models import CampaignAssignment
-        from admin_dashboard.models import FieldRepCampaign
 
         data = self.cleaned_data["csv_file"].read().decode()
         file_obj = io.StringIO(data)
@@ -577,30 +577,31 @@ class BulkManualShareForm(forms.Form):
                     
                     if rep_found:
                         created += 1
-                        # Add success message for debugging - show which method matched
-                        success_messages.append(f"Row {row_no}: {rep_info} found and validated")
-                        
-                        # Create campaign assignment if campaign is provided
+                        success_messages.append(
+                            f"Row {row_no}: {rep_info} found and validated"
+                        )
+
                         if campaign and rep:
                             try:
-                                # Create CampaignAssignment for field rep portal
                                 assignment, assignment_created = CampaignAssignment.objects.get_or_create(
                                     field_rep=rep,
                                     campaign=campaign
                                 )
+
                                 if assignment_created:
                                     campaign_assignments_created += 1
-                                    success_messages.append(f"Row {row_no}: Assigned {rep_info} to campaign {campaign.brand_campaign_id}")
-                                
-                                # Also create FieldRepCampaign for admin dashboard compatibility
-                                FieldRepCampaign.objects.get_or_create(
-                                    field_rep=rep,
-                                    campaign=campaign
-                                )
+                                    success_messages.append(
+                                        f"Row {row_no}: Assigned {rep_info} "
+                                        f"to campaign {campaign.brand_campaign_id}"
+                                    )
+
                             except Exception as assignment_error:
                                 print(f"DEBUG: Failed to create campaign assignment: {assignment_error}")
-                                errors.append(f"Row {row_no}: Failed to assign {rep_info} to campaign: {assignment_error}")
-                    
+                                errors.append(
+                                    f"Row {row_no}: Failed to assign {rep_info} "
+                                    f"to campaign: {assignment_error}"
+                                )
+
                 except Exception as exc:
                     errors.append(f"Row {row_no}: {exc}")
         
@@ -737,9 +738,7 @@ class BulkManualShareForm(forms.Form):
                 errors.append("First few columns detected: " + ", ".join([f'"{c}"' for c in peek[:3]]))
 
         # Combine errors and success messages for display
-        all_messages = errors + success_messages
-        return created, all_messages, []
-
+        return created, success_messages, errors
 
 # ─── Bulk *pre‑mapped* upload (new) ────────────────────────────────────────────
 _whatsapp_re = re.compile(r"^\+?\d{8,15}$")   # very loose
