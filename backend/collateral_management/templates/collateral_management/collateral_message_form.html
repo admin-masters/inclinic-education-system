@@ -115,71 +115,91 @@
 </div>
 
 <script>
-document.addEventListener('DOMContentLoaded', function() {
-    const campaignSelect = document.getElementById('campaign-select');
-    const collateralSelect = document.getElementById('collateral-select');
-    const messageTextarea = document.getElementById('message-textarea');
+document.addEventListener('DOMContentLoaded', function () {
+
+    // CORRECT Django form field IDs
+    const campaignSelect = document.getElementById('id_campaign');
+    const collateralSelect = document.getElementById('id_collateral');
+    const messageTextarea = document.getElementById('id_message');
     const messagePreview = document.getElementById('message-preview');
-    
+
+    if (!campaignSelect || !collateralSelect) return;
+
     // Load collaterals when campaign changes
-    campaignSelect.addEventListener('change', function() {
+    campaignSelect.addEventListener('change', function () {
         const campaignId = this.value;
-        
-        if (campaignId) {
-            fetch('/collateral-messages/get-collaterals/?campaign_id=' + campaignId)
-                .then(response => response.json())
-                .then(data => {
-                    collateralSelect.innerHTML = '<option value="">Select Collateral</option>';
-                    
-                    if (data.collaterals) {
-                        data.collaterals.forEach(function(collateral) {
-                            const option = document.createElement('option');
-                            option.value = collateral.id;
-                            option.textContent = collateral.title + ' (' + collateral.type + ')';
-                            collateralSelect.appendChild(option);
-                        });
-                    }
-                })
-                .catch(function(error) {
-                    console.error('Error loading collaterals:', error);
-                    collateralSelect.innerHTML = '<option value="">Error loading collaterals</option>';
+
+        collateralSelect.innerHTML = '<option value="">Loading...</option>';
+
+        if (!campaignId) {
+            collateralSelect.innerHTML = '<option value="">Select campaign first</option>';
+            return;
+        }
+
+        // IMPORTANT: relative URL (correct for your routing)
+        fetch('../get-collaterals/?campaign_id=' + campaignId)
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('HTTP ' + response.status);
+                }
+                return response.json();
+            })
+            .then(data => {
+                collateralSelect.innerHTML = '<option value="">Select Collateral</option>';
+
+                if (!data.collaterals || data.collaterals.length === 0) {
+                    collateralSelect.innerHTML = '<option value="">No collaterals found</option>';
+                    return;
+                }
+
+                data.collaterals.forEach(collateral => {
+                    const option = document.createElement('option');
+                    option.value = collateral.id;
+                    option.textContent = collateral.title + (collateral.type ? ` (${collateral.type})` : '');
+                    collateralSelect.appendChild(option);
                 });
-        } else {
-            collateralSelect.innerHTML = '<option value="">First select a campaign</option>';
-        }
+            })
+            .catch(error => {
+                console.error('Error loading collaterals:', error);
+                collateralSelect.innerHTML = '<option value="">Error loading collaterals</option>';
+            });
     });
-    
-    // Update message preview
-    messageTextarea.addEventListener('input', function() {
-        const message = this.value;
-        if (message.trim()) {
-            // Replace $collateralLinks with a sample link for preview
+
+    // Message preview
+    if (messageTextarea) {
+        messageTextarea.addEventListener('input', function () {
+            const message = this.value.trim();
+
+            if (!message) {
+                messagePreview.innerHTML = '<em class="text-muted">Start typing to see preview...</em>';
+                return;
+            }
+
             const previewMessage = message.replace(
-                /\$collateralLinks/g, 
-                '<a href="#" target="_blank" style="color: #007bff;">View Collateral</a>'
+                /\$collateralLinks/g,
+                '<a href="#" target="_blank" style="color:#007bff;">View Collateral</a>'
             );
+
             messagePreview.innerHTML = previewMessage.replace(/\n/g, '<br>');
-        } else {
-            messagePreview.innerHTML = '<em class="text-muted">Start typing to see preview...</em>';
-        }
-    });
-    
-    // Load existing data if editing
+        });
+    }
+
+    // Edit mode support
     {% if message %}
-        // Trigger campaign change to load collaterals
         if (campaignSelect.value) {
             campaignSelect.dispatchEvent(new Event('change'));
-            
-            // Set collateral after a delay to allow options to load
-            setTimeout(function() {
+
+            setTimeout(function () {
                 collateralSelect.value = '{{ message.collateral.id }}';
-                // Trigger message preview update
-                messageTextarea.dispatchEvent(new Event('input'));
+                if (messageTextarea) {
+                    messageTextarea.dispatchEvent(new Event('input'));
+                }
             }, 500);
         }
     {% endif %}
 });
 </script>
+
 
 <style>
 #message-preview {
