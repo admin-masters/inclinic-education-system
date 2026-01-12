@@ -524,115 +524,106 @@ def fieldrep_campaign_detail(request, campaign_id):
 
 
 def bulk_manual_upload(request):
-    # Get campaign parameter to preserve context
-    campaign_param = request.GET.get('campaign', '')
+    # Preserve brand campaign context
+    campaign_param = request.GET.get('campaign', '').strip()
     campaign = None
-    
-    # Get campaign object if parameter provided
+
     if campaign_param:
         try:
             from campaign_management.models import Campaign
             campaign = Campaign.objects.get(brand_campaign_id=campaign_param)
         except Campaign.DoesNotExist:
+            messages.error(request, "Invalid Brand Campaign ID.")
             campaign = None
-    
+
     if request.method == "POST":
-        print(f"POST request received with files: {request.FILES}")
-        
-        # Simple test redirect first
-        if 'test_redirect' in request.POST:
-            messages.success(request, "Test redirect working!")
-            if campaign_param:
-                return redirect(f"{reverse('fieldrep_dashboard')}?campaign={campaign_param}")
-            return redirect("fieldrep_dashboard")
-        
         form = BulkManualShareForm(request.POST, request.FILES)
-        print(f"Form is valid: {form.is_valid()}")
-        
+
         if form.is_valid():
             try:
-                # Debug: Show CSV content
                 csv_file = request.FILES['csv_file']
-                csv_content = csv_file.read().decode('utf-8')
-                print(f"CSV Content:\n{csv_content}")
-                
-                # Check what field reps actually exist
-                from django.contrib.auth import get_user_model
-                UserModel = get_user_model()
-                existing_field_reps = UserModel.objects.filter(role="field_rep").values_list('email', flat=True)
-                existing_field_ids = UserModel.objects.filter(role="field_rep").values_list('field_id', flat=True).exclude(field_id__isnull=True).exclude(field_id='')
-                print(f"Existing field reps in database: {list(existing_field_reps)}")
-                print(f"Existing field IDs in database: {list(existing_field_ids)}")
-                
-                # Reset file pointer for form processing
                 csv_file.seek(0)
-                
-                created, all_messages, errors = form.save(user_request=request.user, campaign=campaign)
-                print(f"Created: {created}, Messages: {all_messages}, Errors: {errors}")
-                
-                # Display all messages
+
+                created, all_messages, errors = form.save(
+                    user_request=request.user,
+                    campaign=campaign
+                )
+
+                # Show success/info messages
                 for msg in all_messages:
-                    if "Auto-created" in msg or "found and validated" in msg or "Assigned" in msg:
-                        messages.success(request, msg)
-                    else:
-                        messages.info(request, msg)
-                
+                    messages.success(request, msg)
+
                 for error in errors:
                     messages.error(request, error)
-                
-                if created and created > 0:
-                    print("Redirecting to admin dashboard with campaign context")
-                    # Redirect to admin dashboard field reps page with campaign parameter
+
+                if created > 0:
+                    messages.success(
+                        request,
+                        f"{created} field reps successfully registered for this campaign."
+                    )
+
+                    # ✅ Redirect to Field Rep Portal (NOT Admin)
                     if campaign_param:
-                        return redirect(f"/admin-dashboard/fieldreps/?campaign={campaign_param}")
-                    return redirect("/admin-dashboard/fieldreps/")
-                else:
-                    # No successes
-                    messages.error(request, "No rows were validated. Please check your CSV file format and data.")
+                        return redirect(
+                            f"{reverse('fieldrep_dashboard')}?campaign={campaign_param}"
+                        )
+
+                    return redirect("fieldrep_dashboard")
+
+                messages.error(
+                    request,
+                    "No valid rows found in CSV. Please check the file."
+                )
+
             except Exception as e:
-                print(f"Error in bulk_manual_upload: {str(e)}")
-                messages.error(request, f"An error occurred: {str(e)}")
+                messages.error(request, f"Bulk upload failed: {str(e)}")
+
         else:
-            messages.error(request, "Form is not valid. Please check your file and try again.")
-            print(f"Form errors: {form.errors}")
-    
+            messages.error(request, "Invalid CSV file. Please fix errors and retry.")
+
     else:
         form = BulkManualShareForm()
-    
-    return render(request, "sharing_management/bulk_manual_upload.html", {"form": form})
 
+    return render(
+        request,
+        "sharing_management/bulk_manual_upload.html",
+        {
+            "form": form,
+            "campaign_param": campaign_param
+        }
+    )
 
 def bulk_upload_success(request):
-    """
-    Show recently uploaded data from bulk upload
-    """
-    from datetime import datetime, timedelta
+    from datetime import timedelta
     from django.contrib.auth import get_user_model
-    
-    # Get campaign parameter from URL
+
     campaign_param = request.GET.get('campaign', '')
-    
-    # Get recent field reps created in last 1 hour
+
     recent_time = timezone.now() - timedelta(hours=1)
     UserModel = get_user_model()
+
     recent_field_reps = UserModel.objects.filter(
         role="field_rep",
         date_joined__gte=recent_time
     ).order_by('-date_joined')[:50]
-    
-    # Also get recent ShareLog entries for 6-column format uploads
+
     recent_uploads = ShareLog.objects.filter(
         created_at__gte=recent_time
-    ).select_related('collateral', 'field_rep', 'short_link').order_by('-created_at')[:50]
-    
-    return render(request, "sharing_management/bulk_upload_success.html", {
-        "recent_field_reps": recent_field_reps,
-        "recent_uploads": recent_uploads,
-        "total_field_reps": recent_field_reps.count(),
-        "total_uploads": recent_uploads.count(),
-        "campaign_param": campaign_param  # Pass campaign parameter to template
-    })
+    ).select_related(
+        'collateral', 'field_rep', 'short_link'
+    ).order_by('-created_at')[:50]
 
+    return render(
+        request,
+        "sharing_management/bulk_upload_success.html",
+        {
+            "recent_field_reps": recent_field_reps,
+            "recent_uploads": recent_uploads,
+            "total_field_reps": recent_field_reps.count(),
+            "total_uploads": recent_uploads.count(),
+            "campaign_param": campaign_param,
+        }
+    )
 
 def all_share_logs(request):
     """
