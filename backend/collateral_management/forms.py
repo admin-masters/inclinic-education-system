@@ -161,7 +161,7 @@ class CampaignCollateralForm(forms.ModelForm):
         fields = ['campaign', 'collateral', 'start_date', 'end_date']
 
 class CollateralMessageForm(forms.ModelForm):
-    """Form for adding custom WhatsApp messages for specific collaterals"""
+    """Form for adding custom WhatsApp messages for specific collaterals (with debugging)"""
 
     class Meta:
         model = CollateralMessage
@@ -188,7 +188,7 @@ class CollateralMessageForm(forms.ModelForm):
             self.fields['campaign'].queryset = Campaign.objects.all().order_by('brand_campaign_id')
         self.fields['campaign'].empty_label = "Select Campaign"
 
-        # Collateral queryset: handle initial, POST, and instance
+        # Collateral queryset: initially empty
         self.fields['collateral'].queryset = Collateral.objects.none()
         self.fields['collateral'].empty_label = "First select a campaign"
 
@@ -206,16 +206,24 @@ class CollateralMessageForm(forms.ModelForm):
 
         # Populate collateral queryset if campaign_id is known
         if campaign_id:
-            # Adjust the filter based on your related_name / model relationship
-            self.fields['collateral'].queryset = Collateral.objects.filter(
+            qs = Collateral.objects.filter(
                 campaigncollateral__campaign_id=campaign_id
             ).distinct().order_by('title')
+            self.fields['collateral'].queryset = qs
             self.fields['collateral'].empty_label = "Select Collateral"
+
+            # DEBUG: print to console/log
+            print("DEBUG: Campaign ID =", campaign_id)
+            print("DEBUG: Collateral queryset =", list(qs.values('id', 'title')))
 
     def clean(self):
         cleaned_data = super().clean()
         campaign = cleaned_data.get('campaign')
         collateral = cleaned_data.get('collateral')
+
+        # DEBUG: print submitted IDs
+        print("DEBUG: Submitted campaign =", campaign)
+        print("DEBUG: Submitted collateral =", collateral)
 
         if campaign and collateral:
             existing_message = CollateralMessage.objects.filter(
@@ -229,8 +237,11 @@ class CollateralMessageForm(forms.ModelForm):
                     "Please edit the existing message instead of creating a duplicate."
                 )
 
-        return cleaned_data
+        # Extra debugging: if collateral is None, show an error on form
+        if campaign and not collateral:
+            self.add_error('collateral', f"No valid collateral found for campaign {campaign.brand_campaign_id}. Check your queryset!")
 
+        return cleaned_data
 
 class CollateralMessageSearchForm(forms.Form):
     """Form for searching existing collateral messages"""
