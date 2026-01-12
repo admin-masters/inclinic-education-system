@@ -64,22 +64,6 @@ import re
 from django.utils import timezone
 from collateral_management.models import Collateral
 
-def _active_window_filter(today=None) -> Q:
-    """Return a Q() for items active in the campaign calendar window.
-
-    Current codebase semantics (kept for backwards compatibility):
-      - Active if (start_date <= today <= end_date)
-        OR (start_date IS NULL AND end_date IS NULL).
-
-    `today` should be a date (defaults to timezone.localdate()).
-    """
-    if today is None:
-        today = timezone.localdate()
-    return (
-        Q(start_date__lte=today, end_date__gte=today)
-        | Q(start_date__isnull=True, end_date__isnull=True)
-    )
-
 def get_active_collaterals_for_brand_campaign(brand_campaign_id: str):
     """
     Returns ONLY collaterals that are:
@@ -235,28 +219,13 @@ def share_content(request):
         form = ShareForm(request.POST, user=request.user, brand_campaign_id=brand_campaign_id)
         if form.is_valid():
             collateral = form.cleaned_data['collateral']
+            # Guardrail: do not allow sharing inactive collaterals
+            if hasattr(collateral, 'is_active') and not collateral.is_active:
+                messages.error(request, 'Selected collateral is inactive and cannot be shared.')
+                return redirect('share_content')
             doctor_contact = form.cleaned_data['doctor_contact'].strip()
             share_channel = form.cleaned_data['share_channel']
             message_text = form.cleaned_data['message_text']
-
-            # Prevent sharing collaterals that are outside the active campaign window.
-            # (Only enforced when a brand_campaign_id is provided.)
-            if brand_campaign_id:
-                today = timezone.localdate()
-                is_active_in_campaign = (
-                    CMCampaignCollateral.objects.filter(
-                        campaign__brand_campaign_id=str(brand_campaign_id),
-                        collateral_id=getattr(collateral, "id", None),
-                    )
-                    .filter(_active_window_filter(today=today))
-                    .exists()
-                )
-                if not is_active_in_campaign:
-                    messages.error(
-                        request,
-                        "This collateral is not currently active for the selected campaign.",
-                    )
-                    return redirect("share_content")
 
             short_link = find_or_create_short_link(collateral, request.user)
 
@@ -1513,7 +1482,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                         from .utils.db_operations import log_manual_doctor_share
                         # Get the short link for this collateral
                         from collateral_management.models import Collateral
-                        collateral_obj = Collateral.objects.get(id=collateral_id)
+                        collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                         short_link = find_or_create_short_link(collateral_obj, fieldrep_user)
                         
                         # Log the share
@@ -1583,7 +1552,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 from .utils.db_operations import log_manual_doctor_share
                 # Get the short link for this collateral
                 from collateral_management.models import Collateral
-                collateral_obj = Collateral.objects.get(id=collateral_id)
+                collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, fieldrep_user)
                 
                 # Log the share
@@ -1888,7 +1857,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                     return redirect('prefilled_fieldrep_share_collateral')
                 
                 # Get the short link for this collateral
-                collateral_obj = Collateral.objects.get(id=collateral_id)
+                collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, actual_user)
                 
                 # Share the prefilled doctor (use actual_user.id instead of field_rep_id)
@@ -2029,7 +1998,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                     return redirect('prefilled_fieldrep_share_collateral')
             
                 # Get the short link for this collateral
-                collateral_obj = Collateral.objects.get(id=collateral_id)
+                collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, actual_user)
                 
                 # Share the prefilled doctor (use actual_user.id instead of field_rep_id)
@@ -2333,7 +2302,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                         password=User.objects.make_random_password()
                     )
 
-                collateral_obj = Collateral.objects.get(id=collateral_id)
+                collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, field_rep_user)
 
                 success = log_manual_doctor_share(
@@ -2391,7 +2360,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                         first_name=f"Field Rep {field_rep_id}",
                         password=User.objects.make_random_password()
                     )
-                collateral_obj = Collateral.objects.get(id=collateral_id)
+                collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, field_rep_user)
 
                 # Create/update doctor record linked to the field rep
@@ -2720,15 +2689,9 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                 # Get collaterals for the campaign
                 campaign_collaterals = []
                 if campaign:
-                    current_date = timezone.localdate()
-                    campaign_collaterals = list(
-                        CampaignCollateral.objects.filter(
-                            campaign=campaign,
-                            collateral__is_active=True
-                        ).filter(
-                            _active_window_filter(today=current_date)
-                        ).values_list('collateral_id', flat=True)
-                    )
+                    campaign_collaterals = list(CampaignCollateral.objects.filter(
+                        campaign=campaign
+                    ).values_list('collateral_id', flat=True))
                 
                 # Get doctors assigned to this field rep using the reverse relation
                 doctors_qs = field_rep_user.doctors.all()
@@ -2848,12 +2811,9 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                 print(f"[DEBUG] Fetching collaterals for campaign: {campaign.id} - {campaign.name}")
                 try:
                     # Get active campaign collaterals with related collateral data
-                    current_date = timezone.localdate()
                     campaign_collaterals = CampaignCollateral.objects.filter(
                         campaign=campaign,
                         collateral__is_active=True
-                    ).filter(
-                        _active_window_filter(today=current_date)
                     ).select_related('collateral').order_by('-collateral__created_at')
                     
                     print(f"[DEBUG] Found {campaign_collaterals.count()} campaign collaterals")
@@ -2944,7 +2904,7 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                                 messages.error(request, 'Doctor not found')
                                 return redirect(request.path)
                         
-                        collateral = Collateral.objects.get(id=collateral_id)
+                        collateral = Collateral.objects.get(id=collateral_id, is_active=True)
                     except (ValueError, TypeError) as e:
                         messages.error(request, f'Error processing request: {str(e)}')
                         return redirect(request.path)
@@ -3063,7 +3023,7 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                                 messages.error(request, 'Doctor not found')
                                 return redirect(request.path)
                         
-                        collateral = Collateral.objects.get(id=collateral_id)
+                        collateral = Collateral.objects.get(id=collateral_id, is_active=True)
                     except (ValueError, TypeError) as e:
                         messages.error(request, f'Error processing request: {str(e)}')
                         return redirect(request.path)
@@ -3486,7 +3446,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     return redirect(request.path)
 
                 # Build short link for selected collateral
-                collateral_obj = Collateral.objects.get(id=collateral_id)
+                collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, actual_user)
 
                 # Log share with doctor's phone
@@ -4072,13 +4032,8 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
             
             # First from campaign_management.CampaignCollateral
-            current_date = timezone.localdate()
-
-            # First from campaign_management.CampaignCollateral (ACTIVE today)
             cc_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
-            ).filter(
-                _active_window_filter(today=current_date)
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management")
             
@@ -4088,8 +4043,6 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             # Then from collateral_management.CampaignCollateral
             collateral_links = CampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
-            ).filter(
-                _active_window_filter(today=current_date)
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management")
             
@@ -4217,7 +4170,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
                 messages.error(request, 'Unable to create user for short link. Please try again.')
                 return redirect('prefilled_fieldrep_whatsapp_share_collateral')
             
-            collateral_obj = Collateral.objects.get(id=collateral_id)
+            collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
             short_link = find_or_create_short_link(collateral_obj, actual_user)
             
             success = share_prefilled_doctor(
