@@ -162,7 +162,7 @@ class CampaignCollateralForm(forms.ModelForm):
 
 class CollateralMessageForm(forms.ModelForm):
     """Form for adding custom WhatsApp messages for specific collaterals"""
-    
+
     class Meta:
         model = CollateralMessage
         fields = ['campaign', 'collateral', 'message', 'is_active']
@@ -170,65 +170,68 @@ class CollateralMessageForm(forms.ModelForm):
             'campaign': forms.Select(attrs={'class': 'form-control', 'id': 'campaign-select'}),
             'collateral': forms.Select(attrs={'class': 'form-control', 'id': 'collateral-select'}),
             'message': forms.Textarea(attrs={
-                'class': 'form-control', 
-                'rows': 8, 
+                'class': 'form-control',
+                'rows': 8,
                 'placeholder': 'Enter your custom WhatsApp message here. Use $collateralLinks as placeholder for the actual link.',
                 'id': 'message-textarea'
             }),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
-    
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        
-        # Filter campaigns to only active ones
+
+        # Filter campaigns to only active ones, fallback if no 'is_active' field
         try:
             self.fields['campaign'].queryset = Campaign.objects.filter(is_active=True).order_by('brand_campaign_id')
         except FieldError:
-            # Some deployments use Campaign.status instead of an is_active boolean.
-            # Fall back to showing all campaigns rather than 500'ing.
             self.fields['campaign'].queryset = Campaign.objects.all().order_by('brand_campaign_id')
         self.fields['campaign'].empty_label = "Select Campaign"
-        
-        # Set collateral queryset depending on campaign selection in data or instance
+
+        # Determine campaign_id from form data or instance (editing)
+        campaign_id = None
         if 'campaign' in self.data:
             try:
                 campaign_id = int(self.data.get('campaign'))
+            except (ValueError, TypeError):
+                campaign_id = None
+        elif self.instance.pk and self.instance.campaign:
+            campaign_id = self.instance.campaign.id
+
+        if campaign_id:
+            try:
+                # Adjust this filter if your related_name on CampaignCollateral differs
                 self.fields['collateral'].queryset = Collateral.objects.filter(
                     campaigncollateral__campaign_id=campaign_id
                 ).order_by('title')
                 self.fields['collateral'].empty_label = "Select Collateral"
-            except (ValueError, TypeError):
+            except Exception as e:
+                # For debugging, print error; replace with logging in production
+                print(f"Error setting collateral queryset: {e}")
                 self.fields['collateral'].queryset = Collateral.objects.none()
                 self.fields['collateral'].empty_label = "First select a campaign"
-        elif self.instance.pk and self.instance.campaign:
-            campaign = self.instance.campaign
-            self.fields['collateral'].queryset = Collateral.objects.filter(
-                campaigncollateral__campaign=campaign
-            ).order_by('title')
-            self.fields['collateral'].empty_label = "Select Collateral"
         else:
             self.fields['collateral'].queryset = Collateral.objects.none()
             self.fields['collateral'].empty_label = "First select a campaign"
-    
+
     def clean(self):
         cleaned_data = super().clean()
         campaign = cleaned_data.get('campaign')
         collateral = cleaned_data.get('collateral')
-        
+
         # Check if message already exists for this campaign-collateral combination
         if campaign and collateral:
             existing_message = CollateralMessage.objects.filter(
-                campaign=campaign, 
+                campaign=campaign,
                 collateral=collateral
             ).exclude(pk=self.instance.pk if self.instance.pk else None)
-            
+
             if existing_message.exists():
                 raise forms.ValidationError(
                     f"A message already exists for {campaign.brand_campaign_id} - {collateral.title}. "
                     "Please edit the existing message instead of creating a duplicate."
                 )
-        
+
         return cleaned_data
 
 
