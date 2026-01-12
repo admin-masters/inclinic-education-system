@@ -5,7 +5,7 @@
 {% if verified and collateral %}
 
 <div class="container mt-4">
-  <div class="card mx-auto" style="max-width: 800px">
+  <div class="card mx-auto" style="max-width: 900px">
 
     <div class="card-header text-center">
       <h4 class="mb-0">{{ collateral.title }}</h4>
@@ -21,18 +21,51 @@
 
     <div class="card-body text-center">
 
+      <!-- ===== 1) Banner (PRIMARY) ===== -->
+      {% comment %}
+        show banner_1 (primary) and banner_2 (secondary) if present.
+        For remote storage you can pass absolute_banner_1 from view using _safe_absolute_file_url.
+      {% endcomment %}
+      {% if collateral.banner_1 or collateral.banner_2 %}
+        <div class="mb-4">
+          {% if collateral.banner_1 %}
+            <div class="mb-3">
+              <img
+                src="{{ collateral.banner_1.url }}"
+                alt="{{ collateral.title }} banner"
+                class="img-fluid w-100 rounded"
+                style="object-fit: cover; max-height: 300px;"
+              />
+            </div>
+          {% endif %}
+
+          {% if collateral.banner_2 %}
+            <div>
+              <img
+                src="{{ collateral.banner_2.url }}"
+                alt="{{ collateral.title }} secondary banner"
+                class="img-fluid w-100 rounded"
+                style="object-fit: cover; max-height: 180px;"
+              />
+            </div>
+          {% endif %}
+        </div>
+      {% endif %}
+
+      <!-- ===== 2) Video (if present) ===== -->
       {% if collateral.vimeo_url %}
         <div class="ratio ratio-16x9 mb-3">
           {% if "vimeo.com" in collateral.vimeo_url %}
-            <!-- Full Vimeo URL provided -->
+            <!-- full vimeo url provided -->
             <iframe src="{{ collateral.vimeo_url }}" allowfullscreen></iframe>
           {% else %}
-            <!-- Vimeo video ID provided, construct full URL -->
+            <!-- vimeo id provided -->
             <iframe src="https://player.vimeo.com/video/{{ collateral.vimeo_url }}" allowfullscreen></iframe>
           {% endif %}
         </div>
       {% endif %}
 
+      <!-- ===== 3) PDF (if present) ===== -->
       {% if collateral.file %}
         <a
           href="{{ absolute_pdf_url|default:'#' }}"
@@ -47,7 +80,7 @@
         <p>If you are not able to see the PDF, please refresh the page!</p>
 
         <div
-          class="pdf-container"
+          class="pdf-container mb-4"
           style="
             border: 1px solid #ccc;
             height: 600px;
@@ -65,6 +98,7 @@
               display: flex;
               gap: 10px;
               align-items: center;
+              justify-content: center;
             "
           >
             <a
@@ -96,17 +130,7 @@
         </div>
       {% endif %}
 
-      {% if not collateral.file and not collateral.vimeo_url %}
-        <div class="alert alert-info">
-          <h5>Content Preview</h5>
-          <p><strong>Title:</strong> {{ collateral.title }}</p>
-          {% if collateral.description %}
-            <p><strong>Description:</strong> {{ collateral.description }}</p>
-          {% endif %}
-          <p><strong>Type:</strong> {{ collateral.type }}</p>
-        </div>
-      {% endif %}
-
+      <!-- ===== 4) Archives ===== -->
       {% if archives %}
         <hr class="my-4" />
         <div class="text-start">
@@ -139,7 +163,7 @@
         </div>
       {% endif %}
 
-      <!-- === Webinar Section === -->
+      <!-- ===== 5) Webinar ===== -->
       {% if collateral.webinar_title or collateral.webinar_url %}
         <hr class="my-4" />
         <div class="text-start">
