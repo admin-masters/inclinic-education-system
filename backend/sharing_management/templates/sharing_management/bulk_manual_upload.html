@@ -11,6 +11,11 @@
     <div class="card-body">
       <form method="post" enctype="multipart/form-data" class="mb-3">
         {% csrf_token %}
+
+        {% if request.GET.campaign %}
+          <input type="hidden" name="campaign" value="{{ request.GET.campaign }}">
+        {% endif %}
+
         <div class="mb-3">
           <label class="form-label fw-semibold">Choose a CSV file:</label>
           {{ form.csv_file }}
@@ -19,12 +24,10 @@
           {% endif %}
         </div>
 
-        <button type="submit"
-                class="btn btn-primary w-100 mb-3">
+        <button type="submit" class="btn btn-primary w-100 mb-3">
           Upload
         </button>
       </form>
-
 
       <a href="{% url 'bulk_manual_template' %}"
          class="btn btn-secondary w-100">
