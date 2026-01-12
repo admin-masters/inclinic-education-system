@@ -177,22 +177,26 @@ def build_wa_link(share_log, request):
 from collateral_management.models import CollateralMessage
 from campaign_management.models import CampaignCollateral
 
-from collateral_management.models import CollateralMessage
-from collateral_management.models import Collateral
-
-def get_brand_specific_message(collateral_id, collateral_link):
+def get_brand_specific_message(collateral_id, collateral_name, collateral_link):
     """
-    Get the custom message for a collateral, or fallback to default.
+    Get the custom message for a collateral in a campaign,
+    or fallback to default message if none exists.
     """
-    # Directly fetch the first active CollateralMessage for this collateral
-    custom_message = CollateralMessage.objects.filter(
-        collateral_id=collateral_id,
-        is_active=True
-    ).first()
-
-    if custom_message and custom_message.message:
-        message_text = custom_message.message.replace('$collateralLinks', collateral_link)
-        return message_text
+    # Find the campaign associated with this collateral
+    campaign_collateral = CampaignCollateral.objects.filter(collateral_id=collateral_id).first()
+    
+    if campaign_collateral and campaign_collateral.campaign:
+        # Look for an active CollateralMessage for this campaign & collateral
+        custom_message = CollateralMessage.objects.filter(
+            campaign=campaign_collateral.campaign,
+            collateral_id=collateral_id,
+            is_active=True
+        ).first()
+        
+        if custom_message and custom_message.message:
+            # Replace placeholder with actual collateral link
+            message_text = custom_message.message.replace('$collateralLinks', collateral_link)
+            return message_text
 
     # Fallback default message
     return f"Hello Doctor, IAP's latest expert module— Mini CME on Managing Drug-Resistant Infections in Pediatrics Strategies for using cefixime, cephalosporins, and carbapenems in complex cases, by Dr. Shekhar Biswas, covers strategies for using cefixime, cephalosporins, and carbapenems in complex pediatric cases. The presentation dives into understanding drug resistance, clinical evidence, and advanced therapeutic approaches to tackle multi-drug-resistant pathogens, along with antibiotic stewardship and infection control measures.\n\nView it here: {collateral_link}\n\nThis content is shared with you under a distribution license obtained from IAP by Alkem Laboratories Ltd."
