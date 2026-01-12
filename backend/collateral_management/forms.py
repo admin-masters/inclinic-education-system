@@ -160,7 +160,6 @@ class CampaignCollateralForm(forms.ModelForm):
         model  = CampaignCollateral
         fields = ['campaign', 'collateral', 'start_date', 'end_date']
 
-
 class CollateralMessageForm(forms.ModelForm):
     """Form for adding custom WhatsApp messages for specific collaterals"""
     
@@ -191,9 +190,26 @@ class CollateralMessageForm(forms.ModelForm):
             self.fields['campaign'].queryset = Campaign.objects.all().order_by('brand_campaign_id')
         self.fields['campaign'].empty_label = "Select Campaign"
         
-        # Initially empty collateral queryset - will be populated via JavaScript
-        self.fields['collateral'].queryset = Collateral.objects.none()
-        self.fields['collateral'].empty_label = "First select a campaign"
+        # Set collateral queryset depending on campaign selection in data or instance
+        if 'campaign' in self.data:
+            try:
+                campaign_id = int(self.data.get('campaign'))
+                self.fields['collateral'].queryset = Collateral.objects.filter(
+                    campaigncollateral__campaign_id=campaign_id
+                ).order_by('title')
+                self.fields['collateral'].empty_label = "Select Collateral"
+            except (ValueError, TypeError):
+                self.fields['collateral'].queryset = Collateral.objects.none()
+                self.fields['collateral'].empty_label = "First select a campaign"
+        elif self.instance.pk and self.instance.campaign:
+            campaign = self.instance.campaign
+            self.fields['collateral'].queryset = Collateral.objects.filter(
+                campaigncollateral__campaign=campaign
+            ).order_by('title')
+            self.fields['collateral'].empty_label = "Select Collateral"
+        else:
+            self.fields['collateral'].queryset = Collateral.objects.none()
+            self.fields['collateral'].empty_label = "First select a campaign"
     
     def clean(self):
         cleaned_data = super().clean()
