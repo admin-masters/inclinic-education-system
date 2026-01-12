@@ -160,7 +160,9 @@ class CampaignCollateralForm(forms.ModelForm):
 
 from django import forms
 from django.core.exceptions import FieldError
-from .models import CollateralMessage, Campaign, Collateral
+from .models import CollateralMessage, Collateral
+from campaign_management.models import Campaign
+
 
 class CollateralMessageForm(forms.ModelForm):
     class Meta:
