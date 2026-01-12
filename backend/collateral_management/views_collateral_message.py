@@ -98,32 +98,81 @@ def collateral_message_delete(request, pk):
 @login_required
 @require_http_methods(["GET"])
 def get_collaterals_by_campaign(request):
-    """AJAX endpoint to get collaterals for a selected campaign"""
-    campaign_id = request.GET.get('campaign_id')
-    
-    if not campaign_id:
-        return JsonResponse({'error': 'Campaign ID is required'}, status=400)
-    
+    """Get collaterals for a specific campaign (AJAX endpoint).
+
+    This endpoint is used by the Collateral Message create/edit form to populate
+    the "Collateral" dropdown after a campaign is selected.
+
+    Rules:
+      - Return ONLY Collateral rows where is_active=True.
+      - Prefer the bridging table collateral_management.CampaignCollateral (campaign ↔ collateral).
+      - If the deployment still uses a direct FK (Collateral.campaign), support that as a fallback.
+      - If start_date / end_date exist on CampaignCollateral, apply an "active window" filter
+        using DATE comparisons (to avoid midnight cutoff issues).
+    """
+    campaign_id_str = (request.GET.get('campaign_id') or '').strip()
+
+    if not campaign_id_str.isdigit():
+        return JsonResponse({'collaterals': []})
+
+    campaign_id = int(campaign_id_str)
+
     try:
-        campaign = Campaign.objects.get(id=campaign_id, is_active=True)
-        collaterals = Collateral.objects.filter(
-            campaign=campaign, 
-            is_active=True
-        ).order_by('title')
-        
-        collateral_data = [
-            {
-                'id': collat.id,
-                'title': collat.title,
-                'type': collat.type
-            }
-            for collat in collaterals
-        ]
-        
-        return JsonResponse({'collaterals': collateral_data})
-    
+        # Campaign model uses 'status' in this codebase (not 'is_active').
+        campaign = Campaign.objects.get(pk=campaign_id)
     except Campaign.DoesNotExist:
-        return JsonResponse({'error': 'Campaign not found'}, status=404)
+        return JsonResponse({'collaterals': []})
+
+    try:
+        from django.db.models import Q
+        from django.utils import timezone
+        today = timezone.localdate()
+
+        # Start with an empty queryset and UNION the available sources.
+        collaterals_qs = Collateral.objects.none()
+
+        # 1) Preferred: collateral_management.CampaignCollateral bridge
+        try:
+            from .models import CampaignCollateral as CMCampaignCollateral  # type: ignore
+
+            window_q = (
+                (Q(start_date__isnull=True) | Q(start_date__date__lte=today)) &
+                (Q(end_date__isnull=True) | Q(end_date__date__gte=today))
+            )
+
+            cc_ids = (
+                CMCampaignCollateral.objects
+                .filter(campaign=campaign)
+                .filter(window_q)
+                .values_list('collateral_id', flat=True)
+            )
+
+            collaterals_qs = collaterals_qs | Collateral.objects.filter(id__in=cc_ids, is_active=True)
+        except Exception:
+            # If the bridge model/table is unavailable, ignore and try fallback below.
+            pass
+
+        # 2) Fallback: direct FK Collateral.campaign (some older deployments)
+        try:
+            # Only attempt if the field exists; avoids FieldError in newer schemas.
+            Collateral._meta.get_field('campaign')
+            collaterals_qs = collaterals_qs | Collateral.objects.filter(campaign=campaign, is_active=True)
+        except Exception:
+            pass
+
+        collaterals_qs = collaterals_qs.distinct().order_by('title')
+
+        collaterals_data = [
+            {
+                'id': c.id,
+                'title': getattr(c, 'title', str(c)),
+                'type': getattr(c, 'type', ''),
+            }
+            for c in collaterals_qs
+        ]
+
+        return JsonResponse({'collaterals': collaterals_data})
+
     except Exception as e:
         return JsonResponse({'error': str(e)}, status=500)
 
