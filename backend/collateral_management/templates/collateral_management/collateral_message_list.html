@@ -80,16 +80,17 @@
                                             {% endif %}
                                         </td>
                                         <td>{{ msg.created_at|date:"M d, Y" }}</td>
-                                        <td>
-                                            <div class="btn-group" role="group">
-                                                <a href="{% url 'collateral_message_edit' msg.pk %}" class="btn btn-sm btn-outline-primary">
-                                                    <i class="fas fa-edit"></i>
-                                                </a>
-                                                <a href="{% url 'collateral_message_delete' msg.pk %}" class="btn btn-sm btn-outline-danger">
-                                                    <i class="fas fa-trash"></i>
-                                                </a>
-                                            </div>
-                                        </td>
+                                        <td class="text-center">
+    <div class="btn-group btn-group-sm" role="group" aria-label="Actions">
+        <a href="{% url 'collateral_message_edit' msg.pk %}" class="btn btn-outline-primary" title="Edit">
+            <i class="fas fa-edit"></i>
+        </a>
+        <a href="{% url 'collateral_message_delete' msg.pk %}" class="btn btn-outline-danger" title="Delete">
+            <i class="fas fa-trash"></i>
+        </a>
+    </div>
+</td>
+
                                     </tr>
                                     {% endfor %}
                                 </tbody>
