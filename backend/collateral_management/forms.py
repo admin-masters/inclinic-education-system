@@ -1,6 +1,8 @@
+================================================================================
+
 # collateral_management/forms.py
 from django import forms
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ValidationError, FieldError
 from .models import Collateral, CampaignCollateral, CollateralMessage
 from campaign_management.models import Campaign
 
@@ -181,7 +183,12 @@ class CollateralMessageForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         
         # Filter campaigns to only active ones
-        self.fields['campaign'].queryset = Campaign.objects.filter(is_active=True).order_by('brand_campaign_id')
+        try:
+            self.fields['campaign'].queryset = Campaign.objects.filter(is_active=True).order_by('brand_campaign_id')
+        except FieldError:
+            # Some deployments use Campaign.status instead of an is_active boolean.
+            # Fall back to showing all campaigns rather than 500'ing.
+            self.fields['campaign'].queryset = Campaign.objects.all().order_by('brand_campaign_id')
         self.fields['campaign'].empty_label = "Select Campaign"
         
         # Initially empty collateral queryset - will be populated via JavaScript
@@ -229,3 +236,5 @@ class CollateralMessageSearchForm(forms.Form):
 
 
 
+
+================================================================================
