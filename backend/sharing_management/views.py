@@ -629,11 +629,6 @@ def bulk_manual_upload(request):
                 for error in errors:
                     messages.error(request, error)
 
-                if created > 0:
-                    messages.success(
-                        request,
-                        f"{created} field reps successfully registered for this campaign."
-                    )
 
                     # ✅ Redirect to Field Rep Portal (NOT Admin)
                     if campaign_param:
@@ -893,7 +888,6 @@ def edit_campaign_calendar(request):
                             'start_date': saved_instance.start_date.strftime('%Y-%m-%d') if saved_instance.start_date else '',
                             'end_date': saved_instance.end_date.strftime('%Y-%m-%d') if saved_instance.end_date else ''
                         })
-                    messages.success(request, 'Calendar dates updated successfully.')
                     return redirect(f'/share/edit-calendar/?id={edit_id}')
                 else:
                     print(f"Form errors: {form.errors}")
@@ -943,7 +937,6 @@ def edit_campaign_calendar(request):
                                 'start_date': saved_instance.start_date.strftime('%Y-%m-%d') if saved_instance.start_date else '',
                                 'end_date': saved_instance.end_date.strftime('%Y-%m-%d') if saved_instance.end_date else ''
                             })
-                        messages.success(request, 'Calendar dates updated successfully!')
                         return redirect('edit_campaign_calendar')
                     else:
                         print(f"Form errors: {form.errors}")
@@ -973,7 +966,6 @@ def edit_campaign_calendar(request):
                                         'start_date': instance.start_date.strftime('%Y-%m-%d') if instance.start_date else '',
                                         'end_date': instance.end_date.strftime('%Y-%m-%d') if instance.end_date else ''
                                     })
-                                messages.success(request, 'New campaign collateral created successfully!')
                                 return redirect('edit_campaign_calendar')
                             else:
                                 print(f"Form errors: {form.errors}")
@@ -1098,7 +1090,6 @@ def fieldrep_create_password(request):
             )
             
             if success:
-                messages.success(request, 'Registration successful! Please login.')
                 redirect_url = '/share/fieldrep-login/'
                 if brand_campaign_id:
                     redirect_url += f'?campaign={brand_campaign_id}'
@@ -1154,9 +1145,7 @@ def fieldrep_login(request):
             # Store brand_campaign_id in session if available
             if brand_campaign_id:
                 request.session['brand_campaign_id'] = brand_campaign_id
-            
-            messages.success(request, f'Welcome back, {field_id}!')
-            
+                        
             # Check if user is prefilled or manual based on field_id
             if field_id and field_id.startswith('PREFILLED_'):
                 # Prefilled user - redirect to prefilled share collateral
@@ -1644,7 +1633,6 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
 
                 wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
                 
-                messages.success(request, f'Collateral shared successfully with {doctor_name}!')
                 return redirect(wa_url)
                 
             except Exception as e:
@@ -2262,9 +2250,7 @@ def fieldrep_gmail_login(request):
                         request.session['field_rep_id'] = user_id
                         request.session['field_rep_email'] = email
                         request.session['field_rep_field_id'] = field_id
-                        
-                        messages.success(request, f'Welcome back, {field_id}!')
-                        
+                                                
                         # Check if user is prefilled or manual based on field_id
                         if field_id and field_id.startswith('PREFILLED_'):
                             # Prefilled user - redirect to prefilled share collateral with brand_campaign_id
@@ -2519,7 +2505,6 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
 
                 if success:
                     wa_url = f"https://wa.me/{wa_number}?text={urllib.parse.quote(message)}"
-                    messages.success(request, f"Sharing '{collateral_name}' with {doc.name} via WhatsApp.")
                     return redirect(wa_url)
                 messages.error(request, 'Error sharing collateral. Please try again.')
                 return redirect(redirect_url)
@@ -3278,7 +3263,6 @@ def fieldrep_whatsapp_login(request):
                             'email': new_user.email,
                             'phone_number': whatsapp_number
                         }
-                        messages.success(request, f'Welcome! New account created for {field_id}')
                     else:
                         print(f"DEBUG: User already exists, using existing user")
                         success = True
@@ -3288,7 +3272,6 @@ def fieldrep_whatsapp_login(request):
                             'email': existing_user.email,
                             'phone_number': whatsapp_number
                         }
-                        messages.success(request, f'Welcome back, {field_id}!')
                         
                 except Exception as e:
                     print(f"DEBUG: Error creating user: {e}")
@@ -3312,9 +3295,7 @@ def fieldrep_whatsapp_login(request):
                 request.session['field_rep_field_id'] = user_data['field_id']
                 
                 print(f"DEBUG: Session data stored - ID: {user_id}, Email: {user_data['email']}, Field ID: {user_data['field_id']}")
-                
-                messages.success(request, f'Welcome back, {user_data["field_id"]}!')
-                
+                                
                 # Check if user is prefilled or manual based on field_id
                 if user_data['field_id'] and user_data['field_id'].startswith('PREFILLED_'):
                     # Prefilled user - redirect to prefilled share collateral
@@ -3516,11 +3497,6 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     }
                 )
 
-                if created:
-                    messages.success(request, f'Doctor {doctor_name} added and assigned successfully.')
-                else:
-                    messages.success(request, f'Doctor {doctor_name} updated and assigned successfully.')
-
                 return redirect('fieldrep_whatsapp_share_collateral')
             except Exception as e:
                 print(f"Error adding doctor: {e}")
@@ -3595,7 +3571,6 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     )
                     clean_phone = (doc.phone or '').replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
                     wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
-                    messages.success(request, f"Message prepared for {doc.name}. Redirecting to WhatsApp…")
                     return redirect(wa_url)
                 else:
                     messages.error(request, 'Error sharing collateral. Please try again.')
@@ -3672,7 +3647,6 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     wa_url = f"https://wa.me/91{whatsapp_phone}?text={urllib.parse.quote(message)}"
                     
                     # Add success message and redirect to WhatsApp
-                    messages.success(request, f'Collateral shared successfully with {doctor_name}!')
                     return redirect(wa_url)
                 else:
                     messages.error(request, 'Failed to log share. Please try again.')
@@ -3883,7 +3857,6 @@ def prefilled_fieldrep_whatsapp_login(request, brand_campaign_id=None):
         if brand_campaign_id:
             request.session['brand_campaign_id'] = brand_campaign_id
 
-        messages.success(request, f'Welcome back, {fr_field_id}!')
         
         # Redirect to the share collateral page with brand_campaign_id if available
         if brand_campaign_id or 'brand_campaign_id' in request.session:
@@ -4324,7 +4297,6 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
                 )
                 clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
                 wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
-                messages.success(request, f"Message sent to {selected_doctor['name']}")
                 return redirect(wa_url)
             messages.error(request, 'Error sharing collateral. Please try again.')
             return redirect('prefilled_fieldrep_whatsapp_share_collateral')
@@ -4592,7 +4564,6 @@ def dashboard_delete_collateral(request, pk):
                 collateral.save()
                 print("DEBUG: Collateral soft deleted successfully")
                 
-                messages.success(request, 'Collateral has been deleted successfully.')
             except ObjectDoesNotExist:
                 print(f"DEBUG: Collateral with ID {pk} not found or already deleted")
                 messages.warning(request, 'This collateral has already been deleted or does not exist.')
