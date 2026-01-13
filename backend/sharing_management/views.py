@@ -160,6 +160,42 @@ def get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_i
     return user
 
 
+
+def _normalize_phone_e164(raw_phone: str, default_country_code: str = '91') -> str:
+    """
+    Normalize a phone number into E.164 format.
+
+    - Default country code is India ('91') if the input looks like a 10-digit local number.
+    - Returns an empty string if the number cannot be normalized safely.
+    """
+    digits = re.sub(r'\D', '', (raw_phone or ''))
+    if not digits:
+        return ''
+
+    # Strip common international prefix
+    if digits.startswith('00'):
+        digits = digits[2:]
+
+    # Strip India trunk prefix 0XXXXXXXXXX
+    if len(digits) == 11 and digits.startswith('0'):
+        digits = digits[1:]
+
+    # If only local 10 digits, assume default_country_code
+    if len(digits) == 10 and default_country_code:
+        digits = f"{default_country_code}{digits}"
+
+    # E.164 length sanity (max 15 digits; keep a conservative min)
+    if len(digits) < 8 or len(digits) > 15:
+        return ''
+
+    return f"+{digits}"
+
+
+def _wa_number(raw_phone: str, default_country_code: str = '91') -> str:
+    """Return a WhatsApp wa.me compatible number (international digits without '+')."""
+    e164 = _normalize_phone_e164(raw_phone, default_country_code=default_country_code)
+    return e164.lstrip('+') if e164 else ''
+
 def build_wa_link(share_log, request):
     if share_log.share_channel != "WhatsApp":
         return ""
@@ -2435,29 +2471,58 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, field_rep_user)
 
+                short_url = request.build_absolute_uri(f'/r/{short_link.short_code}/') if short_link else ''
+                collateral_name = selected_collateral.get('name') if selected_collateral else (getattr(collateral_obj, 'name', '') or '')
+                collateral_link = short_url or (selected_collateral.get('link') if selected_collateral else '')
+                message = get_brand_specific_message(
+                    collateral_id,
+                    collateral_name,
+                    collateral_link,
+                    brand_campaign_id=brand_campaign_id
+                )
+
+                phone_e164 = _normalize_phone_e164(doc.phone or '')
+                if not phone_e164:
+                    messages.error(request, 'Doctor WhatsApp number is missing or invalid. Please update the doctor phone number.')
+                    return redirect(redirect_url)
+                wa_number = phone_e164.lstrip('+')
+
+                field_rep_id_for_log = field_rep_user.id if field_rep_user else field_rep_id
                 success = log_manual_doctor_share(
                     short_link_id=short_link.id,
-                    field_rep_id=field_rep_id,
-                    phone_e164=doc.phone or '',
+                    field_rep_id=field_rep_id_for_log,
+                    phone_e164=phone_e164,
                     collateral_id=collateral_id
                 )
 
+                if not success:
+                    # Fallback: write ShareLog directly if the helper fails (prevents UX failure).
+                    try:
+                        share_kwargs = {
+                            'short_link': short_link,
+                            'field_rep': field_rep_user,
+                            'doctor_identifier': phone_e164,
+                            'share_channel': 'WhatsApp',
+                            'share_timestamp': timezone.now(),
+                            'message_text': message,
+                        }
+                        try:
+                            share_kwargs['collateral'] = collateral_obj
+                            ShareLog.objects.create(**share_kwargs)
+                        except TypeError:
+                            # ShareLog model may not have a 'collateral' field in some deployments.
+                            share_kwargs.pop('collateral', None)
+                            ShareLog.objects.create(**share_kwargs)
+                        success = True
+                    except Exception:
+                        success = False
+
                 if success:
-                    message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'], brand_campaign_id=brand_campaign_id)
-                    clean_phone = (doc.phone or '').replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
-                    wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
-                    messages.success(request, f"Message prepared for {doc.name}. Redirecting to WhatsApp…")
+                    wa_url = f"https://wa.me/{wa_number}?text={urllib.parse.quote(message)}"
+                    messages.success(request, f"Sharing '{collateral_name}' with {doc.name} via WhatsApp.")
                     return redirect(wa_url)
-                else:
-                    messages.error(request, 'Error sharing collateral. Please try again.')
-                    redirect_url = request.path
-                    params = []
-                    if brand_campaign_id:
-                        params.append(f"brand_campaign_id={brand_campaign_id}")
-                    params.append(f"collateral={collateral_id}")
-                    if params:
-                        redirect_url = f"{redirect_url}?{'&'.join(params)}"
-                    return redirect(redirect_url)
+                messages.error(request, 'Error sharing collateral. Please try again.')
+                return redirect(redirect_url)
             except Exception as e:
                 print(f"Error sharing to assigned doctor: {e}")
                 import traceback; traceback.print_exc()
@@ -2502,10 +2567,23 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     }
                 )
 
+                phone_e164 = _normalize_phone_e164(doctor_whatsapp)
+                if not phone_e164:
+                    messages.error(request, 'Please enter a valid WhatsApp number (10 digits).')
+                    redirect_url = request.path
+                    params = []
+                    if brand_campaign_id:
+                        params.append(f"brand_campaign_id={brand_campaign_id}")
+                    params.append(f"collateral={collateral_id}")
+                    if params:
+                        redirect_url = f"{redirect_url}?{'&'.join(params)}"
+                    return redirect(redirect_url)
+
+                field_rep_id_for_log = field_rep_user.id if field_rep_user else field_rep_id
                 success = log_manual_doctor_share(
                     short_link_id=short_link.id,
-                    field_rep_id=field_rep_id,
-                    phone_e164=doctor_whatsapp,
+                    field_rep_id=field_rep_id_for_log,
+                    phone_e164=phone_e164,
                     collateral_id=collateral_id
                 )
 
