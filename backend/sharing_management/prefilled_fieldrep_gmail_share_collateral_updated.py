@@ -290,7 +290,6 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                     })
                 
                 # For regular form submission, redirect to WhatsApp
-                messages.success(request, f'Collateral shared successfully with {selected_doctor["name"]}!')
                 return redirect(wa_url)
                     
             except Exception as e:
