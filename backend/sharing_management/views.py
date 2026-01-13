@@ -2543,29 +2543,31 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 from collateral_management.models import Collateral
                 from doctor_viewer.models import Doctor
                 from user_management.models import User
+                from sharing_management.models import ShareLog
+                from django.utils import timezone
 
-                # Resolve actual field rep user robustly
-                field_rep_user = User.objects.filter(id=field_rep_id).first()
+                # Resolve the actual field rep user (prefer field_id/email), fall back to legacy patterns
+                field_rep_user = None
+                if field_rep_field_id:
+                    field_rep_user = User.objects.filter(field_id=field_rep_field_id, role='field_rep').first()
+                if not field_rep_user and field_rep_email:
+                    field_rep_user = User.objects.filter(email=field_rep_email).first()
+                if not field_rep_user and isinstance(field_rep_id, int):
+                    field_rep_user = User.objects.filter(id=field_rep_id).first()
                 if not field_rep_user:
                     field_rep_user = User.objects.filter(username=f"field_rep_{field_rep_id}").first()
                 if not field_rep_user:
                     field_rep_user = User.objects.create_user(
                         username=f"field_rep_{field_rep_id}",
                         email=field_rep_email or f"field_rep_{field_rep_id}@example.com",
-                        first_name=f"Field Rep {field_rep_id}",
-                        password=User.objects.make_random_password()
+                        first_name=f"Field Rep {field_rep_field_id or field_rep_id}",
+                        password=User.objects.make_random_password(),
+                        role='field_rep',
+                        field_id=field_rep_field_id or ''
                     )
+
                 collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, field_rep_user)
-
-                # Create/update doctor record linked to the field rep
-                Doctor.objects.update_or_create(
-                    phone=doctor_whatsapp,
-                    defaults={
-                        'name': doctor_name,
-                        'rep': field_rep_user
-                    }
-                )
 
                 phone_e164 = _normalize_phone_e164(doctor_whatsapp)
                 if not phone_e164:
@@ -2579,6 +2581,14 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                         redirect_url = f"{redirect_url}?{'&'.join(params)}"
                     return redirect(redirect_url)
 
+                # Keep stored doctor phone consistent with existing UI (10-digit), but use E.164 for tracking
+                phone_last10 = re.sub(r'\D', '', phone_e164)[-10:]
+                Doctor.objects.update_or_create(
+                    rep=field_rep_user,
+                    phone=phone_last10,
+                    defaults={'name': doctor_name}
+                )
+
                 field_rep_id_for_log = field_rep_user.id if field_rep_user else field_rep_id
                 success = log_manual_doctor_share(
                     short_link_id=short_link.id,
@@ -2587,29 +2597,37 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     collateral_id=collateral_id
                 )
 
+                if not success:
+                    # Fallback: create ShareLog directly (avoids failures due to user-id mismatch)
+                    try:
+                        ShareLog.objects.create(
+                            short_link=short_link,
+                            collateral=collateral_obj,
+                            field_rep=field_rep_user,
+                            doctor_identifier=phone_e164,
+                            share_channel='WhatsApp',
+                            share_timestamp=timezone.now(),
+                            created_at=timezone.now(),
+                            updated_at=timezone.now()
+                        )
+                        success = True
+                    except Exception as e2:
+                        print(f"Fallback ShareLog create failed: {e2}")
+                        import traceback
+                        traceback.print_exc()
+                        success = False
+
                 if success:
-                    # Instead of redirecting away, keep user on the same page and show doctor in the list
-                    messages.success(request, f"Doctor '{doctor_name}' added and collateral prepared.")
-                    redirect_url = request.path
-                    params = []
-                    if brand_campaign_id:
-                        params.append(f"brand_campaign_id={brand_campaign_id}")
-                    params.append(f"collateral={collateral_id}")
-                    if params:
-                        redirect_url = f"{redirect_url}?{'&'.join(params)}"
-                    return redirect(redirect_url)
-                else:
-                    messages.error(request, 'Error sharing collateral. Please try again.')
-                    redirect_url = request.path
-                    params = []
-                    if brand_campaign_id:
-                        params.append(f"brand_campaign_id={brand_campaign_id}")
-                    params.append(f"collateral={collateral_id}")
-                    if params:
-                        redirect_url = f"{redirect_url}?{'&'.join(params)}"
-                    return redirect(redirect_url)
-            except Exception as e:
-                print(f"Error sharing manual doctor: {e}")
+                    message = get_brand_specific_message(
+                        collateral_id,
+                        selected_collateral['name'],
+                        selected_collateral['link'],
+                        brand_campaign_id=brand_campaign_id
+                    )
+                    wa_number = re.sub(r'\D', '', phone_e164).lstrip('+')
+                    wa_url = f"https://wa.me/{wa_number}?text={urllib.parse.quote(message)}"
+                    return redirect(wa_url)
+
                 messages.error(request, 'Error sharing collateral. Please try again.')
                 redirect_url = request.path
                 params = []
@@ -2619,6 +2637,20 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 if params:
                     redirect_url = f"{redirect_url}?{'&'.join(params)}"
                 return redirect(redirect_url)
+            except Exception as e:
+                print(f"Error sharing manual doctor: {e}")
+                import traceback
+                traceback.print_exc()
+                messages.error(request, 'Error sharing collateral. Please try again.')
+                redirect_url = request.path
+                params = []
+                if brand_campaign_id:
+                    params.append(f"brand_campaign_id={brand_campaign_id}")
+                params.append(f"collateral={collateral_id}")
+                if params:
+                    redirect_url = f"{redirect_url}?{'&'.join(params)}"
+                return redirect(redirect_url)
+
         else:
             messages.error(request, 'Please fill all required fields.')
             redirect_url = request.path
