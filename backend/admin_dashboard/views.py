@@ -85,9 +85,6 @@ def bulk_upload_fieldreps(request):
         form = FieldRepBulkUploadForm(request.POST, request.FILES)
         if form.is_valid():
             created, updated, campaign_assignments, errors = form.save(request.user)
-            messages.success(request, f"Created {created}, updated {updated}.")
-            if campaign_assignments > 0:
-                messages.success(request, f"Created {campaign_assignments} campaign assignments.")
             for err in errors:
                 messages.warning(request, err)
             return redirect("admin_dashboard:bulk_upload")
@@ -255,7 +252,6 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
     def form_valid(self, form):
         # Save the new field rep
         response = super().form_valid(form)
-        messages.success(self.request, "Field representative created successfully!")
 
         # If a campaign context is present, create the assignment
         campaign_param = (
@@ -276,7 +272,6 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
             
             if campaign:
                 FieldRepCampaign.objects.get_or_create(field_rep=self.object, campaign=campaign)
-                messages.success(self.request, f"Successfully assigned to campaign '{campaign.name}'.")
 
         return response
 
@@ -312,7 +307,6 @@ class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
         return ctx
     
     def form_valid(self, form):
-        messages.success(self.request, "Field representative updated successfully!")
         return super().form_valid(form)
 
     def get_success_url(self):
