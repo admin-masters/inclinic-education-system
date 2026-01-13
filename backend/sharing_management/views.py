@@ -177,30 +177,66 @@ def build_wa_link(share_log, request):
 from collateral_management.models import CollateralMessage
 from campaign_management.models import CampaignCollateral
 
-def get_brand_specific_message(collateral_id, collateral_name, collateral_link):
+def get_brand_specific_message(collateral_id, collateral_name, collateral_link, brand_campaign_id=None):
     """
     Get the custom message for a collateral in a campaign,
     or fallback to default message if none exists.
+
+    IMPORTANT:
+    - If a collateral is linked to multiple campaigns, you MUST pass brand_campaign_id
+      to reliably resolve the correct CollateralMessage.
+    - brand_campaign_id is optional for backward compatibility with older call-sites.
     """
-    # Find the campaign associated with this collateral
-    campaign_collateral = CampaignCollateral.objects.filter(collateral_id=collateral_id).first()
-    
-    if campaign_collateral and campaign_collateral.campaign:
-        # Look for an active CollateralMessage for this campaign & collateral
-        custom_message = CollateralMessage.objects.filter(
-            campaign=campaign_collateral.campaign,
-            collateral_id=collateral_id,
-            is_active=True
-        ).first()
-        
+
+    # 1) Preferred path: resolve using explicit campaign context (brand_campaign_id)
+    bc_id = (str(brand_campaign_id).strip() if brand_campaign_id else "")
+    if bc_id:
+        custom_message = (
+            CollateralMessage.objects
+            .filter(
+                campaign__brand_campaign_id=bc_id,
+                collateral_id=collateral_id,
+                is_active=True
+            )
+            .order_by("-id")
+            .first()
+        )
         if custom_message and custom_message.message:
-            # Replace placeholder with actual collateral link
-            message_text = custom_message.message.replace('$collateralLinks', collateral_link)
-            return message_text
+            return custom_message.message.replace("$collateralLinks", collateral_link)
 
-    # Fallback default message
-    return f"Hello Doctor, IAP's latest expert module— Mini CME on Managing Drug-Resistant Infections in Pediatrics Strategies for using cefixime, cephalosporins, and carbapenems in complex cases, by Dr. Shekhar Biswas, covers strategies for using cefixime, cephalosporins, and carbapenems in complex pediatric cases. The presentation dives into understanding drug resistance, clinical evidence, and advanced therapeutic approaches to tackle multi-drug-resistant pathogens, along with antibiotic stewardship and infection control measures.\n\nView it here: {collateral_link}\n\nThis content is shared with you under a distribution license obtained from IAP by Alkem Laboratories Ltd."
+    # 2) Legacy fallback (kept to avoid breaking older flows that don’t pass brand_campaign_id)
+    campaign_collateral = (
+        CampaignCollateral.objects
+        .select_related("campaign")
+        .filter(collateral_id=collateral_id)
+        .order_by("-id")
+        .first()
+    )
 
+    if campaign_collateral and getattr(campaign_collateral, "campaign", None):
+        custom_message = (
+            CollateralMessage.objects
+            .filter(
+                campaign=campaign_collateral.campaign,
+                collateral_id=collateral_id,
+                is_active=True
+            )
+            .order_by("-id")
+            .first()
+        )
+        if custom_message and custom_message.message:
+            return custom_message.message.replace("$collateralLinks", collateral_link)
+
+    # 3) Fallback default message (unchanged)
+    return (
+        "Hello Doctor, IAP's latest expert module— Mini CME on Managing Drug-Resistant Infections in Pediatrics "
+        "Strategies for using cefixime, cephalosporins, and carbapenems in complex cases, by Dr. Shekhar Biswas, "
+        "covers strategies for using cefixime, cephalosporins, and carbapenems in complex pediatric cases. The presentation "
+        "dives into understanding drug resistance, clinical evidence, and advanced therapeutic approaches to tackle multi-drug-resistant "
+        "pathogens, along with antibiotic stewardship and infection control measures.\n\n"
+        f"View it here: {collateral_link}\n\n"
+        "This content is shared with you under a distribution license obtained from IAP by Alkem Laboratories Ltd."
+    )
 
 @field_rep_required
 @recaptcha_required
@@ -1499,7 +1535,14 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                             print(f"[DEBUG] ERROR: Share not found after creation!")
                         
                         # Get brand-specific message
-                        message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
+                        message = get_brand_specific_message(
+                        collateral_id,
+                        selected_collateral['name'],
+                        selected_collateral['link'],
+                        brand_campaign_id=brand_campaign_id
+                        )
+
+
                         wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
                         
                         return JsonResponse({
@@ -1556,7 +1599,13 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 )
                 
                 # Get brand-specific message
-                message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
+                message = get_brand_specific_message(
+                collateral_id,
+                selected_collateral['name'],
+                selected_collateral.get('link', ''),
+                brand_campaign_id=brand_campaign_id
+                )
+
                 wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
                 
                 messages.success(request, f'Collateral shared successfully with {doctor_name}!')
@@ -1578,6 +1627,85 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
         'doctors': doctors,
     })
 
+def prefilled_fieldrep_registration(request):
+    if request.method == 'POST':
+        email = request.POST.get('email')
+        # Redirect to password creation page with email as GET param
+        return redirect(f'/share/prefilled-fieldrep-create-password/?email={email}')
+    return render(request, 'sharing_management/prefilled_fieldrep_registration.html')
+
+def prefilled_fieldrep_create_password(request):
+    email = request.GET.get('email') or request.POST.get('email')
+    # Generate a random password (10 chars, letters+digits)
+    def generate_password(length=10):
+        chars = string.ascii_letters + string.digits
+        return ''.join(random.choices(chars, k=length))
+
+    if request.method == 'POST':
+        password = request.POST.get('password')
+        confirm_password = request.POST.get('confirm_password')
+        # Accept system or custom password
+        if not confirm_password or password == confirm_password:
+            # Register user logic here
+            try:
+                from .utils.db_operations import register_field_representative
+                
+                # Check if user already exists
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT id FROM sharing_management_fieldrepresentative 
+                        WHERE email = %s
+                        LIMIT 1
+                    """, [email])
+                    existing_user = cursor.fetchone()
+                
+                if existing_user:
+                    messages.success(request, 'User already exists! Please login with your credentials.')
+                    return redirect('fieldrep_login')
+                
+                # Generate a unique field ID for prefilled user
+                import time
+                timestamp = int(time.time())
+                field_id = f"PREFILLED_{email.split('@')[0].upper()}_{timestamp}"
+                
+                # Register the user
+                success = register_field_representative(
+                    field_id=field_id,
+                    email=email,
+                    password=password,
+                    whatsapp_number=None,  # Will be set later
+                    security_question_id=1,  # Default question
+                    security_answer="prefilled_user"  # Default answer
+                )
+                
+                if success:
+                    
+                    return redirect('fieldrep_login')
+                else:
+                    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+                        'email': email,
+                        'password': password,
+                        'error': 'Registration failed. Please try again.'
+                    })
+            except Exception as e:
+                print(f"Error registering prefilled user: {e}")
+                return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+                    'email': email,
+                    'password': password,
+                    'error': 'Registration failed. Please try again.'
+                })
+        else:
+            return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+                'email': email,
+                'password': password,
+                'error': 'Passwords do not match.'
+            })
+    else:
+        password = generate_password()
+    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+        'email': email,
+        'password': password
+    })
 def prefilled_fieldrep_registration(request):
     if request.method == 'POST':
         email = request.POST.get('email')
@@ -1862,7 +1990,12 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                 
                 if success:
                     # Get brand-specific message
-                    message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
+                    message = get_brand_specific_message(
+    collateral_id,
+    selected_collateral['name'],
+    selected_collateral['link'],
+    brand_campaign_id=brand_campaign_id
+)
                     # Clean phone number for WhatsApp URL (remove +91, +, spaces, etc.)
                     clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
                     wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
@@ -2003,7 +2136,12 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                 
                 if success:
                     # Get brand-specific message
-                    message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
+                    message = get_brand_specific_message(
+                    collateral_id,
+                    selected_collateral['name'],
+                    selected_collateral['link'],
+                    brand_campaign_id=brand_campaign_id
+                    )
                     # Clean phone number for WhatsApp URL (remove +91, +, spaces, etc.)
                     clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
                     wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
@@ -3450,7 +3588,12 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                 )
 
                 if success:
-                    message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
+                    message = get_brand_specific_message(
+                    collateral_id,
+                    selected_collateral['name'],
+                    selected_collateral['link'],
+                    brand_campaign_id=brand_campaign_id
+                    )
                     clean_phone = (doc.phone or '').replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
                     wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
                     messages.success(request, f"Message prepared for {doc.name}. Redirecting to WhatsApp…")
@@ -4173,7 +4316,12 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             )
             
             if success:
-                message = get_brand_specific_message(collateral_id, selected_collateral['name'], selected_collateral['link'])
+                message = get_brand_specific_message(
+                collateral_id,
+                selected_collateral['name'],
+                selected_collateral['link'],
+                brand_campaign_id=brand_campaign_id
+                )
                 clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
                 wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
                 messages.success(request, f"Message sent to {selected_doctor['name']}")
