@@ -104,7 +104,6 @@ class CampaignCreateView(CreateView):
             form.instance.brand_campaign_id = f"{base}-{uuid.uuid4().hex[:6].upper()}"
         
         resp = super().form_valid(form)
-        messages.success(self.request, f"Campaign created. Brand–Campaign ID: {self.object.brand_campaign_id}")
         return resp
 
     def form_invalid(self, form):
@@ -123,7 +122,6 @@ class CampaignUpdateView(UpdateView):
     success_url = reverse_lazy('manage_data_panel')
 
     def form_valid(self, form):
-        messages.success(self.request, f"Campaign '{form.instance.name}' updated successfully!")
         return super().form_valid(form)
 
     def form_invalid(self, form):
@@ -142,7 +140,6 @@ class CampaignDeleteView(DeleteView):
 
     def delete(self, request, *args, **kwargs):
         campaign = self.get_object()
-        messages.success(request, f"Campaign '{campaign.name}' deleted successfully!")
         return super().delete(request, *args, **kwargs)
 
 
@@ -211,7 +208,6 @@ def assign_field_reps(request, pk):
             if not CampaignAssignment.objects.filter(campaign=campaign, field_rep=assignment.field_rep).exists():
                 assignment.save()
                 FieldRepCampaign.objects.get_or_create(field_rep=assignment.field_rep, campaign=campaign)
-                messages.success(request, f"Field Rep '{assignment.field_rep.get_full_name()}' assigned successfully.")
             else:
                 messages.warning(request, "That Field Rep is already assigned to this campaign.")
             # redirect to filtered field rep list for this brand campaign id
@@ -250,7 +246,6 @@ def remove_field_rep(request, pk, assignment_id):
 
     assignment.delete()
     FieldRepCampaign.objects.filter(field_rep=field_rep, campaign=campaign).delete()
-    messages.success(request, f"Field Rep '{field_rep.get_full_name()}' unassigned successfully.")
     # redirect to filtered field rep list for this brand campaign id
     url = f"{reverse('admin_dashboard:fieldrep_list')}?campaign={campaign.brand_campaign_id}"
     return redirect(url)
@@ -272,7 +267,6 @@ def edit_collateral_dates(request, pk):
         form = CampaignCollateralForm(request.POST, instance=campaign_collateral)
         if form.is_valid():
             form.save()
-            messages.success(request, "Collateral dates updated successfully.")
             return redirect('campaign_detail', pk=campaign_collateral.campaign.pk)
         else:
             messages.error(request, "Please correct the errors below.")
@@ -303,7 +297,6 @@ def add_campaign_collateral(request, campaign_pk):
             collateral = form.save(commit=False)
             collateral.campaign = campaign
             collateral.save()
-            messages.success(request, "Collateral added to campaign successfully.")
             return redirect('campaign_detail', pk=campaign.pk)
         else:
             messages.error(request, "Please correct the errors below.")
@@ -330,7 +323,6 @@ def remove_campaign_collateral(request, pk):
         return redirect('campaign_list')
     
     campaign_collateral.delete()
-    messages.success(request, "Collateral removed from campaign successfully.")
     return redirect('campaign_detail', pk=campaign_pk)
 
 
@@ -387,7 +379,6 @@ def quick_update_status(request, pk):
             old_status = campaign.status
             campaign.status = new_status
             campaign.save()
-            messages.success(request, f"Campaign status updated from {old_status} to {new_status}.")
         else:
             messages.error(request, "Invalid status selected.")
     
