@@ -42,7 +42,6 @@ def collateral_message_create(request):
         form = CollateralMessageForm(request.POST)
         if form.is_valid():
             form.save()
-            messages.success(request, 'Collateral message created successfully!')
             return redirect('collateral_message_list')
         else:
             # 🔹 Debug: print form errors in server log
@@ -67,7 +66,6 @@ def collateral_message_edit(request, pk):
         form = CollateralMessageForm(request.POST, instance=message)
         if form.is_valid():
             form.save()
-            messages.success(request, 'Collateral message updated successfully!')
             return redirect('collateral_message_list')
     else:
         form = CollateralMessageForm(instance=message)
@@ -88,7 +86,6 @@ def collateral_message_delete(request, pk):
     
     if request.method == 'POST':
         message.delete()
-        messages.success(request, 'Collateral message deleted successfully!')
         return redirect('collateral_message_list')
     
     context = {
