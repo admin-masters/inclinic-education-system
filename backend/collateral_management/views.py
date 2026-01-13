@@ -106,7 +106,6 @@ def link_collateral_to_campaign(request):
                 messages.warning(request, "That collateral is already linked to this campaign.")
             else:
                 obj.save()
-                messages.success(request, "Collateral linked to campaign successfully.")
             return redirect('link_collateral_to_campaign')
     else:
         form = CampaignCollateralForm()
@@ -122,7 +121,6 @@ def link_collateral_to_campaign(request):
 def unlink_collateral_from_campaign(request, pk):
     record = get_object_or_404(CampaignCollateral, pk=pk)
     record.delete()
-    messages.success(request, "Collateral unlinked from campaign.")
     return redirect('link_collateral_to_campaign')
 
 
@@ -170,10 +168,6 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
                 
                 # Get the brand campaign ID for the success message
                 brand_id = collateral.campaign.brand_campaign_id if collateral.campaign else 'unknown'
-                messages.success(
-                    request, 
-                    f"Collateral created & linked to campaign {brand_id} ✔︎"
-                )
                 
                 # Redirect to the sharing dashboard with the brand filter
                 if brand_campaign_id:
@@ -593,7 +587,6 @@ def replace_collateral(request, pk):
             form = CollateralForm(request.POST, request.FILES, instance=collateral)
             if form.is_valid():
                 form.save()
-                messages.success(request, 'Collateral replaced successfully!')
                 return redirect('collateral_list')
         else:
             form = CollateralForm(instance=collateral)
