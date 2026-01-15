@@ -76,6 +76,65 @@ def _normalize_email(value):
 def _normalize_field_id(value):
     return (value or "").strip()
 
+def _fr_extract_campaign(request):
+    """
+    Supports both param names used across templates/links:
+    - ?campaign=...
+    - hidden POST brand_campaign_id / campaign
+    """
+    return (
+        request.GET.get("campaign")
+        or request.GET.get("brand_campaign_id")
+        or request.POST.get("campaign")
+        or request.POST.get("brand_campaign_id")
+    )
+
+
+def _fr_user_can_register_fieldreps(request) -> bool:
+    """
+    Allow ONLY:
+    1) Django-authenticated Admin/Staff users, OR
+    2) Already logged-in Field Reps (session-based)
+    """
+    user = getattr(request, "user", None)
+
+    # Admin/staff via Django auth
+    if user and getattr(user, "is_authenticated", False):
+        if getattr(user, "is_staff", False) or getattr(user, "is_superuser", False):
+            return True
+        # In your codebase user_management.User has role; allow admin/field_rep roles
+        if getattr(user, "role", None) in ("admin", "field_rep"):
+            return True
+
+    # Existing Field Rep session login (share portal)
+    if request.session.get("field_rep_id") or request.session.get("fieldrep_id"):
+        return True
+
+    return False
+
+
+def _fr_block_self_registration(request):
+    """
+    Unauthorized access -> redirect to Field Rep login (or can be changed to 403).
+    Keeps campaign context where present.
+    """
+    from urllib.parse import quote
+    from django.contrib import messages
+    from django.shortcuts import redirect
+
+    campaign = _fr_extract_campaign(request)
+    messages.error(
+        request,
+        "Access restricted. Please login as Admin or an existing Field Rep to register new Field Reps."
+    )
+
+    login_url = "/share/fieldrep-login/"
+    if campaign:
+        login_url = f"{login_url}?campaign={quote(campaign)}"
+
+    return redirect(login_url)
+
+
 
 def _is_authorized_fieldrep_creator(request) -> bool:
     """
@@ -1101,120 +1160,165 @@ def edit_campaign_calendar(request):
     })
 
 def fieldrep_email_registration(request):
-    # NEW: Block self-registration / anonymous usage
-    if not _is_authorized_fieldrep_creator(request):
-        return _redirect_unauthorized_fieldrep_registration(request)
+    # Disable self-registration: only Admin or existing Field Rep can access
+    if not _fr_user_can_register_fieldreps(request):
+        return _fr_block_self_registration(request)
 
-    brand_campaign_id = request.GET.get('campaign') or request.POST.get('campaign')
+    from urllib.parse import quote
 
-    if request.method == 'POST':
-        email = _normalize_email(request.POST.get('email'))
+    brand_campaign_id = request.GET.get("campaign") or request.POST.get("brand_campaign_id") or request.POST.get("campaign")
+
+    if request.method == "POST":
+        email = (request.POST.get("email") or "").strip()
+        brand_campaign_id = request.POST.get("brand_campaign_id") or request.POST.get("campaign") or brand_campaign_id
+
         if not email:
+            from django.contrib import messages
             messages.error(request, "Email is required.")
-            return render(request, 'sharing_management/fieldrep_email_registration.html', {
-                'brand_campaign_id': brand_campaign_id
-            })
+            return render(
+                request,
+                "sharing_management/fieldrep_email_registration.html",
+                {"brand_campaign_id": brand_campaign_id},
+            )
 
-        params = {"email": email}
+        redirect_url = f"/share/fieldrep-create-password/?email={quote(email)}"
         if brand_campaign_id:
-            params["campaign"] = brand_campaign_id
+            redirect_url += f"&campaign={quote(brand_campaign_id)}"
 
-        return redirect(f"{reverse('fieldrep_create_password')}?{urlencode(params)}")
+        return redirect(redirect_url)
 
-    return render(request, 'sharing_management/fieldrep_email_registration.html', {
-        'brand_campaign_id': brand_campaign_id
-    })
+    return render(
+        request,
+        "sharing_management/fieldrep_email_registration.html",
+        {"brand_campaign_id": brand_campaign_id},
+    )
+
+
 
 
 def fieldrep_create_password(request):
-    # NEW: Block self-registration / anonymous usage
-    if not _is_authorized_fieldrep_creator(request):
-        return _redirect_unauthorized_fieldrep_registration(request)
+    # Disable self-registration: only Admin or existing Field Rep can access
+    if not _fr_user_can_register_fieldreps(request):
+        return _fr_block_self_registration(request)
 
-    email = _normalize_email(request.GET.get('email') or request.POST.get('email'))
+    from urllib.parse import quote
+    from django.contrib import messages
+    from django.db import connection
 
-    # FIX: your template posts hidden input name="campaign",
-    # but older code sometimes reads brand_campaign_id. Support both.
-    brand_campaign_id = (
-        request.GET.get('campaign')
-        or request.GET.get('brand_campaign_id')
-        or request.POST.get('campaign')
-        or request.POST.get('brand_campaign_id')
-    )
+    email = (request.GET.get("email") or request.POST.get("email") or "").strip()
+    brand_campaign_id = request.GET.get("campaign") or request.POST.get("campaign")
 
-    security_questions = get_security_questions()
+    if not email:
+        messages.error(request, "Email is required to proceed.")
+        back_url = "/share/fieldrep-register/"
+        if brand_campaign_id:
+            back_url = f"{back_url}?campaign={quote(brand_campaign_id)}"
+        return redirect(back_url)
 
-    if request.method == 'POST':
-        field_id = _normalize_field_id(request.POST.get('field_id'))
-        whatsapp_number = (request.POST.get('whatsapp_number') or "").strip() or None
-        password = request.POST.get('password') or ""
-        confirm_password = request.POST.get('confirm_password') or ""
-        security_question_id = request.POST.get('security_question')
-        security_answer = request.POST.get('security_answer')
+    # Fetch security questions (keep existing behavior)
+    try:
+        from .models import SecurityQuestion
+        security_questions = SecurityQuestion.objects.all().values_list("id", "question_txt")
+    except Exception as e:
+        print(f"Error fetching security questions: {e}")
+        security_questions = []
 
-        if not email:
-            messages.error(request, "Email is missing. Please start registration again.")
-            return redirect('fieldrep_email_registration')
+    if request.method == "POST":
+        field_id = (request.POST.get("field_id") or "").strip()
+        whatsapp_number = (request.POST.get("whatsapp_number") or "").strip()
+        password = request.POST.get("password") or ""
+        confirm_password = request.POST.get("confirm_password") or ""
+        security_question_id = request.POST.get("security_question")
+        security_answer = (request.POST.get("security_answer") or "").strip()
 
-        if not _validate_field_id(request, field_id):
-            return render(request, 'sharing_management/fieldrep_create_password.html', {
-                'email': email,
-                'security_questions': security_questions,
-                'brand_campaign_id': brand_campaign_id
-            })
+        ctx_base = {
+            "email": email,
+            "security_questions": security_questions,
+            "brand_campaign_id": brand_campaign_id,
+        }
+
+        if not field_id:
+            return render(
+                request,
+                "sharing_management/fieldrep_create_password.html",
+                {**ctx_base, "error": "Field ID is required."},
+            )
+
+        # FIX: validate WhatsApp ONLY if provided (parentheses fix prevents incorrect evaluation):contentReference[oaicite:2]{index=2}
+        if whatsapp_number:
+            if (not whatsapp_number.isdigit()) or (len(whatsapp_number) < 10) or (len(whatsapp_number) > 15):
+                return render(
+                    request,
+                    "sharing_management/fieldrep_create_password.html",
+                    {**ctx_base, "error": "Please enter a valid WhatsApp number (10-15 digits)."},
+                )
 
         if password != confirm_password:
-            messages.error(request, 'Passwords do not match.')
-            return render(request, 'sharing_management/fieldrep_create_password.html', {
-                'email': email,
-                'security_questions': security_questions,
-                'brand_campaign_id': brand_campaign_id
-            })
-
-        # Check if email already exists
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT id FROM sharing_management_fieldrepresentative WHERE email = %s LIMIT 1",
-                [email]
+            return render(
+                request,
+                "sharing_management/fieldrep_create_password.html",
+                {**ctx_base, "error": "Passwords do not match."},
             )
-            if cursor.fetchone():
-                messages.error(request, 'Email already registered. Please login.')
-                login_url = reverse('fieldrep_login')
-                if brand_campaign_id:
-                    login_url += f"?campaign={quote(brand_campaign_id)}"
-                return redirect(login_url)
 
-            # NEW: Check if field_id already exists (unique constraint safety)
-            cursor.execute(
-                "SELECT id FROM sharing_management_fieldrepresentative WHERE field_id = %s LIMIT 1",
-                [field_id]
+        if not security_question_id or not security_answer:
+            return render(
+                request,
+                "sharing_management/fieldrep_create_password.html",
+                {**ctx_base, "error": "Please select a security question and provide an answer."},
             )
-            if cursor.fetchone():
-                messages.error(request, 'Field ID already exists. Please use a different Field ID.')
-                return render(request, 'sharing_management/fieldrep_create_password.html', {
-                    'email': email,
-                    'security_questions': security_questions,
-                    'brand_campaign_id': brand_campaign_id
-                })
 
-        success = register_field_representative(
-            field_id, email, whatsapp_number, password, security_question_id, security_answer
-        )
+        # Prevent DB IntegrityError -> 500 if field_id already exists
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT id FROM sharing_management_fieldrepresentative WHERE field_id = %s LIMIT 1",
+                    [field_id],
+                )
+                if cursor.fetchone():
+                    return render(
+                        request,
+                        "sharing_management/fieldrep_create_password.html",
+                        {**ctx_base, "error": "Field ID already exists. Please use a different Field ID."},
+                    )
+        except Exception as e:
+            print(f"Error checking existing field_id: {e}")
+
+        try:
+            from .utils.db_operations import register_field_representative
+            success = register_field_representative(
+                field_id=field_id,
+                email=email,
+                whatsapp_number=whatsapp_number or None,
+                password=password,
+                security_question_id=security_question_id,
+                security_answer=security_answer,
+            )
+        except Exception as e:
+            print(f"Registration error: {e}")
+            success = False
 
         if success:
-            messages.success(request, 'Registration successful! Please login with your credentials.')
-            login_url = reverse('fieldrep_login')
+            messages.success(request, "Registration successful! Please login with your credentials.")
+            redirect_url = "/share/fieldrep-login/"
             if brand_campaign_id:
-                login_url += f"?campaign={quote(brand_campaign_id)}"
-            return redirect(login_url)
+                redirect_url += f"?campaign={quote(brand_campaign_id)}"
+            return redirect(redirect_url)
 
-        messages.error(request, 'Registration failed. Please try again.')
+        return render(
+            request,
+            "sharing_management/fieldrep_create_password.html",
+            {**ctx_base, "error": "Registration failed. Please try again."},
+        )
 
-    return render(request, 'sharing_management/fieldrep_create_password.html', {
-        'email': email,
-        'security_questions': security_questions,
-        'brand_campaign_id': brand_campaign_id
-    })
+    return render(
+        request,
+        "sharing_management/fieldrep_create_password.html",
+        {
+            "email": email,
+            "security_questions": security_questions,
+            "brand_campaign_id": brand_campaign_id,
+        },
+    )
 
 
 def fieldrep_login(request):
@@ -1754,116 +1858,170 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
     })
 
 def prefilled_fieldrep_registration(request):
-    # NEW: Block self-registration / anonymous usage
-    if not _is_authorized_fieldrep_creator(request):
-        return _redirect_unauthorized_fieldrep_registration(request)
+    # Disable self-registration: only Admin or existing Field Rep can access
+    if not _fr_user_can_register_fieldreps(request):
+        return _fr_block_self_registration(request)
+
+    from urllib.parse import quote
+    from django.contrib import messages
 
     campaign = request.GET.get("campaign") or request.POST.get("campaign")
 
-    if request.method == 'POST':
-        email = _normalize_email(request.POST.get('email'))
-        field_id = _normalize_field_id(request.POST.get('field_id'))
+    if request.method == "POST":
+        field_id = (request.POST.get("field_id") or "").strip()
+        email = (request.POST.get("email") or "").strip()
 
-        if not email:
-            messages.error(request, "Email is required.")
-            return render(request, 'sharing_management/prefilled_fieldrep_registration.html', {
-                'campaign': campaign,
-                'email': email,
-                'field_id': field_id
-            })
+        if not field_id or not email:
+            messages.error(request, "Both Field ID and Email ID are required.")
+            return render(
+                request,
+                "sharing_management/prefilled_fieldrep_registration.html",
+                {"campaign": campaign, "field_id": field_id, "email": email},
+            )
 
-        if not _validate_field_id(request, field_id):
-            return render(request, 'sharing_management/prefilled_fieldrep_registration.html', {
-                'campaign': campaign,
-                'email': email,
-                'field_id': field_id
-            })
-
-        params = {"email": email, "field_id": field_id}
+        redirect_url = (
+            f"/share/prefilled-fieldrep-create-password/"
+            f"?email={quote(email)}&field_id={quote(field_id)}"
+        )
         if campaign:
-            params["campaign"] = campaign
+            redirect_url += f"&campaign={quote(campaign)}"
 
-        return redirect(f"{reverse('prefilled_fieldrep_create_password')}?{urlencode(params)}")
+        return redirect(redirect_url)
 
-    return render(request, 'sharing_management/prefilled_fieldrep_registration.html', {
-        'campaign': campaign
-    })
+    return render(
+        request,
+        "sharing_management/prefilled_fieldrep_registration.html",
+        {"campaign": campaign},
+    )
+
 
 
 def prefilled_fieldrep_create_password(request):
-    # NEW: Block self-registration / anonymous usage
-    if not _is_authorized_fieldrep_creator(request):
-        return _redirect_unauthorized_fieldrep_registration(request)
+    # Disable self-registration: only Admin or existing Field Rep can access
+    if not _fr_user_can_register_fieldreps(request):
+        return _fr_block_self_registration(request)
 
-    email = _normalize_email(request.GET.get('email') or request.POST.get('email'))
-    field_id = _normalize_field_id(request.GET.get('field_id') or request.POST.get('field_id'))
+    from urllib.parse import quote
+    from django.contrib import messages
+    from django.db import connection
+    import random
+    import string
+
+    email = (request.GET.get("email") or request.POST.get("email") or "").strip()
+    field_id = (request.GET.get("field_id") or request.POST.get("field_id") or "").strip()
     campaign = request.GET.get("campaign") or request.POST.get("campaign")
 
-    if not email:
-        messages.error(request, "Missing email for registration.")
-        return redirect('prefilled_fieldrep_registration')
+    if not email or not field_id:
+        messages.error(request, "Email and Field ID are required.")
+        back_url = "/share/prefilled-fieldrep-register/"
+        if campaign:
+            back_url = f"{back_url}?campaign={quote(campaign)}"
+        return redirect(back_url)
 
-    generated_password = ''.join(random.choices(string.ascii_letters + string.digits, k=8))
+    def generate_password(length=10):
+        chars = string.ascii_letters + string.digits
+        return "".join(random.choices(chars, k=length))
 
-    if request.method == 'POST':
-        # allow editable field_id at this step too (robust)
-        field_id = _normalize_field_id(request.POST.get('field_id') or field_id)
+    if request.method == "POST":
+        password = request.POST.get("password") or ""
+        confirm_password = request.POST.get("confirm_password")
 
-        password = request.POST.get('password') or ""
-        confirm_password = request.POST.get('confirm_password') or ""
-
-        if not _validate_field_id(request, field_id):
-            return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                'email': email,
-                'field_id': field_id,
-                'campaign': campaign,
-                'generated_password': generated_password
-            })
-
-        # Keep existing behavior: confirm_password optional (generated passwords)
+        # Accept system password OR custom password, but if confirm provided it must match
         if confirm_password and password != confirm_password:
-            messages.error(request, 'Passwords do not match.')
-            return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                'email': email,
-                'field_id': field_id,
-                'campaign': campaign,
-                'generated_password': generated_password
-            })
+            return render(
+                request,
+                "sharing_management/prefilled_fieldrep_create_password.html",
+                {
+                    "email": email,
+                    "field_id": field_id,
+                    "password": password,
+                    "campaign": campaign,
+                    "error": "Passwords do not match.",
+                },
+            )
 
-        # Check if email already exists
-        if FieldRepresentative.objects.filter(email=email).exists():
-            messages.error(request, 'Email already registered. Please login.')
-            login_url = reverse('fieldrep_login')
-            if campaign:
-                login_url += f"?campaign={quote(campaign)}"
-            return redirect(login_url)
+        # Check if user already exists by email
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id FROM sharing_management_fieldrepresentative
+                    WHERE email = %s
+                    LIMIT 1
+                    """,
+                    [email],
+                )
+                if cursor.fetchone():
+                    messages.success(request, "User already exists! Please login with your credentials.")
+                    login_url = "/share/fieldrep-login/"
+                    if campaign:
+                        login_url += f"?campaign={quote(campaign)}"
+                    return redirect(login_url)
 
-        # NEW: Check if field_id already exists
-        if FieldRepresentative.objects.filter(field_id=field_id).exists():
-            messages.error(request, 'Field ID already exists. Please use a different Field ID.')
-            return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                'email': email,
-                'field_id': field_id,
-                'campaign': campaign,
-                'generated_password': generated_password
-            })
+                # Prevent duplicate Field ID -> avoids IntegrityError/500
+                cursor.execute(
+                    """
+                    SELECT id FROM sharing_management_fieldrepresentative
+                    WHERE field_id = %s
+                    LIMIT 1
+                    """,
+                    [field_id],
+                )
+                if cursor.fetchone():
+                    return render(
+                        request,
+                        "sharing_management/prefilled_fieldrep_create_password.html",
+                        {
+                            "email": email,
+                            "field_id": field_id,
+                            "password": password,
+                            "campaign": campaign,
+                            "error": "Field ID already exists. Please choose a different Field ID.",
+                        },
+                    )
+        except Exception as e:
+            print(f"Error checking existing prefilled user: {e}")
 
-        success = register_field_representative(field_id, email, None, password, None, None)
+        try:
+            from .utils.db_operations import register_field_representative
+            success = register_field_representative(
+                field_id=field_id,              # <-- uses user-provided Field ID
+                email=email,
+                whatsapp_number=None,
+                password=password,
+                security_question_id=1,         # keep existing default behavior
+                security_answer="prefilled_user"
+            )
+        except Exception as e:
+            print(f"Error registering prefilled user: {e}")
+            success = False
+
         if success:
-            messages.success(request, 'Registration successful! Please login with the new credentials.')
-            login_url = reverse('fieldrep_login')
+            messages.success(request, "Field Rep registered successfully. Please login with your credentials.")
+            login_url = "/share/fieldrep-login/"
             if campaign:
                 login_url += f"?campaign={quote(campaign)}"
             return redirect(login_url)
 
-        messages.error(request, 'Registration failed. Please try again.')
+        return render(
+            request,
+            "sharing_management/prefilled_fieldrep_create_password.html",
+            {
+                "email": email,
+                "field_id": field_id,
+                "password": password,
+                "campaign": campaign,
+                "error": "Registration failed. Please try again.",
+            },
+        )
 
-    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-        'email': email,
-        'field_id': field_id,
-        'campaign': campaign,
-        'generated_password': generated_password
-    })
+    # GET: show system-generated password
+    password = generate_password()
+    return render(
+        request,
+        "sharing_management/prefilled_fieldrep_create_password.html",
+        {"email": email, "field_id": field_id, "password": password, "campaign": campaign},
+    )
 
 # def prefilled_fieldrep_registration(request):
 #     if request.method == 'POST':
@@ -1872,78 +2030,78 @@ def prefilled_fieldrep_create_password(request):
 #         return redirect(f'/share/prefilled-fieldrep-create-password/?email={email}')
 #     return render(request, 'sharing_management/prefilled_fieldrep_registration.html')
 
-def prefilled_fieldrep_create_password(request):
-    email = request.GET.get('email') or request.POST.get('email')
-    # Generate a random password (10 chars, letters+digits)
-    def generate_password(length=10):
-        chars = string.ascii_letters + string.digits
-        return ''.join(random.choices(chars, k=length))
+# def prefilled_fieldrep_create_password(request):
+#     email = request.GET.get('email') or request.POST.get('email')
+#     # Generate a random password (10 chars, letters+digits)
+#     def generate_password(length=10):
+#         chars = string.ascii_letters + string.digits
+#         return ''.join(random.choices(chars, k=length))
 
-    if request.method == 'POST':
-        password = request.POST.get('password')
-        confirm_password = request.POST.get('confirm_password')
-        # Accept system or custom password
-        if not confirm_password or password == confirm_password:
-            # Register user logic here
-            try:
-                from .utils.db_operations import register_field_representative
+#     if request.method == 'POST':
+#         password = request.POST.get('password')
+#         confirm_password = request.POST.get('confirm_password')
+#         # Accept system or custom password
+#         if not confirm_password or password == confirm_password:
+#             # Register user logic here
+#             try:
+#                 from .utils.db_operations import register_field_representative
                 
-                # Check if user already exists
-                with connection.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT id FROM sharing_management_fieldrepresentative 
-                        WHERE email = %s
-                        LIMIT 1
-                    """, [email])
-                    existing_user = cursor.fetchone()
+#                 # Check if user already exists
+#                 with connection.cursor() as cursor:
+#                     cursor.execute("""
+#                         SELECT id FROM sharing_management_fieldrepresentative 
+#                         WHERE email = %s
+#                         LIMIT 1
+#                     """, [email])
+#                     existing_user = cursor.fetchone()
                 
-                if existing_user:
-                    messages.success(request, 'User already exists! Please login with your credentials.')
-                    return redirect('fieldrep_login')
+#                 if existing_user:
+#                     messages.success(request, 'User already exists! Please login with your credentials.')
+#                     return redirect('fieldrep_login')
                 
-                # Generate a unique field ID for prefilled user
-                import time
-                timestamp = int(time.time())
-                field_id = f"PREFILLED_{email.split('@')[0].upper()}_{timestamp}"
+#                 # Generate a unique field ID for prefilled user
+#                 import time
+#                 timestamp = int(time.time())
+#                 field_id = f"PREFILLED_{email.split('@')[0].upper()}_{timestamp}"
                 
-                # Register the user
-                success = register_field_representative(
-                    field_id=field_id,
-                    email=email,
-                    password=password,
-                    whatsapp_number=None,  # Will be set later
-                    security_question_id=1,  # Default question
-                    security_answer="prefilled_user"  # Default answer
-                )
+#                 # Register the user
+#                 success = register_field_representative(
+#                     field_id=field_id,
+#                     email=email,
+#                     password=password,
+#                     whatsapp_number=None,  # Will be set later
+#                     security_question_id=1,  # Default question
+#                     security_answer="prefilled_user"  # Default answer
+#                 )
                 
-                if success:
+#                 if success:
                     
-                    return redirect('fieldrep_login')
-                else:
-                    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                        'email': email,
-                        'password': password,
-                        'error': 'Registration failed. Please try again.'
-                    })
-            except Exception as e:
-                print(f"Error registering prefilled user: {e}")
-                return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                    'email': email,
-                    'password': password,
-                    'error': 'Registration failed. Please try again.'
-                })
-        else:
-            return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                'email': email,
-                'password': password,
-                'error': 'Passwords do not match.'
-            })
-    else:
-        password = generate_password()
-    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-        'email': email,
-        'password': password
-    })
+#                     return redirect('fieldrep_login')
+#                 else:
+#                     return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+#                         'email': email,
+#                         'password': password,
+#                         'error': 'Registration failed. Please try again.'
+#                     })
+#             except Exception as e:
+#                 print(f"Error registering prefilled user: {e}")
+#                 return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+#                     'email': email,
+#                     'password': password,
+#                     'error': 'Registration failed. Please try again.'
+#                 })
+#         else:
+#             return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+#                 'email': email,
+#                 'password': password,
+#                 'error': 'Passwords do not match.'
+#             })
+#     else:
+#         password = generate_password()
+#     return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+#         'email': email,
+#         'password': password
+#     })
 
 def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
     import urllib.parse
