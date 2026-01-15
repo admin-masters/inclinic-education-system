@@ -1,43 +1,48 @@
 {% extends "base.html" %}
-{% block title %}Field Rep Registration{% endblock %}
+{% load static %}
 
 {% block content %}
-<div class="container mt-5">
-  <h2>Field Representative Registration</h2>
+<div class="d-flex justify-content-center align-items-center vh-100">
+    <div class="card shadow" style="width: 100%; max-width: 400px;">
+        <div class="card-body p-4">
+            <h4 class="text-center mb-4">Field Rep Registration</h4>
 
-  <form method="post" autocomplete="off">
-    {% csrf_token %}
+            <form method="post" autocomplete="off">
+                {% csrf_token %}
 
-    {% if campaign %}
-      <input type="hidden" name="campaign" value="{{ campaign }}">
-    {% endif %}
+                {% if campaign %}
+                    <input type="hidden" name="campaign" value="{{ campaign }}">
+                {% endif %}
 
-    <div class="mb-3">
-      <label for="field_id" class="form-label">Field ID</label>
-      <input
-        type="text"
-        class="form-control"
-        id="field_id"
-        name="field_id"
-        value="{{ field_id|default:'' }}"
-        required
-      >
-      <div class="form-text">Allowed: letters, numbers, dot (.), underscore (_), hyphen (-). No spaces.</div>
+                <div class="mb-3">
+                    <label for="field_id" class="form-label">Field ID:</label>
+                    <input
+                        type="text"
+                        name="field_id"
+                        id="field_id"
+                        class="form-control"
+                        placeholder="Enter Field ID"
+                        value="{{ field_id|default:'' }}"
+                        required
+                    >
+                </div>
+
+                <div class="mb-3">
+                    <label for="email" class="form-label">Email ID:</label>
+                    <input
+                        type="email"
+                        name="email"
+                        id="email"
+                        class="form-control"
+                        placeholder="Enter Email ID"
+                        value="{{ email|default:'' }}"
+                        required
+                    >
+                </div>
+
+                <button type="submit" class="btn btn-primary w-100">Continue</button>
+            </form>
+        </div>
     </div>
-
-    <div class="mb-3">
-      <label for="email" class="form-label">Email Address</label>
-      <input
-        type="email"
-        class="form-control"
-        id="email"
-        name="email"
-        value="{{ email|default:'' }}"
-        required
-      >
-    </div>
-
-    <button type="submit" class="btn btn-primary">Continue</button>
-  </form>
 </div>
 {% endblock %}
