@@ -2758,81 +2758,72 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     })
 
 def prefilled_fieldrep_gmail_login(request):
-    # Clear any existing session data first
-    session_keys = ['field_rep_id', 'field_rep_email', 'field_rep_field_id', 
-                   'fieldrep_id', 'fieldrep_field_id', 'is_prefilled_fieldrep']
-    for key in session_keys:
-        if key in request.session:
-            del request.session[key]
-    
+    # Get campaign ID from URL parameters
     campaign_id = request.GET.get('campaign')
-    
-    # Only process if this is a POST request with valid credentials
+
     if request.method == 'POST':
-        field_rep_id = request.POST.get('field_id')
-        gmail = request.POST.get('gmail_id')
-        
-        if field_rep_id and gmail and campaign_id:
+        field_rep_id = request.POST.get('field_id', '').strip()
+        gmail_id = request.POST.get('gmail_id', '').strip()
+
+        if field_rep_id and gmail_id and campaign_id:
+            # Normalize gmail id (lowercase)
+            gmail_id = gmail_id.lower()
+
             try:
-                from django.db import IntegrityError
-                from sharing_management.models import FieldRepresentative
-                from django.shortcuts import redirect
-                
-                # Try to get or create the field representative
-                try:
-                    # First, try to get an existing rep by field_id
-                    rep, created = FieldRepresentative.objects.get_or_create(
+                # LOGIN-ONLY: must already exist and be active.
+                # Match against either gmail or email field (some records may store gmail in email for compatibility).
+                rep = FieldRepresentative.objects.filter(
+                    field_id=field_rep_id,
+                    is_active=True,
+                    gmail__iexact=gmail_id
+                ).first()
+
+                if not rep:
+                    rep = FieldRepresentative.objects.filter(
                         field_id=field_rep_id,
-                        defaults={
-                            'gmail': gmail,
-                            'email': gmail,
-                            'auth_method': 'gmail',
-                            'is_active': True
-                        }
-                    )
-                    
-                    # If the rep already existed, update the gmail/email if they're different
-                    if not created:
-                        if rep.gmail != gmail or rep.email != gmail:
-                            rep.gmail = gmail
-                            rep.email = gmail
-                            rep.save(update_fields=['gmail', 'email'])
-                    
-                    print(f"[DEBUG] Logging in field rep: {field_rep_id}")
-                    
-                except IntegrityError as ie:
-                    # If we get an integrity error, it might be a race condition
-                    # Try to get the existing record
-                    rep = FieldRepresentative.objects.get(field_id=field_rep_id)
-                    
-                    # Update the gmail/email if they're different
-                    if rep.gmail != gmail or rep.email != gmail:
-                        rep.gmail = gmail
-                        rep.email = gmail
-                        rep.save(update_fields=['gmail', 'email'])
-                
-                # Log the user in
+                        is_active=True,
+                        email__iexact=gmail_id
+                    ).first()
+
+                if not rep:
+                    messages.error(request, 'Invalid Field ID or Gmail ID. Please check and try again.')
+                    return render(request, 'sharing_management/prefilled_fieldrep_gmail_login.html', {
+                        'campaign_id': campaign_id
+                    })
+
+                # Store rep in session
                 request.session['field_rep_id'] = rep.id
-                request.session['field_rep_email'] = rep.email
-                request.session['field_rep_field_id'] = rep.field_id
-                
-                # Redirect to share page
-                redirect_url = '/share/prefilled-fieldrep-gmail-share-collateral/'
+                request.session['field_rep_email'] = gmail_id
+                request.session['field_rep_field_id'] = field_rep_id
+
+                # Clear any existing Google authentication session
+                google_session_keys = [
+                    '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
+                    'user_id', 'username', 'email', 'first_name', 'last_name'
+                ]
+                for key in google_session_keys:
+                    if key in request.session:
+                        del request.session[key]
+
+                messages.success(request, f'Welcome back, {field_rep_id}!')
+
+                # Redirect to prefilled gmail share collateral page with campaign parameter
+                redirect_url = reverse('prefilled_fieldrep_gmail_share_collateral')
                 if campaign_id:
                     redirect_url += f'?campaign={campaign_id}'
                 return redirect(redirect_url)
-                
+
             except Exception as e:
-                print(f"[ERROR] Error in login/registration: {str(e)}")
-                import traceback
-                traceback.print_exc()
-                from django.contrib import messages
-                messages.error(request, 'Error during login. Please try again.')
-    
-    # If we get here, show the login page
-    context = {'campaign': campaign_id}
-    print(f"[DEBUG] Rendering login page with context: {context}")
-    return render(request, 'sharing_management/prefilled_fieldrep_gmail_login_new.html', context)
+                print(f"Error in prefilled gmail login: {e}")
+                messages.error(request, 'Login failed. Please try again.')
+        else:
+            messages.error(request, 'Please provide Field ID, Gmail ID, and valid Campaign ID.')
+
+    # For GET requests, show login form
+    return render(request, 'sharing_management/prefilled_fieldrep_gmail_login.html', {
+        'campaign_id': campaign_id
+    })
+
 
 def prefilled_fieldrep_gmail_share_collateral_updated(request):
     """
