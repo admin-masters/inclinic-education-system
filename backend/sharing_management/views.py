@@ -2194,83 +2194,75 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
     })
 
 def fieldrep_gmail_login(request):
-    # Get brand_campaign_id from GET parameters if it exists (support both 'brand_campaign_id' and 'campaign' parameters)
     brand_campaign_id = request.GET.get('brand_campaign_id') or request.GET.get('campaign')
-    
+
     if request.method == 'POST':
-        field_id = request.POST.get('field_id')
-        gmail_id = request.POST.get('gmail_id')
-        action = request.POST.get('action')  # Get which button was clicked
-        
-        # Get brand_campaign_id from POST if it exists (in case it was submitted via form)
-        brand_campaign_id = request.POST.get('brand_campaign_id', brand_campaign_id)
-        
-        # Build redirect URL with brand_campaign_id if it exists
-        redirect_params = f'?brand_campaign_id={brand_campaign_id}' if brand_campaign_id else ''
-        
-        # Check if Register button was clicked
+        # If someone tries to POST a register action (even if UI button is removed),
+        # do not allow registration from this page.
         if 'register' in request.POST:
-            # Redirect to registration flow with email and brand_campaign_id
-            if gmail_id:
-                register_url = f'/share/fieldrep-create-password/?email={gmail_id}'
-                if brand_campaign_id:
-                    register_url += f'&brand_campaign_id={brand_campaign_id}'
-                return redirect(register_url)
-            else:
-                messages.error(request, 'Please provide Gmail ID to register.')
-                return render(request, 'sharing_management/fieldrep_gmail_login.html', {'brand_campaign_id': brand_campaign_id})
-        
-        # Handle Login
+            messages.error(request, "Registration is not allowed from this login link. Please use the registration link.")
+            return render(request, 'sharing_management/fieldrep_gmail_login.html', {
+                'brand_campaign_id': brand_campaign_id
+            })
+
+        field_id = (request.POST.get('field_id') or '').strip()
+        gmail_id = (request.POST.get('gmail_id') or '').strip()
+
+        # Preserve campaign on POST if it was sent as hidden input
+        brand_campaign_id = (request.POST.get('brand_campaign_id') or brand_campaign_id)
+
         if field_id and gmail_id:
-            # Look up user by field_id and email (gmail_id)
             try:
+                # Strict check: must already exist (no creation here)
                 with connection.cursor() as cursor:
                     cursor.execute("""
-                        SELECT id, field_id, email, is_active
+                        SELECT id, field_id, email
                         FROM sharing_management_fieldrepresentative
                         WHERE field_id = %s AND email = %s AND is_active = 1
                         LIMIT 1
                     """, [field_id, gmail_id])
-                    
                     result = cursor.fetchone()
-                    if result:
-                        user_id, field_id, email, is_active = result
-                        
-                        # Clear any existing Google authentication session
-                        google_session_keys = [
-                            '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
-                            'user_id', 'username', 'email', 'first_name', 'last_name'
-                        ]
-                        
-                        for key in google_session_keys:
-                            if key in request.session:
-                                del request.session[key]
-                        
-                        # Store field rep user info in session
-                        request.session['field_rep_id'] = user_id
-                        request.session['field_rep_email'] = email
-                        request.session['field_rep_field_id'] = field_id
-                                                
-                        # Check if user is prefilled or manual based on field_id
-                        if field_id and field_id.startswith('PREFILLED_'):
-                            # Prefilled user - redirect to prefilled share collateral with brand_campaign_id
-                            if brand_campaign_id:
-                                return redirect(f'/share/prefilled-fieldrep-share-collateral/?brand_campaign_id={brand_campaign_id}')
-                            return redirect('prefilled_fieldrep_share_collateral')
-                        else:
-                            # Manual user - redirect to gmail share collateral with brand_campaign_id
-                            if brand_campaign_id:
-                                return redirect(f'/share/fieldrep-gmail-share-collateral/?brand_campaign_id={brand_campaign_id}')
-                            return redirect('fieldrep_gmail_share_collateral')
-                    else:
-                        messages.error(request, 'Invalid Field ID or Gmail ID. Please check and try again.')
+
+                if result:
+                    user_id, field_id_db, email = result
+
+                    # Clear any existing google auth session keys (keep your existing behavior)
+                    google_session_keys = [
+                        '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
+                        'user_id', 'username', 'email', 'first_name', 'last_name'
+                    ]
+                    for key in google_session_keys:
+                        if key in request.session:
+                            del request.session[key]
+
+                    # Store field rep session
+                    request.session['field_rep_id'] = user_id
+                    request.session['field_rep_email'] = email
+                    request.session['field_rep_field_id'] = field_id_db
+
+                    messages.success(request, f'Welcome back, {field_id_db}!')
+
+                    # Preserve your existing redirect logic
+                    if field_id_db.startswith('PREFILLED_'):
+                        if brand_campaign_id:
+                            return redirect(f'/share/prefilled-fieldrep-share-collateral/?brand_campaign_id={brand_campaign_id}')
+                        return redirect('prefilled_fieldrep_share_collateral')
+
+                    if brand_campaign_id:
+                        return redirect(f'/share/fieldrep-gmail-share-collateral/?brand_campaign_id={brand_campaign_id}')
+                    return redirect('fieldrep_gmail_share_collateral')
+
+                messages.error(request, 'Invalid Field ID or Gmail ID. Please check and try again.')
+
             except Exception as e:
                 print(f"Error in Gmail login: {e}")
                 messages.error(request, 'Login failed. Please try again.')
         else:
             messages.error(request, 'Please provide both Field ID and Gmail ID.')
-    
-    return render(request, 'sharing_management/fieldrep_gmail_login.html')
+
+    return render(request, 'sharing_management/fieldrep_gmail_login.html', {
+        'brand_campaign_id': brand_campaign_id
+    })
 
 def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     import urllib.parse
@@ -3209,116 +3201,58 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
 
 
 def fieldrep_whatsapp_login(request):
+    # Get campaign parameter from URL
+    campaign_param = request.GET.get('campaign', '')
+
     if request.method == 'POST':
-        field_id = request.POST.get('field_id')
-        raw = request.POST.get('whatsapp_number', '')
-        import re
-        digits = re.sub(r'\D', '', raw)
-        if len(digits) == 10:
-            whatsapp_number = f'+91{digits}'
-        elif digits.startswith('91') and len(digits) == 12:
-            whatsapp_number = f'+{digits}'
-        elif digits.startswith('0') and len(digits) == 11:
-            whatsapp_number = f'+91{digits[1:]}'
-        else:
-            whatsapp_number = f'+{digits}'
-        
-        if field_id and whatsapp_number:
-            # Get client IP and user agent for audit logging
-            ip_address = request.META.get('REMOTE_ADDR')
-            user_agent = request.META.get('HTTP_USER_AGENT', '')
-            
-            # Try authentication first
-            success, user_id, user_data = authenticate_field_representative_direct(field_id, whatsapp_number, ip_address, user_agent)
-            
-            # If authentication fails, try to register new user automatically
-            if not success:
-                print(f"Authentication failed, attempting automatic registration for {field_id}")
-                
-                # Create user directly in User model for immediate login
-                try:
-                    from user_management.models import User
-                    from django.contrib.auth.hashers import make_password
-                    
-                    # Check if user already exists in User model
-                    existing_user = User.objects.filter(field_id=field_id).first()
-                    if not existing_user:
-                        # Create new user directly
-                        new_user = User.objects.create(
-                            username=f"fieldrep_{field_id}",
-                            email=f"{field_id.lower()}@example.com",
-                            field_id=field_id,
-                            phone_number=whatsapp_number,
-                            role='field_rep',
-                            active=True,
-                            password=make_password("defaultpass123")
-                        )
-                        print(f"DEBUG: Created new user with ID: {new_user.id}")
-                        
-                        # Set session data directly for immediate login
-                        success = True
-                        user_id = new_user.id
-                        user_data = {
-                            'field_id': field_id,
-                            'email': new_user.email,
-                            'phone_number': whatsapp_number
-                        }
-                    else:
-                        print(f"DEBUG: User already exists, using existing user")
-                        success = True
-                        user_id = existing_user.id
-                        user_data = {
-                            'field_id': field_id,
-                            'email': existing_user.email,
-                            'phone_number': whatsapp_number
-                        }
-                        
-                except Exception as e:
-                    print(f"DEBUG: Error creating user: {e}")
-                    messages.error(request, 'Could not create account. Please try again.')
-                    return redirect('fieldrep_whatsapp_login')
-            
-            if success:
-                # Clear any existing Google authentication session
-                google_session_keys = [
-                    '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
-                    'user_id', 'username', 'email', 'first_name', 'last_name'
-                ]
-                
-                for key in google_session_keys:
-                    if key in request.session:
-                        del request.session[key]
-                
-                # Store field rep user info in session
-                request.session['field_rep_id'] = user_id
-                request.session['field_rep_email'] = user_data['email']
-                request.session['field_rep_field_id'] = user_data['field_id']
-                
-                print(f"DEBUG: Session data stored - ID: {user_id}, Email: {user_data['email']}, Field ID: {user_data['field_id']}")
-                                
-                # Check if user is prefilled or manual based on field_id
-                if user_data['field_id'] and user_data['field_id'].startswith('PREFILLED_'):
-                    # Prefilled user - redirect to prefilled share collateral
-                    print(f"DEBUG: Redirecting to prefilled share collateral")
-                    campaign_param = request.GET.get('campaign', '')
-                    if campaign_param:
-                        return redirect(f"{reverse('prefilled_fieldrep_share_collateral')}?campaign={campaign_param}")
-                    else:
-                        return redirect('prefilled_fieldrep_share_collateral')
-                else:
-                    # Manual user - redirect to whatsapp share collateral
-                    print(f"DEBUG: Redirecting to manual whatsapp share collateral")
-                    campaign_param = request.GET.get('campaign', '')
-                    if campaign_param:
-                        return redirect(f"{reverse('fieldrep_whatsapp_share_collateral')}?campaign={campaign_param}")
-                    else:
-                        return redirect('fieldrep_whatsapp_share_collateral')
-            else:
-                messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
-        else:
+        field_id = request.POST.get('field_id', '').strip()
+        whatsapp_number = request.POST.get('whatsapp_number', '').strip()
+
+        if not field_id or not whatsapp_number:
             messages.error(request, 'Please provide both Field ID and WhatsApp number.')
-    
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+
+        # Normalize phone number
+        try:
+            phone_e164 = validate_and_normalize_phone(whatsapp_number)
+        except ValueError:
+            messages.error(request, 'Invalid WhatsApp number format. Please enter a valid 10-digit Indian number.')
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+
+        # Get user information for logging
+        ip_address = get_user_ip(request)
+        user_agent = get_user_agent(request)
+
+        # Authenticate field rep directly
+        success, user_id, user_data = authenticate_field_representative_direct(field_id, phone_e164, ip_address, user_agent)
+
+        if not success:
+            # LOGIN-ONLY: do not create any new user/field rep here
+            messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+
+        # Clear any existing Google authentication session
+        google_session_keys = ['google_auth_id', 'google_auth_email', 'google_auth_name',
+                              '_auth_user_id', '_auth_user_backend', '_auth_user_hash']
+        for key in google_session_keys:
+            if key in request.session:
+                del request.session[key]
+
+        # Store field rep details in session
+        request.session['field_rep_id'] = user_id
+        request.session['field_rep_email'] = user_data.get('email', '')
+        request.session['field_rep_field_id'] = user_data.get('field_id', field_id)
+
+        messages.success(request, f"Welcome back, {user_data.get('field_id', field_id)}!")
+
+        # Redirect to share collateral page with campaign parameter
+        redirect_url = reverse('fieldrep_whatsapp_share_collateral_updated')
+        if campaign_param:
+            redirect_url += f'?campaign={campaign_param}'
+        return redirect(redirect_url)
+
     return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+
 
 def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
     import urllib.parse
