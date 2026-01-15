@@ -738,16 +738,31 @@ def bulk_upload_help(request):
 def bulk_pre_mapped_upload(request):
     if request.method == "POST":
         form = BulkPreMappedUploadForm(request.POST, request.FILES)
+
         if form.is_valid():
             created, errors = form.save(admin_user=request.user)
+
             if created:
-                messages.success(request, f"Data is uploaded successfully. {created} rows imported successfully.")
+                messages.success(
+                    request,
+                    f"Data is uploaded successfully. {created} rows imported successfully."
+                )
+
+                request.session["premapped_created"] = created
+                request.session["premapped_updated"] = 0
+                request.session["premapped_rows"] = []
+
                 return redirect("bulk_premapped_success")
+
+
             for err in errors:
                 messages.error(request, err)
+
             return redirect("bulk_pre_mapped_upload")
+
     else:
         form = BulkPreMappedUploadForm()
+
     return render(request, "sharing_management/bulk_premapped_upload.html", {"form": form})
 
 
@@ -760,6 +775,19 @@ def bulk_pre_mapped_template(request):
     # Example row
     writer.writerow(["Dr Jane Doe", "+919999998888", "FR1234"])
     return response
+
+
+def bulk_premapped_success(request):
+    created = request.session.pop("premapped_created", 0)
+    updated = request.session.pop("premapped_updated", 0)
+    rows = request.session.pop("premapped_rows", [])
+
+    return render(request, "sharing_management/bulk_premapped_success.html", {
+        "created": created,
+        "updated": updated,
+        "rows": rows,
+    })
+
 
 # ─── Bulk manual (WhatsApp‑only) UI ──────────────────────────────────────────
 def bulk_manual_upload_whatsapp(request):
