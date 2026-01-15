@@ -104,6 +104,7 @@ path('collaterals/edit/<int:pk>/', views.edit_collateral_dates, name='edit_colla
 path('edit-calendar/', edit_campaign_calendar, name='edit_campaign_calendar'),
 path('video-tracking/', views.video_tracking, name='video_tracking'),
 path('debug-collaterals/', views.debug_collaterals, name='debug_collaterals'),
-    path('dashboard/collateral/<int:pk>/delete/', dashboard_delete_collateral, name='dashboard_delete_collateral'),
+path('dashboard/collateral/<int:pk>/delete/', dashboard_delete_collateral, name='dashboard_delete_collateral'),
+path("bulk/premapped/success/", views.bulk_premapped_success, name="bulk_premapped_success"),
 
 ]
