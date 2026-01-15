@@ -1652,163 +1652,259 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
     })
 
 def prefilled_fieldrep_registration(request):
+    """
+    Prefilled registration step 1:
+    - Collect email
+    - Redirect to prefilled create-password step
+    - Preserve campaign context in redirect
+    """
+    brand_campaign_id = (request.GET.get('campaign') or request.POST.get('campaign') or '').strip()
+
     if request.method == 'POST':
-        email = request.POST.get('email')
-        # Redirect to password creation page with email as GET param
-        return redirect(f'/share/prefilled-fieldrep-create-password/?email={email}')
-    return render(request, 'sharing_management/prefilled_fieldrep_registration.html')
+        email = (request.POST.get('email') or '').strip()
+
+        if not email:
+            messages.error(request, "Email is required.")
+            return render(
+                request,
+                'sharing_management/prefilled_fieldrep_registration.html',
+                {'brand_campaign_id': brand_campaign_id}
+            )
+
+        from urllib.parse import urlencode
+        qs = {'email': email}
+        if brand_campaign_id:
+            qs['campaign'] = brand_campaign_id
+
+        return redirect(f"/share/prefilled-fieldrep-create-password/?{urlencode(qs)}")
+
+    return render(
+        request,
+        'sharing_management/prefilled_fieldrep_registration.html',
+        {'brand_campaign_id': brand_campaign_id}
+    )
+
 
 def prefilled_fieldrep_create_password(request):
-    email = request.GET.get('email') or request.POST.get('email')
-    # Generate a random password (10 chars, letters+digits)
+    """
+    Prefilled registration step 2:
+    - Show system-generated password (default)
+    - Allow user to optionally set their own password (with confirm)
+    - Collect SAME fields as manual create-password:
+        Field ID, WhatsApp number, Security question, Security answer
+    """
+    email = (request.GET.get('email') or request.POST.get('email') or '').strip()
+    brand_campaign_id = (request.GET.get('campaign') or request.POST.get('campaign') or '').strip()
+
+    if not email:
+        messages.error(request, "Email is required to register.")
+        if brand_campaign_id:
+            return redirect(f"/share/prefilled-fieldrep-register/?campaign={brand_campaign_id}")
+        return redirect("/share/prefilled-fieldrep-register/")
+
+    # Import here to avoid import-order issues
+    from .models import SecurityQuestion
+    security_questions = SecurityQuestion.objects.all()
+
     def generate_password(length=10):
-        chars = string.ascii_letters + string.digits
-        return ''.join(random.choices(chars, k=length))
+        import string as _string
+        import random as _random
+        chars = _string.ascii_letters + _string.digits
+        return ''.join(_random.choices(chars, k=length))
 
-    if request.method == 'POST':
-        password = request.POST.get('password')
-        confirm_password = request.POST.get('confirm_password')
-        # Accept system or custom password
-        if not confirm_password or password == confirm_password:
-            # Register user logic here
-            try:
-                from .utils.db_operations import register_field_representative
-                
-                # Check if user already exists
-                with connection.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT id FROM sharing_management_fieldrepresentative 
-                        WHERE email = %s
-                        LIMIT 1
-                    """, [email])
-                    existing_user = cursor.fetchone()
-                
-                if existing_user:
-                    messages.success(request, 'User already exists! Please login with your credentials.')
-                    return redirect('fieldrep_login')
-                
-                # Generate a unique field ID for prefilled user
-                import time
-                timestamp = int(time.time())
-                field_id = f"PREFILLED_{email.split('@')[0].upper()}_{timestamp}"
-                
-                # Register the user
-                success = register_field_representative(
-                    field_id=field_id,
-                    email=email,
-                    password=password,
-                    whatsapp_number=None,  # Will be set later
-                    security_question_id=1,  # Default question
-                    security_answer="prefilled_user"  # Default answer
-                )
-                
-                if success:
-                    
-                    return redirect('fieldrep_login')
-                else:
-                    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                        'email': email,
-                        'password': password,
-                        'error': 'Registration failed. Please try again.'
-                    })
-            except Exception as e:
-                print(f"Error registering prefilled user: {e}")
-                return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                    'email': email,
-                    'password': password,
-                    'error': 'Registration failed. Please try again.'
-                })
-        else:
-            return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                'email': email,
-                'password': password,
-                'error': 'Passwords do not match.'
-            })
-    else:
-        password = generate_password()
-    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+    # Password shown/used:
+    # - On GET: system password is generated
+    # - On POST: use whatever is posted (system password or user-chosen)
+    posted_password = (request.POST.get('password') or '').strip() if request.method == 'POST' else ''
+    password = posted_password or generate_password()
+
+    # Sticky form values for re-render on validation errors
+    field_id = (request.POST.get('field_id') or '').strip() if request.method == 'POST' else ''
+    whatsapp_number = (request.POST.get('whatsapp_number') or '').strip() if request.method == 'POST' else ''
+    security_question_raw = (request.POST.get('security_question') or '').strip() if request.method == 'POST' else ''
+    security_answer = (request.POST.get('security_answer') or '').strip() if request.method == 'POST' else ''
+    confirm_password = (request.POST.get('confirm_password') or '').strip() if request.method == 'POST' else ''
+
+    context = {
         'email': email,
-        'password': password
-    })
-def prefilled_fieldrep_registration(request):
-    if request.method == 'POST':
-        email = request.POST.get('email')
-        # Redirect to password creation page with email as GET param
-        return redirect(f'/share/prefilled-fieldrep-create-password/?email={email}')
-    return render(request, 'sharing_management/prefilled_fieldrep_registration.html')
+        'password': password,
+        'brand_campaign_id': brand_campaign_id,
+        'security_questions': security_questions,
+        'field_id': field_id,
+        'whatsapp_number': whatsapp_number,
+        'selected_security_question': security_question_raw,
+        'security_answer': security_answer,
+    }
 
-def prefilled_fieldrep_create_password(request):
-    email = request.GET.get('email') or request.POST.get('email')
-    # Generate a random password (10 chars, letters+digits)
-    def generate_password(length=10):
-        chars = string.ascii_letters + string.digits
-        return ''.join(random.choices(chars, k=length))
+    if request.method != 'POST':
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
 
-    if request.method == 'POST':
-        password = request.POST.get('password')
-        confirm_password = request.POST.get('confirm_password')
-        # Accept system or custom password
-        if not confirm_password or password == confirm_password:
-            # Register user logic here
-            try:
-                from .utils.db_operations import register_field_representative
+    # ---- Validation (match manual registration expectations) ----
+    if not field_id:
+        context['error'] = "Field ID is required."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    # If user chose custom password, confirm_password will be present/required
+    if confirm_password and password != confirm_password:
+        context['error'] = "Passwords do not match."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    if not security_question_raw:
+        context['error'] = "Security question is required."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    if not security_answer:
+        context['error'] = "Security answer is required."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    try:
+        security_question_id = int(security_question_raw)
+    except (TypeError, ValueError):
+        context['error'] = "Invalid security question selected."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    if not SecurityQuestion.objects.filter(id=security_question_id).exists():
+        context['error'] = "Invalid security question selected."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    # Normalize WhatsApp number (optional, like manual)
+    whatsapp_number_final = whatsapp_number or None
+
+    # ---- Check duplicates (email + field_id) ----
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("""
+                SELECT id
+                FROM sharing_management_fieldrepresentative
+                WHERE email = %s
+                LIMIT 1
+            """, [email])
+            if cursor.fetchone():
+                messages.success(request, 'User already exists! Please login with your credentials.')
+                if brand_campaign_id:
+                    return redirect(f"/share/fieldrep-login/?campaign={brand_campaign_id}")
+                return redirect('fieldrep_login')
+
+            cursor.execute("""
+                SELECT id
+                FROM sharing_management_fieldrepresentative
+                WHERE field_id = %s
+                LIMIT 1
+            """, [field_id])
+            if cursor.fetchone():
+                context['error'] = "This Field ID is already registered. Please use a different Field ID."
+                return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    except Exception as e:
+        print(f"[prefilled_fieldrep_create_password] Duplicate check failed: {e}")
+        context['error'] = "Unable to validate registration details. Please try again."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    # ---- Register user ----
+    try:
+        from .utils.db_operations import register_field_representative
+
+        success = register_field_representative(
+            field_id=field_id,
+            email=email,
+            password=password,
+            whatsapp_number=whatsapp_number_final,
+            security_question_id=security_question_id,
+            security_answer=security_answer
+        )
+
+        if success:
+            messages.success(request, "Registration successful. Please login.")
+            if brand_campaign_id:
+                return redirect(f"/share/fieldrep-login/?campaign={brand_campaign_id}")
+            return redirect('fieldrep_login')
+
+        context['error'] = "Registration failed. Please try again."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
+    except Exception as e:
+        print(f"[prefilled_fieldrep_create_password] Error registering prefilled user: {e}")
+        context['error'] = "Registration failed. Please try again."
+        return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+# def prefilled_fieldrep_registration(request):
+#     if request.method == 'POST':
+#         email = request.POST.get('email')
+#         # Redirect to password creation page with email as GET param
+#         return redirect(f'/share/prefilled-fieldrep-create-password/?email={email}')
+#     return render(request, 'sharing_management/prefilled_fieldrep_registration.html')
+
+# def prefilled_fieldrep_create_password(request):
+#     email = request.GET.get('email') or request.POST.get('email')
+#     # Generate a random password (10 chars, letters+digits)
+#     def generate_password(length=10):
+#         chars = string.ascii_letters + string.digits
+#         return ''.join(random.choices(chars, k=length))
+
+#     if request.method == 'POST':
+#         password = request.POST.get('password')
+#         confirm_password = request.POST.get('confirm_password')
+#         # Accept system or custom password
+#         if not confirm_password or password == confirm_password:
+#             # Register user logic here
+#             try:
+#                 from .utils.db_operations import register_field_representative
                 
-                # Check if user already exists
-                with connection.cursor() as cursor:
-                    cursor.execute("""
-                        SELECT id FROM sharing_management_fieldrepresentative 
-                        WHERE email = %s
-                        LIMIT 1
-                    """, [email])
-                    existing_user = cursor.fetchone()
+#                 # Check if user already exists
+#                 with connection.cursor() as cursor:
+#                     cursor.execute("""
+#                         SELECT id FROM sharing_management_fieldrepresentative 
+#                         WHERE email = %s
+#                         LIMIT 1
+#                     """, [email])
+#                     existing_user = cursor.fetchone()
                 
-                if existing_user:
-                    messages.success(request, 'User already exists! Please login with your credentials.')
-                    return redirect('fieldrep_login')
+#                 if existing_user:
+#                     messages.success(request, 'User already exists! Please login with your credentials.')
+#                     return redirect('fieldrep_login')
                 
-                # Generate a unique field ID for prefilled user
-                import time
-                timestamp = int(time.time())
-                field_id = f"PREFILLED_{email.split('@')[0].upper()}_{timestamp}"
+#                 # Generate a unique field ID for prefilled user
+#                 import time
+#                 timestamp = int(time.time())
+#                 field_id = f"PREFILLED_{email.split('@')[0].upper()}_{timestamp}"
                 
-                # Register the user
-                success = register_field_representative(
-                    field_id=field_id,
-                    email=email,
-                    password=password,
-                    whatsapp_number=None,  # Will be set later
-                    security_question_id=1,  # Default question
-                    security_answer="prefilled_user"  # Default answer
-                )
+#                 # Register the user
+#                 success = register_field_representative(
+#                     field_id=field_id,
+#                     email=email,
+#                     password=password,
+#                     whatsapp_number=None,  # Will be set later
+#                     security_question_id=1,  # Default question
+#                     security_answer="prefilled_user"  # Default answer
+#                 )
                 
-                if success:
+#                 if success:
                     
-                    return redirect('fieldrep_login')
-                else:
-                    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                        'email': email,
-                        'password': password,
-                        'error': 'Registration failed. Please try again.'
-                    })
-            except Exception as e:
-                print(f"Error registering prefilled user: {e}")
-                return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                    'email': email,
-                    'password': password,
-                    'error': 'Registration failed. Please try again.'
-                })
-        else:
-            return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-                'email': email,
-                'password': password,
-                'error': 'Passwords do not match.'
-            })
-    else:
-        password = generate_password()
-    return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
-        'email': email,
-        'password': password
-    })
+#                     return redirect('fieldrep_login')
+#                 else:
+#                     return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+#                         'email': email,
+#                         'password': password,
+#                         'error': 'Registration failed. Please try again.'
+#                     })
+#             except Exception as e:
+#                 print(f"Error registering prefilled user: {e}")
+#                 return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+#                     'email': email,
+#                     'password': password,
+#                     'error': 'Registration failed. Please try again.'
+#                 })
+#         else:
+#             return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+#                 'email': email,
+#                 'password': password,
+#                 'error': 'Passwords do not match.'
+#             })
+#     else:
+#         password = generate_password()
+#     return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
+#         'email': email,
+#         'password': password
+#     })
 
 def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
     import urllib.parse
