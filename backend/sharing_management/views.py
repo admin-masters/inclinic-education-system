@@ -3192,57 +3192,103 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
 
 
 def fieldrep_whatsapp_login(request):
-    # Get campaign parameter from URL
-    campaign_param = request.GET.get('campaign', '')
+    """
+    Manual WhatsApp login (LOGIN-ONLY):
+    - Must NOT register/create new field reps
+    - Must authenticate only existing reps
+    - Must redirect to the existing WhatsApp share page route name: 'fieldrep_whatsapp_share_collateral'
+    """
+
+    import re
+    import urllib.parse
+
+    # Keep campaign context (used after login to land on correct campaign share screen)
+    campaign_param = (request.GET.get('campaign') or '').strip()
 
     if request.method == 'POST':
-        field_id = request.POST.get('field_id', '').strip()
-        whatsapp_number = request.POST.get('whatsapp_number', '').strip()
+        field_id = (request.POST.get('field_id') or '').strip()
+        whatsapp_number = (request.POST.get('whatsapp_number') or '').strip()
 
         if not field_id or not whatsapp_number:
             messages.error(request, 'Please provide both Field ID and WhatsApp number.')
-            return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
+                'field_id': field_id,
+                'whatsapp_number': whatsapp_number
+            })
 
-        # Normalize phone number
-        try:
-            phone_e164 = validate_and_normalize_phone(whatsapp_number)
-        except ValueError:
+        # -----------------------------
+        # Normalize WhatsApp number -> E.164 (India-focused, matches existing DB expectations)
+        # Accept:
+        #   - 10-digit mobile: 9876543210        -> +919876543210
+        #   - +91xxxxxxxxxx or 91xxxxxxxxxx      -> +91xxxxxxxxxx
+        #   - 0xxxxxxxxxx (11 digits)           -> +91xxxxxxxxxx
+        # -----------------------------
+        digits = re.sub(r'\D', '', whatsapp_number)
+
+        if len(digits) == 11 and digits.startswith('0'):
+            digits = digits[1:]
+
+        if len(digits) == 10:
+            phone_e164 = f'+91{digits}'
+        elif len(digits) == 12 and digits.startswith('91'):
+            phone_e164 = f'+{digits}'
+        elif whatsapp_number.strip().startswith('+') and 11 <= len(digits) <= 15:
+            phone_e164 = f'+{digits}'
+        else:
             messages.error(request, 'Invalid WhatsApp number format. Please enter a valid 10-digit Indian number.')
-            return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
+                'field_id': field_id,
+                'whatsapp_number': whatsapp_number
+            })
 
-        # Get user information for logging
-        ip_address = get_user_ip(request)
-        user_agent = get_user_agent(request)
+        # Basic request metadata for audit logging
+        xff = (request.META.get('HTTP_X_FORWARDED_FOR') or '').split(',')[0].strip()
+        ip_address = xff or (request.META.get('REMOTE_ADDR') or '')
+        user_agent = request.META.get('HTTP_USER_AGENT', '')
 
-        # Authenticate field rep directly
-        success, user_id, user_data = authenticate_field_representative_direct(field_id, phone_e164, ip_address, user_agent)
+        # Authenticate field rep directly (LOGIN-ONLY; no creation)
+        success, user_id, user_data = authenticate_field_representative_direct(
+            field_id, phone_e164, ip_address, user_agent
+        )
 
         if not success:
-            # LOGIN-ONLY: do not create any new user/field rep here
             messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
-            return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
+                'field_id': field_id,
+                'whatsapp_number': whatsapp_number
+            })
 
-        # Clear any existing Google authentication session
-        google_session_keys = ['google_auth_id', 'google_auth_email', 'google_auth_name',
-                              '_auth_user_id', '_auth_user_backend', '_auth_user_hash']
+        # Clear any existing Google authentication session keys (keep your current behavior)
+        google_session_keys = [
+            'google_auth_id', 'google_auth_email', 'google_auth_name',
+            '_auth_user_id', '_auth_user_backend', '_auth_user_hash'
+        ]
         for key in google_session_keys:
             if key in request.session:
                 del request.session[key]
 
-        # Store field rep details in session
+        # Store field rep details in session (used by share-collateral view)
         request.session['field_rep_id'] = user_id
         request.session['field_rep_email'] = user_data.get('email', '')
         request.session['field_rep_field_id'] = user_data.get('field_id', field_id)
 
+        # Preserve campaign context for the share screen
+        if campaign_param:
+            request.session['brand_campaign_id'] = campaign_param
+
         messages.success(request, f"Welcome back, {user_data.get('field_id', field_id)}!")
 
-        # Redirect to share collateral page with campaign parameter
-        redirect_url = reverse('fieldrep_whatsapp_share_collateral_updated')
+        # IMPORTANT: URL name is 'fieldrep_whatsapp_share_collateral' (not ..._updated)
+        redirect_url = reverse('fieldrep_whatsapp_share_collateral')
         if campaign_param:
-            redirect_url += f'?campaign={campaign_param}'
+            redirect_url += f'?campaign={urllib.parse.quote(campaign_param)}'
         return redirect(redirect_url)
 
-    return render(request, 'sharing_management/fieldrep_whatsapp_login.html')
+    # GET: show login form
+    return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
+        'campaign': campaign_param
+    })
+
 
 
 def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
