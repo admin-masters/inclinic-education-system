@@ -1,206 +1,190 @@
+{% extends "base.html" %}
 {% load static %}
-<!DOCTYPE html>
-<html>
-  <head>
-    <meta charset="utf-8" />
-    <title>Collateral Viewer</title>
-    <style>
-      body {
-        margin: 0;
-        font-family: sans-serif;
-      }
 
-      #pdfContainer {
-        width: 100%;
-        height: 100vh;
-        overflow: auto;
-      }
+{% block content %}
 
-      canvas {
-        width: 100%;
-        height: auto;
-        display: block;
-      }
+<div class="container mt-4">
+  <div class="card mx-auto shadow-sm" style="max-width: 900px">
 
-      iframe {
-        border: none;
-        width: 100%;
-        height: 100vh;
-      }
+    <!-- ✅ 1) Title + Description + Doctor Name -->
+    <div class="card-header text-center">
+      <h4 class="mb-0">{{ collateral.title }}</h4>
 
-      @media (max-width: 768px) {
-        #pdfContainer {
-          height: 80vh;
-        }
-      }
-    </style>
-  </head>
+      {% if collateral.description %}
+        <p class="text-muted mb-0">{{ collateral.description }}</p>
+      {% endif %}
 
-  <body>
-    <!-- Pass engagement_id safely to JS -->
-    <script type="application/json" id="engagementId">
-      {{ engagement_id|json_script:"engagementId" }}
-    </script>
+      {% if doctor_obj and doctor_obj.name %}
+        <p class="text-muted mb-0">By Dr. {{ doctor_obj.name }}</p>
+      {% elif collateral.doctor_name %}
+        <p class="text-muted mb-0">By Dr. {{ collateral.doctor_name }}</p>
+      {% endif %}
+    </div>
 
-    <!-- Declare engagement variable and common logger -->
-    <script>
-      const engagement = JSON.parse(
-        document.getElementById("engagementId").textContent
-      );
-      function logEngagement(payload) {
-        payload.engagement_id = engagement;
-        fetch("{% url 'doctor_view_log' %}", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        });
-      }
-    </script>
+    <div class="card-body text-center">
 
-    {% if collateral.vimeo_url %}
-    <!-- Vimeo Video Viewer -->
-    {% if "vimeo.com" in collateral.vimeo_url %}
-      <!-- Full Vimeo URL provided - extract video ID -->
-      {% with video_id=collateral.vimeo_url|cut:"https://vimeo.com/"|cut:"http://vimeo.com/"|cut:"/video/"|cut:"/"|cut:"?" %}
-      <iframe
-        id="vimeoPlayer"
-        src="https://player.vimeo.com/video/{{ video_id }}"
-        allow="autoplay; fullscreen; picture-in-picture"
-        allowfullscreen
-      ></iframe>
-      {% endwith %}
-    {% else %}
-      <!-- Vimeo video ID provided directly -->
-      <iframe
-        id="vimeoPlayer"
-        src="https://player.vimeo.com/video/{{ collateral.vimeo_url }}"
-        allow="autoplay; fullscreen; picture-in-picture"
-        allowfullscreen
-      ></iframe>
-    {% endif %}
-    <script src="https://player.vimeo.com/api/player.js"></script>
-    <script>
-      const player = new Vimeo.Player(document.getElementById("vimeoPlayer"));
-      player.on("timeupdate", function (data) {
-        const pct = Math.round((data.percent || 0) * 100);
-        logEngagement({ video_pct: pct });
-        if (pct >= 90) {
-          logEngagement({ video_pct: 100 });
-        }
-      });
-    </script>
-    {% endif %}
-
-    <!-- Banner Images Section -->
-    {% if collateral.banner_1 or collateral.banner_2 %}
-    <div style="text-align: center; padding: 20px; background: #f8f9fa;">
+      <!-- ✅ 2) Banner 1 -->
       {% if collateral.banner_1 %}
-        <div style="margin-bottom: 15px;">
-          <h5 style="margin-bottom: 10px; color: #333;">Banner 1</h5>
-          {% if collateral.banner_1.url %}
-            <img src="{{ collateral.banner_1.url }}" alt="Banner 1" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+        <div class="mb-4">
+          <img
+            src="{{ collateral.banner_1.url }}"
+            alt="Banner 1"
+            class="img-fluid w-100 rounded"
+            style="object-fit: cover; max-height: 320px;"
+          />
+        </div>
+      {% endif %}
+
+      <!-- ✅ 3) Video -->
+      {% if collateral.vimeo_url %}
+        <div class="ratio ratio-16x9 mb-4">
+          {% if "vimeo.com" in collateral.vimeo_url %}
+            <iframe src="{{ collateral.vimeo_url }}" allowfullscreen></iframe>
           {% else %}
-            <p style="color: #666; font-style: italic;">Banner 1 image not available</p>
+            <iframe src="https://player.vimeo.com/video/{{ collateral.vimeo_url }}" allowfullscreen></iframe>
           {% endif %}
         </div>
       {% endif %}
-      
+
+      <!-- ✅ 4) PDF -->
+      {% if collateral.file %}
+        <a
+          href="{{ absolute_pdf_url|default:'#' }}"
+          class="btn btn-primary mb-3"
+          target="_blank"
+          rel="noopener"
+          style="background: #1877f2; border: none"
+        >
+          CLICK HERE to download the PDF
+        </a>
+
+        <p class="text-muted">If you are not able to see the PDF, please refresh the page!</p>
+
+        <div
+          class="pdf-container mb-4"
+          style="
+            border: 1px solid #ccc;
+            height: 600px;
+            overflow: hidden;
+            position: relative;
+            background: #f8f9fa;
+            border-radius: 8px;
+          "
+        >
+          <div
+            class="pdf-controls"
+            style="
+              background: white;
+              padding: 10px;
+              border-bottom: 1px solid #ddd;
+              display: flex;
+              gap: 10px;
+              align-items: center;
+              justify-content: center;
+            "
+          >
+            <a
+              href="{{ absolute_pdf_url|default:'#' }}"
+              class="btn btn-outline-secondary btn-sm"
+              target="_blank"
+              rel="noopener"
+            >
+              Open in New Tab
+            </a>
+
+            <a
+              href="{{ absolute_pdf_url|default:'#' }}"
+              class="btn btn-outline-success btn-sm"
+              download
+            >
+              Download
+            </a>
+          </div>
+
+          <div style="height: calc(100% - 50px); overflow: auto;">
+            <iframe
+              src="{{ absolute_pdf_url|default:'about:blank' }}"
+              width="100%"
+              height="100%"
+              style="border: none;"
+            ></iframe>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- ✅ 5) Webinar -->
+      {% if collateral.webinar_title or collateral.webinar_url or collateral.webinar_description or collateral.webinar_date %}
+        <hr class="my-4" />
+        <div class="text-start">
+          <h5 class="mb-3">Webinar</h5>
+
+          <div class="card">
+            <div class="card-body">
+              <div class="d-flex justify-content-between align-items-start">
+                <div>
+                  <h6 class="mb-1">
+                    {{ collateral.webinar_title|default:"Learning Webinar" }}
+                  </h6>
+
+                  {% if collateral.webinar_date %}
+                    <small class="text-muted">
+                      {{ collateral.webinar_date|date:"F Y" }}
+                    </small>
+                  {% endif %}
+
+                  {% if collateral.webinar_description %}
+                    <p class="mt-2 mb-0">{{ collateral.webinar_description }}</p>
+                  {% endif %}
+                </div>
+
+                {% if collateral.webinar_url %}
+                  <a
+                    class="btn btn-outline-primary"
+                    href="{{ collateral.webinar_url }}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    View on DIAP
+                  </a>
+                {% endif %}
+              </div>
+            </div>
+          </div>
+        </div>
+      {% endif %}
+
+      <!-- ✅ 6) Banner 2 -->
       {% if collateral.banner_2 %}
-        <div style="margin-bottom: 15px;">
-          <h5 style="margin-bottom: 10px; color: #333;">Banner 2</h5>
-          {% if collateral.banner_2.url %}
-            <img src="{{ collateral.banner_2.url }}" alt="Banner 2" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          {% else %}
-            <p style="color: #666; font-style: italic;">Banner 2 image not available</p>
-          {% endif %}
+        <div class="mt-4">
+          <img
+            src="{{ collateral.banner_2.url }}"
+            alt="Banner 2"
+            class="img-fluid w-100 rounded"
+            style="object-fit: cover; max-height: 220px;"
+          />
         </div>
       {% endif %}
-    </div>
-    {% endif %}
 
-    <!-- Webinar Details Section -->
-    {% if collateral.webinar_title or collateral.webinar_description or collateral.webinar_url or collateral.webinar_date %}
-    <div style="padding: 20px; background: #e8f4fd; border-left: 4px solid #1877f2; margin: 20px 0;">
-      <h4 style="color: #1877f2; margin-bottom: 15px;">
-        <i class="fas fa-video" style="margin-right: 8px;"></i>Webinar Details
-      </h4>
-      
-      {% if collateral.webinar_title %}
-        <div style="margin-bottom: 12px;">
-          <strong style="color: #333;">Title:</strong> {{ collateral.webinar_title }}
-        </div>
-      {% endif %}
-      
-      {% if collateral.webinar_description %}
-        <div style="margin-bottom: 12px;">
-          <strong style="color: #333;">Description:</strong>
-          <p style="margin: 5px 0; line-height: 1.5;">{{ collateral.webinar_description }}</p>
-        </div>
-      {% endif %}
-      
-      {% if collateral.webinar_date %}
-        <div style="margin-bottom: 12px;">
-          <strong style="color: #333;">Date:</strong> {{ collateral.webinar_date|date:"F d, Y" }}
-        </div>
-      {% endif %}
-      
-      {% if collateral.webinar_url %}
-        <div style="margin-bottom: 12px;">
-          <strong style="color: #333;">Webinar Link:</strong>
-          <a href="{{ collateral.webinar_url }}" target="_blank" style="color: #1877f2; text-decoration: none;">
-            <i class="fas fa-external-link-alt" style="margin-right: 5px;"></i>Join Webinar
-          </a>
-        </div>
-      {% endif %}
     </div>
-    {% endif %}
+  </div>
+</div>
 
-    {% if collateral.file %}
-    <!-- PDF.js viewer -->
-    <div id="pdfContainer"></div>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-    <script>
-      const url = "{{ absolute_pdf_url }}";
-      let pdfDoc = null,
-        totalPages = 0,
-        completed = false;
-      const container = document.getElementById("pdfContainer");
-      pdfjsLib.getDocument(url).promise.then((doc) => {
-        pdfDoc = doc;
-        totalPages = doc.numPages;
-        for (let i = 1; i <= totalPages; i++) {
-          renderPage(i);
-        }
-      });
-      function renderPage(num) {
-        pdfDoc.getPage(num).then((page) => {
-          const unscaled = page.getViewport({ scale: 1 });
-          const containerWidth = container.clientWidth || window.innerWidth;
-          const scale = Math.min(1.5, containerWidth / unscaled.width);
-          const viewport = page.getViewport({ scale });
-          const canvas = document.createElement("canvas");
-          const ctx = canvas.getContext("2d");
-          canvas.height = viewport.height;
-          canvas.width = viewport.width;
-          container.appendChild(canvas);
-          page.render({ canvasContext: ctx, viewport });
-        });
-      }
-      container.addEventListener("scroll", () => {
-        const bottom =
-          container.scrollTop + container.clientHeight >=
-          container.scrollHeight - 10;
-        if (bottom && !completed) {
-          completed = true;
-          logEngagement({ pdf_completed: true, last_page: totalPages });
-        }
-        const pct =
-          container.scrollTop /
-          (container.scrollHeight - container.clientHeight);
-        const approxPage = Math.ceil(pct * totalPages);
-        logEngagement({ last_page: approxPage });
-      });
-    </script>
-    {% endif %}
-  </body>
-</html>
+<!-- ✅ Engagement logger -->
+<script type="application/json" id="engagementId">
+  {{ engagement_id|json_script:"engagementId" }}
+</script>
+
+<script>
+  const engagement = JSON.parse(document.getElementById("engagementId").textContent);
+
+  function logEngagement(payload) {
+    payload.engagement_id = engagement;
+    fetch("{% url 'doctor_view_log' %}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+</script>
+
+{% endblock %}
