@@ -2,21 +2,12 @@
 {% block title %}Upload Complete{% endblock %}
 
 {% block content %}
-<!-- Display Django Messages -->
-{% if messages %}
-{% for message in messages %}
-<div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
-  {{ message }}
-  <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-</div>
-{% endfor %}
-{% endif %}
-
 <div class="mb-4">
-  <h2>Bulk Pre‑mapped Upload — Success</h2>
+  <h2>Bulk Pre-mapped Upload — Success</h2>
+
   <p class="lead">
-    Doctors created: <strong>{{ created }}</strong><br>
-    Doctors updated: <strong>{{ updated }}</strong>
+    Doctors created: <strong>{{ created|default:"0" }}</strong><br>
+    Doctors updated: <strong>{{ updated|default:"0" }}</strong>
   </p>
 </div>
 
@@ -26,32 +17,49 @@
     <tr>
       <th>#</th>
       <th>Doctor</th>
-      <th>Short URL</th>
-      <th>WA Link</th>
+      <th>Short URL</th>
+      <th>WA Link</th>
       <th>Error</th>
     </tr>
   </thead>
+
   <tbody>
     {% for r in rows %}
     <tr>
       <td>{{ r.row }}</td>
+
       <td>
-        {% if r.doctor %}{{ r.doctor }}{% endif %}
+        {% if r.doctor %}
+          {{ r.doctor }}
+        {% else %}
+          -
+        {% endif %}
       </td>
+
       <td>
         {% if r.short_url %}
-        <a href="{{ r.short_url }}" target="_blank">open</a>
+          <a href="{{ r.short_url }}" target="_blank">open</a>
+        {% else %}
+          -
         {% endif %}
       </td>
+
       <td>
         {% if r.wa_link %}
-        <a href="{{ r.wa_link }}" class="btn btn-sm btn-success" target="_blank">
-          WhatsApp&nbsp;→
-        </a>
+          <a href="{{ r.wa_link }}" class="btn btn-sm btn-success" target="_blank">
+            WhatsApp →
+          </a>
+        {% else %}
+          -
         {% endif %}
       </td>
+
       <td class="text-danger">
-        {{ r.error }}
+        {% if r.error %}
+          {{ r.error }}
+        {% else %}
+          -
+        {% endif %}
       </td>
     </tr>
     {% endfor %}
