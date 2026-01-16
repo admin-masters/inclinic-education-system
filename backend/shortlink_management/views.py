@@ -13,6 +13,10 @@ from .forms import ShortLinkForm
 from .decorators import admin_required
 from collateral_management.models import Collateral
 
+import urllib.parse
+from django.shortcuts import redirect
+from django.http import Http404
+from django.conf import settings
 
 # ----------------------------------------------------------------
 # List Short Links
@@ -75,44 +79,23 @@ class ShortLinkDeleteView(DeleteView):
 # ----------------------------------------------------------------
 # Resolve Short Link
 # ----------------------------------------------------------------
-def resolve_shortlink(request, code):
-    """
-    Resolve the short code and redirect to the doctor verification page (WhatsApp number verification).
-    """
-    import logging
-    logger = logging.getLogger(__name__)
-    
-    shortlink = get_object_or_404(ShortLink, short_code=code, is_active=True)
-    logger.info(f"Found shortlink: {shortlink}")
-    
-    collateral = shortlink.get_collateral()
-    logger.info(f"Found collateral: {collateral}")
-    logger.info(f"Collateral is_active: {collateral.is_active if collateral else 'No collateral'}")
+def resolve_shortlink(request, short_code):
+    try:
+        shortlink = ShortLink.objects.get(short_code=short_code, is_active=True)
+    except ShortLink.DoesNotExist:
+        raise Http404("Short link not found")
 
-    if collateral:
-        # Redirect to doctor verification page with short_link_id as query param
-        from django.urls import reverse
-        from django.conf import settings
-        
-        # Use the proper domain for production redirect
-        if hasattr(settings, 'SHORTLINK_REDIRECT_DOMAIN') and settings.SHORTLINK_REDIRECT_DOMAIN and not settings.DEBUG:
-            base_url = settings.SHORTLINK_REDIRECT_DOMAIN
-        else:
-            # Fallback to current request domain (for development)
-            base_url = f"{request.scheme}://{request.get_host()}"
-        
-        verify_url = f"{base_url}/view/collateral/verify/?short_link_id={shortlink.id}"
-        logger.info(f"Redirecting to: {verify_url}")
-        return redirect(verify_url)
-    else:
-        logger.warning(f"Redirect condition failed - collateral: {collateral}")
+    base_url = settings.SITE_URL if hasattr(settings, "SITE_URL") else request.build_absolute_uri("/")[:-1]
 
-    messages.error(request, "Resource not found or inactive.")
-    return render(
-        request,
-        "shortlink_management/resolve_shortlink.html",
-        {"shortlink": shortlink, "collateral": collateral},
-    )
+    # Preserve share_id so opens can be tracked per ShareLog (per doctor)
+    share_id = request.GET.get("share_id") or request.GET.get("s") or request.GET.get("share")
+
+    verify_url = f"{base_url}/view/collateral/verify/?short_link_id={shortlink.id}"
+    if share_id:
+        verify_url += f"&share_id={urllib.parse.quote(str(share_id))}"
+
+    return redirect(verify_url)
+
 
 def debug_shortlink(request, code):
     """
