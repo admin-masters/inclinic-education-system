@@ -2,400 +2,73 @@
 {% load static %}
 
 {% block content %}
-<div class="container-fluid" style="min-height: 100vh; background: #f8f9fa">
-  <div class="row h-100">
-
-    <!-- Left side: Content Preview -->
-    <div class="col-md-8 p-0">
-      {% if pdf_preview_url %}
-      <div
-        class="preview-container"
-        style="height: 100vh; border-right: 1px solid #dee2e6"
-      >
-        <div class="preview-header bg-primary text-white p-3">
-          <h5 class="mb-0">
-            {% if collateral.type == 'pdf' %}
-              <i class="fas fa-file-pdf me-2"></i>
-            {% elif collateral.type == 'jpg' or collateral.type == 'jpeg' or collateral.type == 'png' or collateral.type == 'gif' or collateral.type == 'bmp' %}
-              <i class="fas fa-image me-2"></i>
-            {% elif collateral.type == 'mp4' or collateral.type == 'video' %}
-              <i class="fas fa-video me-2"></i>
-            {% else %}
-              <i class="fas fa-file me-2"></i>
-            {% endif %}
-            {{ collateral.title }} - Preview
-          </h5>
-          <small>Content preview • Verify your WhatsApp number to access full content</small>
-          {% if pdf_preview_url %}
-            <br />
-            <small class="text-light">URL: {{ pdf_preview_url|truncatechars:50 }}</small>
-          {% endif %}
-        </div>
-
-    <!-- Banner Images Section -->
-    {% if collateral.banner_1 or collateral.banner_2 %}
-    <div style="text-align: center; padding: 20px; background: #f8f9fa;">
-      {% if collateral.banner_1 %}
-        <div style="margin-bottom: 15px;">
-          <h5 style="margin-bottom: 10px; color: #333;">Banner 1</h5>
-          {% if collateral.banner_1.url %}
-            <img src="{{ collateral.banner_1.url }}" alt="Banner 1" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          {% else %}
-            <p style="color: #666; font-style: italic;">Banner 1 image not available</p>
-          {% endif %}
-        </div>
-      {% endif %}
+<div class="container-fluid d-flex align-items-center justify-content-center" style="min-height: 100vh; background: #f8f9fa;">
+  
+  <div class="card shadow" style="width: 100%; max-width: 400px; margin: 2rem;">
+    <div class="card-body p-4">
       
-      {% if collateral.banner_2 %}
-        <div style="margin-bottom: 15px;">
-          <h5 style="margin-bottom: 10px; color: #333;">Banner 2</h5>
-          {% if collateral.banner_2.url %}
-            <img src="{{ collateral.banner_2.url }}" alt="Banner 2" style="max-width: 100%; height: auto; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
-          {% else %}
-            <p style="color: #666; font-style: italic;">Banner 2 image not available</p>
-          {% endif %}
-        </div>
-      {% endif %}
-    </div>
-    {% endif %}
+      <h3 class="text-center mb-2">Verify Access</h3>
+      <p class="text-center text-muted mb-4">
+        Enter your WhatsApp number to unlock the content
+      </p>
 
-    <!-- Webinar Details Section -->
-    {% if collateral.webinar_title or collateral.webinar_description or collateral.webinar_url or collateral.webinar_date %}
-    <div style="padding: 20px; background: #e8f4fd; border-left: 4px solid #1877f2; margin: 20px 0;">
-      <h4 style="color: #1877f2; margin-bottom: 15px;">
-        <i class="fas fa-video" style="margin-right: 8px;"></i>Webinar Details
-      </h4>
-      
-      {% if collateral.webinar_title %}
-        <div style="margin-bottom: 12px;">
-          <strong style="color: #333;">Title:</strong> {{ collateral.webinar_title }}
+      {% if messages %}
+        {% for message in messages %}
+        <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
         </div>
+        {% endfor %}
       {% endif %}
-      
-      {% if collateral.webinar_description %}
-        <div style="margin-bottom: 12px;">
-          <strong style="color: #333;">Description:</strong>
-          <p style="margin: 5px 0; line-height: 1.5;">{{ collateral.webinar_description }}</p>
-        </div>
-      {% endif %}
-      
-      {% if collateral.webinar_date %}
-        <div style="margin-bottom: 12px;">
-          <strong style="color: #333;">Date:</strong> {{ collateral.webinar_date|date:"F d, Y" }}
-        </div>
-      {% endif %}
-      
-      {% if collateral.webinar_url %}
-        <div style="margin-bottom: 12px;">
-          <strong style="color: #333;">Webinar Link:</strong>
-          <a href="{{ collateral.webinar_url }}" target="_blank" style="color: #1877f2; text-decoration: none;">
-            <i class="fas fa-external-link-alt" style="margin-right: 5px;"></i>Join Webinar
-          </a>
-        </div>
-      {% endif %}
-    </div>
-    {% endif %}
 
-        <div class="content-preview" style="height: calc(100vh - 80px); overflow: hidden">
-          {% if pdf_preview_image %}
-          <!-- Preview image for PDF -->
-          <div
-            style="
-              width: 100%;
-              height: 100%;
-              text-align: center;
-              padding: 10px;
-              background: #f8f9fa;
-            "
-          >
-            <img
-              src="{{ pdf_preview_image }}"
-              alt="Content Preview"
-              style="
-                max-width: 100%;
-                max-height: 100%;
-                object-fit: contain;
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                border-radius: 8px;
-              "
-            />
-          </div>
-          {% elif video_preview_image %}
-          <!-- Preview image for Video -->
-          <div
-            style="
-              width: 100%;
-              height: 100%;
-              text-align: center;
-              padding: 10px;
-              background: #f8f9fa;
-              position: relative;
-            "
-          >
-            <img
-              src="{{ video_preview_image }}"
-              alt="Video Preview"
-              style="
-                max-width: 100%;
-                max-height: 100%;
-                object-fit: contain;
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                border-radius: 8px;
-              "
-            />
-            <!-- Video play button overlay -->
-            <div
-              style="
-                position: absolute;
-                top: 50%;
-                left: 50%;
-                transform: translate(-50%, -50%);
-                width: 80px;
-                height: 80px;
-                background: rgba(0, 0, 0, 0.7);
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                pointer-events: none;
-              "
-            >
-              <i class="fas fa-play" style="color: white; font-size: 30px; margin-left: 8px;"></i>
-            </div>
-            <!-- Video type indicator -->
-            <div
-              style="
-                position: absolute;
-                top: 20px;
-                right: 20px;
-                background: rgba(0, 0, 0, 0.7);
-                color: white;
-                padding: 8px 16px;
-                border-radius: 20px;
-                font-size: 14px;
-                font-weight: bold;
-              "
-            >
-              <i class="fas fa-video me-2"></i>Video
-            </div>
-          </div>
-          {% else %}
-          <!-- Direct content link fallback -->
-          <div
-            style="
-              width: 100%;
-              height: 100%;
-              text-align: center;
-              padding: 20px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              background: #f8f9fa;
-            "
-          >
-            <div style="max-width: 420px">
-              <div
-                style="
-                  background: white;
-                  padding: 30px;
-                  border-radius: 10px;
-                  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-                "
-              >
-                <h5 class="mb-3">Preview available</h5>
-                {% if pdf_preview_url %}
-                <a class="btn btn-outline-primary" href="{{ pdf_preview_url }}" target="_blank" rel="noopener">
-                  Open Preview in New Tab
-                </a>
-                {% endif %}
-                <p class="text-muted mt-3 mb-0">
-                  Verify your WhatsApp number on the right to unlock full content.
-                </p>
-              </div>
-            </div>
-          </div>
-          {% endif %}
-        </div>
-      </div>
+      <form method="post">
+        {% csrf_token %}
 
-      {% elif pdf_preview_image %}
-      <!-- Same preview container when only image exists -->
-      <div
-        class="preview-container"
-        style="height: 100vh; border-right: 1px solid #dee2e6"
-      >
-        <div class="preview-header bg-primary text-white p-3">
-          <h5 class="mb-0">
-            <i class="fas fa-image me-2"></i>
-            {{ collateral.title }} - Preview
-          </h5>
-          <small>Content preview • Verify your WhatsApp number to access full content</small>
+        <div class="mb-3">
+          <label for="whatsapp_number" class="form-label">WhatsApp Number</label>
+          <input
+            type="tel"
+            class="form-control form-control-lg"
+            id="whatsapp_number"
+            name="whatsapp_number"
+            placeholder="Enter 10-digit number"
+            pattern="\d{10}"
+            maxlength="10"
+            required
+            style="border-radius: 10px"
+          />
+
+          <input type="hidden" name="short_link_id" value="{{ short_link_id|default:'' }}" />
+
+          <small class="form-text text-muted">
+            <i class="fas fa-info-circle me-1"></i>
+            Enter the 10-digit number used for sharing
+          </small>
         </div>
 
-        <div class="content-preview" style="height: calc(100vh - 80px); overflow: hidden">
-          <div
-            style="
-              width: 100%;
-              height: 100%;
-              text-align: center;
-              padding: 10px;
-              background: #f8f9fa;
-            "
-          >
-            <img
-              src="{{ pdf_preview_image }}"
-              alt="Content Preview"
-              style="
-                max-width: 100%;
-                max-height: 100%;
-                object-fit: contain;
-                box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-                border-radius: 8px;
-              "
-            />
-          </div>
-        </div>
-      </div>
-
-      {% else %}
-      <!-- If no preview available -->
-      <div
-        class="preview-container"
-        style="height: 100vh; border-right: 1px solid #dee2e6"
-      >
-        <div class="preview-header bg-primary text-white p-3">
-          <h5 class="mb-0"><i class="fas fa-file me-2"></i>Content Preview</h5>
-          <small>Verify your WhatsApp number to access content</small>
-        </div>
-        <div
-          class="content-preview"
+        <button
+          type="submit"
+          class="btn btn-primary btn-lg w-100 mb-3"
           style="
-            height: calc(100vh - 80px);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: #f8f9fa;
+            background: linear-gradient(45deg, #1877f2, #42a5f5);
+            border: none;
+            border-radius: 10px;
           "
         >
-          <div class="text-center text-muted">
-            <i class="fas fa-lock fa-3x mb-3"></i>
-            <p class="mb-0">Preview is not available for this content.</p>
-          </div>
+          <i class="fas fa-unlock me-2"></i>
+          Verify & Access Content
+        </button>
+
+        <div class="text-center">
+          <small class="text-muted">
+            <i class="fas fa-lock me-1"></i>
+            Secure verification required
+          </small>
         </div>
-      </div>
-      {% endif %}
+
+      </form>
     </div>
-
-    <!-- Right side: Verification Form -->
-    <div class="col-md-4 d-flex align-items-center justify-content-center">
-      <div class="card shadow" style="width: 100%; max-width: 400px; margin: 2rem">
-        <div class="card-body p-4">
-          <h3 class="text-center mb-2">Verify Access</h3>
-          <p class="text-center text-muted mb-4">
-            Enter your WhatsApp number to unlock the content
-          </p>
-
-          {% if messages %}
-            {% for message in messages %}
-            <div class="alert alert-{{ message.tags }} alert-dismissible fade show" role="alert">
-              {{ message }}
-              <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-            </div>
-            {% endfor %}
-          {% endif %}
-
-          <form method="post">
-            {% csrf_token %}
-
-            <div class="mb-3">
-              <label for="whatsapp_number" class="form-label">WhatsApp Number</label>
-              <input
-                type="tel"
-                class="form-control form-control-lg"
-                id="whatsapp_number"
-                name="whatsapp_number"
-                placeholder="Enter 10-digit number"
-                pattern="\d{10}"
-                maxlength="10"
-                required
-                style="border-radius: 10px"
-              />
-              <input type="hidden" name="short_link_id" value="{{ short_link_id|default:'' }}" />
-              <input type="hidden" name="share_id" value="{{ share_id|default:'' }}" />
-              <small class="form-text text-muted">
-                <i class="fas fa-info-circle me-1"></i>
-                Enter the 10-digit number used for sharing
-              </small>
-            </div>
-
-            <button
-              type="submit"
-              class="btn btn-primary btn-lg w-100 mb-3"
-              style="
-                background: linear-gradient(45deg, #1877f2, #42a5f5);
-                border: none;
-                border-radius: 10px;
-              "
-            >
-              <i class="fas fa-unlock me-2"></i>
-              Verify & Access Content
-            </button>
-
-            <div class="text-center">
-              <small class="text-muted">
-                <i class="fas fa-lock me-1"></i>
-                Secure verification required
-              </small>
-            </div>
-          </form>
-        </div>
-      </div>
-    </div>
-
   </div>
+
 </div>
-
-<style>
-  .preview-container {
-    position: relative;
-  }
-
-  .preview-header {
-    position: sticky;
-    top: 0;
-    z-index: 10;
-  }
-
-  .content-fallback {
-    display: none;
-    height: calc(100vh - 80px);
-    background: #f8f9fa;
-  }
-
-  .content-fallback.show {
-    display: block;
-  }
-
-  @media (max-width: 768px) {
-    .row {
-      flex-direction: column-reverse;
-    }
-
-    .col-md-8 {
-      height: 50vh;
-    }
-
-    .col-md-4 {
-      height: 50vh;
-    }
-
-    .content-preview {
-      height: calc(50vh - 80px) !important;
-    }
-
-    .content-fallback {
-      height: calc(50vh - 80px) !important;
-    }
-  }
-</style>
 {% endblock %}
