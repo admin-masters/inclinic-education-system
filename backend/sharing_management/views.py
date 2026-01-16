@@ -22,7 +22,7 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.models import User  # Add this line
 
-from .models import ShareLog, VideoTrackingLog, FieldRepresentative
+from .models import ShareLog, VideoTrackingLog, FieldRepresentative, CollateralTransaction
 from campaign_management.models import CampaignCollateral
 from doctor_viewer.models import Doctor
 from django.db.models import Max, Q, F, ExpressionWrapper, DateTimeField
@@ -2857,7 +2857,12 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             if share_log:
                 status = 'sent'
                 from doctor_viewer.models import DoctorEngagement
-                opened = DoctorEngagement.objects.filter(short_link_id=share_log.short_link_id).exists()
+                opened = CollateralTransaction.objects.filter(
+                    field_rep_id=str(share_log.field_rep_id),
+                    doctor_number=share_log.doctor_identifier,
+                    collateral_id=share_log.collateral_id,
+                    has_viewed=True,
+                ).exists()
                 if opened:
                     status = 'opened'
                 else:
@@ -3162,7 +3167,12 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
                     .first()
                 )
                 if sl:
-                    engaged = DoctorEngagement.objects.filter(short_link_id=sl.short_link_id).exists()
+                    engaged = CollateralTransaction.objects.filter(
+                        field_rep_id=str(sl.field_rep_id),
+                        doctor_number=sl.doctor_identifier,
+                        collateral_id=sl.collateral_id,
+                        has_viewed=True,
+                    ).exists()
                     if engaged:
                         status = 'opened'
                     else:
@@ -3866,7 +3876,12 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                 )
 
                 if sl:
-                    engaged = DoctorEngagement.objects.filter(short_link_id=sl.short_link_id).exists()
+                    engaged = CollateralTransaction.objects.filter(
+                        field_rep_id=str(sl.field_rep_id),
+                        doctor_number=sl.doctor_identifier,
+                        collateral_id=sl.collateral_id,
+                        has_viewed=True,
+                    ).exists()
                     if engaged:
                         status = 'viewed'
                     else:
@@ -4318,16 +4333,31 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             now = timezone.now()
             for d in doctors_list:
                 phone = d['phone']
+                possible_ids = [phone or ""]
+                if phone and phone.startswith("+"):
+                    possible_ids.append(phone[1:])
+                digits_only = re.sub(r"\D", "", phone or "")
+                if digits_only:
+                    possible_ids.append(digits_only)
+                    if len(digits_only) == 10:
+                        possible_ids.append("+91" + digits_only)
+                        possible_ids.append("91" + digits_only)
+
                 sl = ShareLog.objects.filter(
                     field_rep_id=field_rep_id,
                     collateral_id=selected_collateral_id,
-                    doctor_identifier=phone
+                    doctor_identifier__in=possible_ids,
                 ).order_by('-created_at').first()
                 if not sl:
                     status = 'not_sent'
                 else:
                     days = (now - sl.created_at).days
-                    engaged = DoctorEngagement.objects.filter(short_link_id=sl.short_link_id).exists()
+                    engaged = CollateralTransaction.objects.filter(
+                        field_rep_id=str(sl.field_rep_id),
+                        doctor_number=sl.doctor_identifier,
+                        collateral_id=sl.collateral_id,
+                        has_viewed=True,
+                    ).exists()
                     if engaged:
                         status = 'opened'
                     elif days >= 6:
@@ -4688,3 +4718,4 @@ def dashboard_delete_collateral(request, pk):
     if campaign_filter:
         return redirect(f"{reverse('fieldrep_dashboard')}?campaign={campaign_filter}")
     return redirect('fieldrep_dashboard')
+
