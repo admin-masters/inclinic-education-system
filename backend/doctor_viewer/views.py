@@ -195,231 +195,147 @@ def doctor_report(request, code: str):
 
 
 def doctor_collateral_verify(request):
-    from django.contrib import messages
+    """
+    Verify doctor identity (via WhatsApp number) before showing collateral.
+
+    Key change: preserve optional `share_id` end-to-end so opens can be tracked per
+    doctor-share (ShareLog/CollateralTransaction), not per shortlink.
+    """
     import re
+    from django.contrib import messages
 
     def last10(phone):
         digits = re.sub(r"\D", "", phone or "")
         return digits[-10:] if len(digits) >= 10 else digits
 
-    # ─────────────────────────────────────────
-    # GET: Render verification page with preview
-    # ─────────────────────────────────────────
+    share_id = (request.GET.get("share_id") or request.POST.get("share_id") or "").strip() or None
+
     if request.method == "GET":
         short_link_id = request.GET.get("short_link_id")
+        if not short_link_id:
+            messages.error(request, "Invalid access. Missing short link ID.")
+            return redirect("/")
 
         try:
-            short_link_id = int(short_link_id)
-            short_link = get_object_or_404(ShortLink, id=short_link_id, is_active=True)
-            collateral = short_link.get_collateral()
+            short_link_id_int = int(short_link_id)
+            short_link = ShortLink.objects.get(id=short_link_id_int)
+        except (ValueError, ShortLink.DoesNotExist):
+            messages.error(request, "Invalid access. Short link not found.")
+            return redirect("/")
 
-            if not collateral or not collateral.is_active:
-                messages.error(request, "Collateral unavailable.")
-                return render(request, "doctor_viewer/doctor_collateral_verify.html")
-
-            pdf_preview_url = None
-            pdf_preview_image = None
-
-            if collateral.file:
-                media_path = collateral.file.name
-                file_path = os.path.join(settings.MEDIA_ROOT, media_path)
-                pdf_preview_url = request.build_absolute_uri(
-                    f"{settings.MEDIA_URL}{media_path}"
-                )
-
-                if os.path.exists(file_path):
-                    img_data = None
-
-                    if collateral.type == "pdf" and fitz:
-                        try:
-                            doc = fitz.open(file_path)
-                            page = doc[0]
-                            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
-                            img_data = pix.tobytes("png")
-                            doc.close()
-                        except Exception:
-                            img_data = None
-
-                    if img_data:
-                        preview_dir = os.path.join(settings.MEDIA_ROOT, "previews")
-                        os.makedirs(preview_dir, exist_ok=True)
-                        preview_filename = f"preview_{collateral.id}.png"
-                        preview_path = os.path.join(preview_dir, preview_filename)
-
-                        with open(preview_path, "wb") as f:
-                            f.write(img_data)
-
-                        pdf_preview_image = f"{settings.MEDIA_URL}previews/{preview_filename}"
-
-            # Generate video thumbnail for Vimeo videos
-            video_preview_image = None
-            if collateral.type in ['video', 'pdf_video'] and collateral.vimeo_url:
-                try:
-                    import requests
-                    from urllib.parse import urlparse
-                    
-                    # Extract video ID from vimeo_url (it might be just the ID)
-                    vimeo_id = collateral.vimeo_url
-                    if 'vimeo.com' in vimeo_id:
-                        # Extract ID from full URL
-                        if '/video/' in vimeo_id:
-                            vimeo_id = vimeo_url.split('/video/')[-1].split('?')[0]
-                        else:
-                            vimeo_id = vimeo_url.strip('/').split('/')[-1]
-                    
-                    # Clean the ID to be numeric only
-                    vimeo_id = ''.join(filter(str.isdigit, vimeo_id))
-                    
-                    if vimeo_id:
-                        # Get Vimeo thumbnail URL
-                        thumbnail_url = f"https://vumbnail.com/{vimeo_id}.jpg"
-                        
-                        # Download thumbnail
-                        response = requests.get(thumbnail_url, timeout=10)
-                        if response.status_code == 200:
-                            preview_dir = os.path.join(settings.MEDIA_ROOT, "previews")
-                            os.makedirs(preview_dir, exist_ok=True)
-                            video_preview_filename = f"video_preview_{collateral.id}.jpg"
-                            video_preview_path = os.path.join(preview_dir, video_preview_filename)
-                            
-                            with open(video_preview_path, "wb") as f:
-                                f.write(response.content)
-                            
-                            video_preview_image = f"{settings.MEDIA_URL}previews/{video_preview_filename}"
-                            print(f"Generated video thumbnail: {video_preview_image}")
-                        else:
-                            print(f"Failed to fetch Vimeo thumbnail: {response.status_code}")
-                    else:
-                        print("Invalid Vimeo ID format")
-                        
-                except Exception as e:
-                    print(f"Error generating video thumbnail: {e}")
-                    video_preview_image = None
-
-            return render(
-                request,
-                "doctor_viewer/doctor_collateral_verify.html",
-                {
-                    "short_link_id": short_link_id,
-                    "collateral": collateral,
-                    "pdf_preview_url": pdf_preview_url,
-                    "pdf_preview_image": pdf_preview_image,
-                    "video_preview_image": video_preview_image,
-                },
-            )
-
-        except Exception as e:
-            print("GET verify error:", e)
-            messages.error(request, "Invalid or expired access link.")
-            return render(request, "doctor_viewer/doctor_collateral_verify.html")
-
-    # ─────────────────────────────────────────
-    # POST: Verify WhatsApp number
-    # ─────────────────────────────────────────
-    if request.method == "POST":
-        whatsapp_number = (request.POST.get("whatsapp_number") or "").strip()
-        short_link_id = request.POST.get("short_link_id")
+        if short_link.resource_type != "collateral":
+            messages.error(request, "Invalid access. Not a collateral link.")
+            return redirect("/")
 
         try:
-            short_link_id = int(short_link_id)
+            collateral = Collateral.objects.get(id=short_link.resource_id)
+        except Collateral.DoesNotExist:
+            messages.error(request, "Collateral not found.")
+            return redirect("/")
+
+        preview_url = None
+        if collateral.pdf_file:
+            preview_url = collateral.pdf_file.url
+        elif collateral.thumbnail:
+            preview_url = collateral.thumbnail.url
+
+        archive_required = False
+        archive_download_url = None
+        archive_format = None
+        if collateral.archives.exists():
+            archive = collateral.archives.first()
+            archive_required = True
+            archive_download_url = archive.file.url
+            archive_format = archive.format.lower()
+
+        context = {
+            "short_link_id": short_link_id,
+            "share_id": share_id,
+            "collateral": collateral,
+            "preview_url": preview_url,
+            "archive_required": archive_required,
+            "archive_download_url": archive_download_url,
+            "archive_format": archive_format,
+            "error_message": None,
+            "otp_required": False,
+        }
+        return render(request, "doctor_viewer/doctor_collateral_verify.html", context)
+
+    # POST (WhatsApp number verification)
+    whatsapp_number = request.POST.get("whatsapp_number", "").strip()
+    short_link_id = request.POST.get("short_link_id")
+    share_id = (request.POST.get("share_id") or share_id or "").strip() or None
+
+    if not whatsapp_number or not short_link_id:
+        messages.error(request, "Please enter a valid WhatsApp number.")
+        qs = f"?short_link_id={short_link_id}" if short_link_id else ""
+        if share_id:
+            qs += f"&share_id={share_id}"
+        return redirect(request.path + qs)
+
+    try:
+        short_link_id_int = int(short_link_id)
+        short_link = ShortLink.objects.get(id=short_link_id_int)
+    except (ValueError, ShortLink.DoesNotExist):
+        messages.error(request, "Invalid link.")
+        return redirect("/")
+
+    input_last10 = last10(whatsapp_number)
+
+    matched_share_log = None
+
+    # 1) If share_id provided, validate it belongs to this short_link and matches the doctor
+    if share_id:
+        try:
+            sl = ShareLog.objects.filter(id=int(share_id), short_link_id=short_link_id_int).first()
         except (TypeError, ValueError):
-            messages.error(request, "Invalid access link.")
-            return render(request, "doctor_viewer/doctor_collateral_verify.html")
+            sl = None
 
-        if not whatsapp_number:
-            messages.error(request, "Please provide WhatsApp number.")
-            return render(request, "doctor_viewer/doctor_collateral_verify.html")
+        if sl and last10(sl.doctor_identifier) == input_last10:
+            matched_share_log = sl
 
-        input_last10 = last10(whatsapp_number)
-        print("DEBUG input last10:", input_last10)
-
-        logs = ShareLog.objects.filter(
-        short_link_id=short_link_id
-        ).exclude(
-        doctor_identifier__isnull=True
-        ).exclude(
-        doctor_identifier__exact=""
-        ).values_list("doctor_identifier", flat=True)
-
-
-        matched = False
-        for stored in logs:
-            print("DEBUG comparing with:", stored)
-            if last10(stored) == input_last10:
-                matched = True
+    # 2) Fallback: locate a ShareLog for this short_link that matches the doctor number
+    if not matched_share_log:
+        logs = (
+            ShareLog.objects.filter(short_link_id=short_link_id_int)
+            .exclude(doctor_identifier__isnull=True)
+            .exclude(doctor_identifier="")
+            .order_by("-share_timestamp")
+        )
+        for sl in logs:
+            if last10(sl.doctor_identifier) == input_last10:
+                matched_share_log = sl
                 break
 
-        print("DEBUG verification result:", matched)
+    if not matched_share_log:
+        messages.error(request, "Invalid Field ID or WhatsApp number.")
+        qs = f"?short_link_id={short_link_id_int}"
+        if share_id:
+            qs += f"&share_id={share_id}"
+        return redirect(request.path + qs)
 
-        if not matched:
-            messages.error(
-                request,
-                "WhatsApp number not found in our records. "
-                "Please use the same number used to share this content."
-            )
-            return redirect(request.path + f"?short_link_id={short_link_id}")
+    doctor_identifier = matched_share_log.doctor_identifier  # usually +91XXXXXXXXXX
 
-        # Grant access
-        from sharing_management.utils.db_operations import grant_download_access
+    # Grant access (existing behavior)
+    from sharing_management.utils.db_operations import grant_download_access
+    if not grant_download_access(short_link_id_int, doctor_phone=doctor_identifier):
+        messages.error(request, "Failed to grant download access.")
+        return redirect("/")
 
-        if not grant_download_access(short_link_id):
-            messages.error(request, "Error granting access.")
-            return redirect(request.path + f"?short_link_id={short_link_id}")
+    # Mark viewed for correct ShareLog/CollateralTransaction (best effort)
+    try:
+        mark_viewed(matched_share_log, sm_engagement_id=None)
+    except Exception:
+        pass
 
-        short_link = get_object_or_404(ShortLink, id=short_link_id)
-        collateral = short_link.get_collateral()
+    try:
+        collateral = Collateral.objects.get(id=short_link.resource_id)
+    except Collateral.DoesNotExist:
+        messages.error(request, "Collateral not found.")
+        return redirect("/")
 
-        # Build archives (unchanged logic)
-        campaign_id = getattr(collateral, "campaign_id", None)
-        if not campaign_id:
-            link = (
-                CollateralCampaignLink.objects
-                .filter(collateral=collateral)
-                .select_related("campaign")
-                .first()
-            )
-            if link:
-                campaign_id = link.campaign_id
+    return render(request, "doctor_viewer/doctor_collateral_view.html", {"collateral": collateral, "short_link": short_link})
 
-        archives = []
-        if campaign_id:
-            older = (
-                Collateral.objects.filter(
-                    campaign_id=campaign_id,
-                    is_active=True,
-                    upload_date__lt=collateral.upload_date,
-                )
-                .exclude(pk=collateral.pk)
-                .order_by("-upload_date")[:3]
-            )
-
-            for c in older:
-                sl = (
-                    ShortLink.objects.filter(
-                        resource_type="collateral",
-                        resource_id=c.id,
-                        is_active=True,
-                    )
-                    .order_by("-date_created")
-                    .first()
-                )
-                archives.append({"obj": c, "short_code": sl.short_code if sl else None})
-
-        absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
-
-        return render(
-            request,
-            "doctor_viewer/doctor_collateral_view.html",
-            {
-                "collateral": collateral,
-                "short_link": short_link,
-                "verified": True,
-                "archives": archives,
-                "absolute_pdf_url": absolute_pdf_url,
-            },
-        )
-
-    return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
 def doctor_collateral_view(request):
     """
