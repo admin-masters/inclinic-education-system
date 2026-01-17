@@ -75,8 +75,8 @@ def mark_viewed(share_log: ShareLog, sm_engagement_id: Optional[str] = None) -> 
     tx.has_viewed = True
     tx.viewed_at = timezone.now()
     if sm_engagement_id:
-        tx.sm_engagement_id = sm_engagement_id
-    tx.save(update_fields=["has_viewed", "viewed_at", "sm_engagement_id"])
+        tx.share_management_engagement_id = sm_engagement_id
+    tx.save(update_fields=["has_viewed", "viewed_at", "share_management_engagement_id"])
 
 
 def mark_pdf_progress(share_log: ShareLog, last_page_scrolled: int) -> None:

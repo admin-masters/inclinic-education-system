@@ -234,19 +234,20 @@ def doctor_collateral_verify(request):
             return redirect("/")
 
         preview_url = None
-        if collateral.pdf_file:
-            preview_url = collateral.pdf_file.url
-        elif collateral.thumbnail:
-            preview_url = collateral.thumbnail.url
+        if collateral.file:
+            preview_url = collateral.file.url
+        elif collateral.banner_1:
+            preview_url = collateral.banner_1.url
 
+        # Archive functionality - commented out since archives relationship doesn't exist
         archive_required = False
         archive_download_url = None
         archive_format = None
-        if collateral.archives.exists():
-            archive = collateral.archives.first()
-            archive_required = True
-            archive_download_url = archive.file.url
-            archive_format = archive.format.lower()
+        # if collateral.archives.exists():
+        #     archive = collateral.archives.first()
+        #     archive_required = True
+        #     archive_download_url = archive.file.url
+        #     archive_format = archive.format.lower()
 
         context = {
             "short_link_id": short_link_id,
@@ -318,7 +319,7 @@ def doctor_collateral_verify(request):
 
     # Grant access (existing behavior)
     from sharing_management.utils.db_operations import grant_download_access
-    if not grant_download_access(short_link_id_int, doctor_phone=doctor_identifier):
+    if not grant_download_access(short_link_id_int):
         messages.error(request, "Failed to grant download access.")
         return redirect("/")
 
@@ -334,7 +335,15 @@ def doctor_collateral_verify(request):
         messages.error(request, "Collateral not found.")
         return redirect("/")
 
-    return render(request, "doctor_viewer/doctor_collateral_view.html", {"collateral": collateral, "short_link": short_link})
+    # Generate absolute PDF URL for template
+    absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
+
+    return render(request, "doctor_viewer/doctor_collateral_view.html", {
+        "collateral": collateral, 
+        "short_link": short_link,
+        "verified": True,
+        "absolute_pdf_url": absolute_pdf_url
+    })
 
 
 def doctor_collateral_view(request):

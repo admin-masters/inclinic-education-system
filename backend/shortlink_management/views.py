@@ -6,7 +6,8 @@ from django.utils.decorators import method_decorator
 from django.views.generic import ListView, DetailView, DeleteView
 from django.contrib import messages
 from django.utils import timezone
-from django.http import JsonResponse
+from django.http import JsonResponse, HttpResponse
+import logging
 
 from .models import ShortLink
 from .forms import ShortLinkForm
@@ -17,6 +18,9 @@ import urllib.parse
 from django.shortcuts import redirect
 from django.http import Http404
 from django.conf import settings
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 # ----------------------------------------------------------------
 # List Short Links
@@ -91,7 +95,9 @@ def resolve_shortlink(request, code=None, short_code=None):
 
     try:
         shortlink = ShortLink.objects.get(short_code=short_code, is_active=True)
-        shortlink.increment_clicks()
+        # Increment click count manually since increment_clicks() method doesn't exist
+        shortlink.click_count = getattr(shortlink, 'click_count', 0) + 1
+        shortlink.save(update_fields=['click_count'])
 
         # Determine base URL depending on environment
         base_url = settings.SITE_URL if hasattr(settings, "SITE_URL") else request.build_absolute_uri("/")[:-1]

@@ -23,6 +23,7 @@ class ShortLink(models.Model):
     )
     date_created = models.DateTimeField(default=timezone.now)
     is_active = models.BooleanField(default=True)
+    click_count = models.PositiveIntegerField(default=0)
 
     # Timestamps for auditing
     created_at = models.DateTimeField(default=timezone.now)
