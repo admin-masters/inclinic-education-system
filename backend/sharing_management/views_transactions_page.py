@@ -7,13 +7,19 @@ from collateral_management.models import CampaignCollateral as CMCampaignCollate
 from sharing_management.models import CollateralTransaction
 
 
-@login_required
 def collateral_transactions_dashboard(request, brand_campaign_id: str):
+    
     qs = CollateralTransaction.objects.filter(brand_campaign_id=str(brand_campaign_id))
+    
+    
     collaterals_qs = CMCampaignCollateral.objects.filter(
         campaign__brand_campaign_id=str(brand_campaign_id)
     ).select_related("collateral")
+    
+    
     collaterals = [{"id": cc.collateral_id, "title": cc.collateral.title} for cc in collaterals_qs]
+   
+    
     selected_collateral_id = request.GET.get("collateral_id")
     try:
         selected_collateral_id_int = int(selected_collateral_id) if selected_collateral_id else None
@@ -32,6 +38,8 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
     video_gt_50_doctors = qs.filter(video_view_gt_50=True).values("doctor_number").distinct().count()
     video_100_doctors = qs.filter(video_view_100=True).values("doctor_number").distinct().count()
     total_transactions = qs.count()
+    
+    
 
     # ---- Table: most recent row per (doctor_number, collateral_id) ----
     # show the latest state for each doctor+collateral in the brand
@@ -47,6 +55,8 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
     if selected_collateral_id_int:
         base_rows = base_rows.filter(collateral_id=selected_collateral_id_int)
     rows = base_rows.order_by("-updated_at")[:1000]
+    
+    print(f"[DEBUG] Final rows count: {len(rows)}")
 
     # Build map for numeric user IDs → field_id
     rep_ids_numeric = []
@@ -83,4 +93,5 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
         ],
         "rows": rows,
     }
+    print(f"[DEBUG] Context prepared with {len(rows)} rows")
     return render(request, "sharing_management/collateral_transactions_dashboard.html", context)
