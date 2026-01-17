@@ -38,6 +38,7 @@ from .forms import (
     BulkPreMappedByLoginForm,
 )
 from campaign_management.models import Campaign, CampaignAssignment
+from admin_dashboard.models import FieldRepCampaign
 from sharing_management.services.transactions import upsert_from_sharelog, mark_video_event
 from collateral_management.models import Collateral
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
@@ -1216,23 +1217,45 @@ def fieldrep_create_password(request):
                 'error': 'Registration failed. Please try again.'
             })
 
+        # 1️⃣b Also create User record for campaign assignment
+        try:
+            from .utils.db_operations import register_user_management_user
+            user_success = register_user_management_user(
+                email=email,
+                username=email,
+                password=password,
+                security_answers=[(security_question_id, security_answer)]
+            )
+            print(f"DEBUG: User record creation {'success' if user_success else 'failed'}")
+        except Exception as e:
+            print(f"DEBUG: Error creating User record: {e}")
+
         # 2️⃣ FIX: Assign Field Rep to selected campaign (LOCAL DB)
         if brand_campaign_id:
+            print(f"DEBUG: Assigning field rep to campaign {brand_campaign_id}")
+            
             field_rep_user = User.objects.filter(
                 email__iexact=email,
                 role='field_rep',
-                is_active=True
+                active=True
             ).first()
+            
+            print(f"DEBUG: Found field_rep_user: {field_rep_user}")
 
             campaign = Campaign.objects.filter(
                 brand_campaign_id=brand_campaign_id
             ).first()
+            
+            print(f"DEBUG: Found campaign: {campaign}")
 
             if field_rep_user and campaign:
-                CampaignAssignment.objects.get_or_create(
+                assignment, created = FieldRepCampaign.objects.get_or_create(
                     field_rep=field_rep_user,
                     campaign=campaign
                 )
+                print(f"DEBUG: FieldRepCampaign {'created' if created else 'already exists'}: {assignment}")
+            else:
+                print(f"DEBUG: Missing field_rep_user or campaign - field_rep_user={field_rep_user}, campaign={campaign}")
 
         # 3️⃣ External sync (KEEP EXISTING)
         _sync_fieldrep_to_campaign_portal(
@@ -1269,7 +1292,7 @@ def fieldrep_login(request):
         # and may not yet have a sharing_management FieldRepresentative record.
         if not user_id:
             try:
-                portal_user = User.objects.filter(email__iexact=email, role='field_rep', is_active=True).first()
+                portal_user = User.objects.filter(email__iexact=email, role='field_rep', active=True).first()
                 if portal_user and portal_user.check_password(password):
                     user_id = portal_user.id
                     field_id = portal_user.field_id or ''

@@ -110,7 +110,7 @@ class FieldRepListView(StaffRequiredMixin, ListView):
 
     def get_queryset(self):
         # Base queryset - only active field reps
-        qs = User.objects.filter(role="field_rep", is_active=True).order_by("-id")
+        qs = User.objects.filter(role="field_rep", active=True).order_by("-id")
         
         # Get search query if any
         q = self.request.GET.get("q", "")
@@ -127,30 +127,34 @@ class FieldRepListView(StaffRequiredMixin, ListView):
         if campaign_param or brand_campaign_id:
             # If we have a brand_campaign_id, use it directly
             if brand_campaign_id:
+                print(f"DEBUG: Admin dashboard filtering by brand_campaign_id: {brand_campaign_id}")
                 rep_ids = list(FieldRepCampaign.objects.filter(
                     campaign__brand_campaign_id=brand_campaign_id,
-                    field_rep__is_active=True
+                    field_rep__active=True
                 ).values_list("field_rep_id", flat=True))
+                print(f"DEBUG: Found rep_ids: {rep_ids}")
             else:
                 # Try to interpret as campaign ID or brand_campaign_id
                 try:
                     campaign_pk = int(campaign_param)
                     rep_ids = list(FieldRepCampaign.objects.filter(
                         campaign_id=campaign_pk,
-                        field_rep__is_active=True
+                        field_rep__active=True
                     ).values_list("field_rep_id", flat=True))
                 except (TypeError, ValueError):
                     # If not a number, try as brand_campaign_id
                     rep_ids = list(FieldRepCampaign.objects.filter(
                         campaign__brand_campaign_id=campaign_param,
-                        field_rep__is_active=True
+                        field_rep__active=True
                     ).values_list("field_rep_id", flat=True))
             
             # If we found matching field reps, filter the queryset
             if rep_ids:
                 qs = qs.filter(id__in=rep_ids)
+                print(f"DEBUG: Filtered queryset to {qs.count()} field reps")
             else:
                 # If no field reps found for the campaign, return empty queryset
+                print("DEBUG: No rep_ids found, returning empty queryset")
                 return User.objects.none()
 
         # Apply search filter if any
