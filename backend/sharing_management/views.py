@@ -37,7 +37,7 @@ from .forms import (
     BulkPreFilledWhatsappShareForm,
     BulkPreMappedByLoginForm,
 )
-from campaign_management.models import CampaignAssignment
+from campaign_management.models import Campaign, CampaignAssignment
 from sharing_management.services.transactions import upsert_from_sharelog, mark_video_event
 from collateral_management.models import Collateral
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
@@ -63,7 +63,9 @@ import re
 
 from django.utils import timezone
 from collateral_management.models import Collateral
+from django.contrib.auth import get_user_model
 
+User = get_user_model()
 def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, field_id: str = '', first_name: str = '', last_name: str = '', raw_password: str = ''):
     """
     Ensure the Field Rep is visible in the Field Rep Portal for the specified brand campaign.
@@ -1160,15 +1162,15 @@ def fieldrep_email_registration(request):
 def fieldrep_create_password(request):
     email = request.GET.get('email') or request.POST.get('email')
     brand_campaign_id = request.GET.get('campaign') or request.POST.get('campaign')
-    
-    # Fetch security questions from database using Django ORM
+
+    # Fetch security questions
     try:
         from .models import SecurityQuestion
         security_questions = SecurityQuestion.objects.all().values_list('id', 'question_txt')
     except Exception as e:
         print(f"Error fetching security questions: {e}")
         security_questions = []
-    
+
     if request.method == 'POST':
         field_id = request.POST.get('field_id')
         first_name = request.POST.get('first_name')
@@ -1178,8 +1180,8 @@ def fieldrep_create_password(request):
         confirm_password = request.POST.get('confirm_password')
         security_question_id = request.POST.get('security_question')
         security_answer = request.POST.get('security_answer')
-        
-        # Validate WhatsApp number if provided
+
+        # Validate WhatsApp number
         if whatsapp_number and (not whatsapp_number.isdigit() or len(whatsapp_number) < 10 or len(whatsapp_number) > 15):
             return render(request, 'sharing_management/fieldrep_create_password.html', {
                 'email': email,
@@ -1187,47 +1189,67 @@ def fieldrep_create_password(request):
                 'brand_campaign_id': brand_campaign_id,
                 'error': 'Please enter a valid WhatsApp number (10-15 digits).'
             })
-        
-        if password == confirm_password:
-            success = register_field_representative(
-                field_id=field_id,
-                email=email,
-                whatsapp_number=whatsapp_number,
-                password=password,
-                security_question_id=security_question_id,
-                security_answer=security_answer
-            )
-            
-            if success:
-                # 🔽 Added sync call as requested
-                _sync_fieldrep_to_campaign_portal(
-                    brand_campaign_id=brand_campaign_id,
-                    email=email,
-                    field_id=field_id or '',
-                    first_name=first_name or '',
-                    last_name=last_name or '',
-                    raw_password=password or '',
-                )
 
-                redirect_url = '/share/fieldrep-login/'
-                if brand_campaign_id:
-                    redirect_url += f'?campaign={brand_campaign_id}'
-                return redirect(redirect_url)
-            else:
-                return render(request, 'sharing_management/fieldrep_create_password.html', {
-                    'email': email,
-                    'security_questions': security_questions,
-                    'brand_campaign_id': brand_campaign_id,
-                    'error': 'Registration failed. Please try again.'
-                })
-        else:
+        if password != confirm_password:
             return render(request, 'sharing_management/fieldrep_create_password.html', {
                 'email': email,
                 'security_questions': security_questions,
                 'brand_campaign_id': brand_campaign_id,
                 'error': 'Passwords do not match.'
             })
-    
+
+        # 1️⃣ Register Field Rep
+        success = register_field_representative(
+            field_id=field_id,
+            email=email,
+            whatsapp_number=whatsapp_number,
+            password=password,
+            security_question_id=security_question_id,
+            security_answer=security_answer
+        )
+
+        if not success:
+            return render(request, 'sharing_management/fieldrep_create_password.html', {
+                'email': email,
+                'security_questions': security_questions,
+                'brand_campaign_id': brand_campaign_id,
+                'error': 'Registration failed. Please try again.'
+            })
+
+        # 2️⃣ FIX: Assign Field Rep to selected campaign (LOCAL DB)
+        if brand_campaign_id:
+            field_rep_user = User.objects.filter(
+                email__iexact=email,
+                role='field_rep',
+                is_active=True
+            ).first()
+
+            campaign = Campaign.objects.filter(
+                brand_campaign_id=brand_campaign_id
+            ).first()
+
+            if field_rep_user and campaign:
+                CampaignAssignment.objects.get_or_create(
+                    field_rep=field_rep_user,
+                    campaign=campaign
+                )
+
+        # 3️⃣ External sync (KEEP EXISTING)
+        _sync_fieldrep_to_campaign_portal(
+            brand_campaign_id=brand_campaign_id,
+            email=email,
+            field_id=field_id or '',
+            first_name=first_name or '',
+            last_name=last_name or '',
+            raw_password=password or '',
+        )
+
+        # 4️⃣ Redirect
+        redirect_url = '/share/fieldrep-login/'
+        if brand_campaign_id:
+            redirect_url += f'?campaign={brand_campaign_id}'
+        return redirect(redirect_url)
+
     return render(request, 'sharing_management/fieldrep_create_password.html', {
         'email': email,
         'security_questions': security_questions,
