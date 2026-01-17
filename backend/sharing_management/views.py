@@ -1171,6 +1171,8 @@ def fieldrep_create_password(request):
     
     if request.method == 'POST':
         field_id = request.POST.get('field_id')
+        first_name = request.POST.get('first_name')
+        last_name = request.POST.get('last_name')
         whatsapp_number = request.POST.get('whatsapp_number', '').strip()
         password = request.POST.get('password')
         confirm_password = request.POST.get('confirm_password')
@@ -1178,16 +1180,15 @@ def fieldrep_create_password(request):
         security_answer = request.POST.get('security_answer')
         
         # Validate WhatsApp number if provided
-        if whatsapp_number and not whatsapp_number.isdigit() or len(whatsapp_number) < 10 or len(whatsapp_number) > 15:
+        if whatsapp_number and (not whatsapp_number.isdigit() or len(whatsapp_number) < 10 or len(whatsapp_number) > 15):
             return render(request, 'sharing_management/fieldrep_create_password.html', {
                 'email': email,
                 'security_questions': security_questions,
+                'brand_campaign_id': brand_campaign_id,
                 'error': 'Please enter a valid WhatsApp number (10-15 digits).'
             })
         
-        # Add password validation logic here if needed
         if password == confirm_password:
-            # Use the new registration function with the specified placeholder style
             success = register_field_representative(
                 field_id=field_id,
                 email=email,
@@ -1198,6 +1199,16 @@ def fieldrep_create_password(request):
             )
             
             if success:
+                # 🔽 Added sync call as requested
+                _sync_fieldrep_to_campaign_portal(
+                    brand_campaign_id=brand_campaign_id,
+                    email=email,
+                    field_id=field_id or '',
+                    first_name=first_name or '',
+                    last_name=last_name or '',
+                    raw_password=password or '',
+                )
+
                 redirect_url = '/share/fieldrep-login/'
                 if brand_campaign_id:
                     redirect_url += f'?campaign={brand_campaign_id}'
@@ -1232,6 +1243,18 @@ def fieldrep_login(request):
         
         # Authenticate using database
         user_id, field_id, user_email = authenticate_field_representative(email, password)
+        # Fallback: some Field Reps are created in the Field Rep Portal (user_management.User)
+        # and may not yet have a sharing_management FieldRepresentative record.
+        if not user_id:
+            try:
+                portal_user = User.objects.filter(email__iexact=email, role='field_rep', is_active=True).first()
+                if portal_user and portal_user.check_password(password):
+                    user_id = portal_user.id
+                    field_id = portal_user.field_id or ''
+                    user_email = portal_user.email
+            except Exception:
+                portal_user = None
+
         
         if user_id:
             # Clear any existing Google authentication session
@@ -1276,6 +1299,7 @@ def fieldrep_login(request):
     return render(request, 'sharing_management/fieldrep_login.html', {
         'brand_campaign_id': brand_campaign_id
     })
+
 
 def fieldrep_forgot_password(request):
     if request.method == 'POST':
@@ -1820,14 +1844,12 @@ def prefilled_fieldrep_create_password(request):
         chars = _string.ascii_letters + _string.digits
         return ''.join(_random.choices(chars, k=length))
 
-    # Password shown/used:
-    # - On GET: system password is generated
-    # - On POST: use whatever is posted (system password or user-chosen)
     posted_password = (request.POST.get('password') or '').strip() if request.method == 'POST' else ''
     password = posted_password or generate_password()
 
-    # Sticky form values for re-render on validation errors
     field_id = (request.POST.get('field_id') or '').strip() if request.method == 'POST' else ''
+    first_name = (request.POST.get('first_name') or '').strip() if request.method == 'POST' else ''
+    last_name = (request.POST.get('last_name') or '').strip() if request.method == 'POST' else ''
     whatsapp_number = (request.POST.get('whatsapp_number') or '').strip() if request.method == 'POST' else ''
     security_question_raw = (request.POST.get('security_question') or '').strip() if request.method == 'POST' else ''
     security_answer = (request.POST.get('security_answer') or '').strip() if request.method == 'POST' else ''
@@ -1842,17 +1864,17 @@ def prefilled_fieldrep_create_password(request):
         'whatsapp_number': whatsapp_number,
         'selected_security_question': security_question_raw,
         'security_answer': security_answer,
+        'first_name': first_name,
+        'last_name': last_name,
     }
 
     if request.method != 'POST':
         return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
 
-    # ---- Validation (match manual registration expectations) ----
     if not field_id:
         context['error'] = "Field ID is required."
         return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
 
-    # If user chose custom password, confirm_password will be present/required
     if confirm_password and password != confirm_password:
         context['error'] = "Passwords do not match."
         return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
@@ -1875,10 +1897,8 @@ def prefilled_fieldrep_create_password(request):
         context['error'] = "Invalid security question selected."
         return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
 
-    # Normalize WhatsApp number (optional, like manual)
     whatsapp_number_final = whatsapp_number or None
 
-    # ---- Check duplicates (email + field_id) ----
     try:
         with connection.cursor() as cursor:
             cursor.execute("""
@@ -1908,7 +1928,6 @@ def prefilled_fieldrep_create_password(request):
         context['error'] = "Unable to validate registration details. Please try again."
         return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
 
-    # ---- Register user ----
     try:
         from .utils.db_operations import register_field_representative
 
@@ -1922,6 +1941,16 @@ def prefilled_fieldrep_create_password(request):
         )
 
         if success:
+            # 🔽 Added sync call as requested
+            _sync_fieldrep_to_campaign_portal(
+                brand_campaign_id=brand_campaign_id,
+                email=email,
+                field_id=field_id,
+                first_name=first_name,
+                last_name=last_name,
+                raw_password=password,
+            )
+
             messages.success(request, "Registration successful. Please login.")
             if brand_campaign_id:
                 return redirect(f"/share/fieldrep-login/?campaign={brand_campaign_id}")
@@ -1934,6 +1963,7 @@ def prefilled_fieldrep_create_password(request):
         print(f"[prefilled_fieldrep_create_password] Error registering prefilled user: {e}")
         context['error'] = "Registration failed. Please try again."
         return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', context)
+
 # def prefilled_fieldrep_registration(request):
 #     if request.method == 'POST':
 #         email = request.POST.get('email')
