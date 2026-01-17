@@ -326,15 +326,7 @@
         <td>{{ collateral.item_name }}</td>
         <td>{{ collateral.description }}</td>
         <td>
-          {% if collateral.has_both %}
-          <a
-            class="btn btn-warning"
-            href="{% url 'collateral_preview' collateral.id %}"
-            >Link</a
-          >
-          {% else %}
-          <a class="btn btn-warning" href="{{ collateral.url }}">Link</a>
-          {% endif %}
+        <a class="btn btn-warning" href="{% url 'collateral_preview' collateral.id %}">Link</a>
         </td>
         <td>
           {% if collateral.campaign_collateral_id %}
