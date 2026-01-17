@@ -22,13 +22,14 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.models import User  # Add this line
 
-from .models import ShareLog, VideoTrackingLog, FieldRepresentative, CollateralTransaction,FieldRep, BrandCampaign
+from .models import ShareLog, VideoTrackingLog, FieldRepresentative, CollateralTransaction
 from campaign_management.models import CampaignCollateral
 from doctor_viewer.models import Doctor
 from django.db.models import Max, Q, F, ExpressionWrapper, DateTimeField
 from django.utils import timezone
 from datetime import timedelta
 from .decorators import field_rep_required
+from .models import FieldRep, BrandCampaign
 
 from .forms import (
     ShareForm,
