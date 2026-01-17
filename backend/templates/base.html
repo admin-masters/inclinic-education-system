@@ -10,68 +10,155 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
     
     <style>
+        /* ===============================
+           DESIGN TOKENS & TYPOGRAPHY
+        =============================== */
         :root {
             --primary-color: #3390ff;
             --footer-color: #2c82e0;
             --logout-color: #e74c3c;
             --logout-hover: #c0392b;
             --text-light: #ffffff;
+
+            --font-family-base: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+
+            --font-size-xs: 0.75rem;
+            --font-size-sm: 0.875rem;
+            --font-size-base: 1rem;
+            --font-size-lg: 1.125rem;
+            --font-size-xl: 1.375rem;
+
+            --line-height-base: 1.5;
+            --line-height-heading: 1.3;
+
+            --spacing-xs: 0.25rem;
+            --spacing-sm: 0.5rem;
+            --spacing-md: 1rem;
+            --spacing-lg: 1.5rem;
+            --spacing-xl: 2rem;
+        }
+
+        /* ===============================
+           GLOBAL RESET & BASE
+        =============================== */
+        *,
+        *::before,
+        *::after {
+            box-sizing: border-box;
+        }
+
+        html {
+            font-size: 100%;
         }
 
         body {
             min-height: 100vh;
             display: flex;
             flex-direction: column;
+            font-family: var(--font-family-base);
+            font-size: var(--font-size-base);
+            line-height: var(--line-height-base);
             background-color: #f8f9fa;
+            color: #212529;
         }
 
+        h1, h2, h3, h4, h5, h6 {
+            line-height: var(--line-height-heading);
+            font-weight: 600;
+            margin-bottom: var(--spacing-sm);
+        }
+
+        h2 {
+            font-size: var(--font-size-xl);
+        }
+
+        p {
+            margin-bottom: var(--spacing-sm);
+        }
+
+        small {
+            font-size: var(--font-size-sm);
+        }
+
+        /* ===============================
+           NAVBAR
+        =============================== */
         .navbar {
             background-color: var(--primary-color);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.1);
         }
 
         .navbar-brand {
             font-weight: 600;
+            font-size: var(--font-size-lg);
             color: var(--text-light) !important;
         }
 
         .navbar-text {
             color: rgba(255,255,255,0.9) !important;
+            font-size: var(--font-size-sm);
         }
 
         .btn-logout {
             background-color: var(--logout-color);
             border: none;
-            transition: all 0.3s ease;
+            font-size: var(--font-size-sm);
+            padding: 0.4rem 0.75rem;
+            transition: background-color 0.2s ease, transform 0.2s ease;
         }
 
         .btn-logout:hover {
             background-color: var(--logout-hover);
-            transform: translateY(-1px);
+            transform: translateY(-0.0625rem);
         }
 
+        /* ===============================
+           MAIN CONTENT
+        =============================== */
         main {
             flex: 1;
-            padding: 2rem 0;
+            padding: var(--spacing-lg) var(--spacing-sm);
         }
 
+        /* ===============================
+           FOOTER
+        =============================== */
         .footer {
             background-color: var(--footer-color);
             color: rgba(255,255,255,0.9);
-            padding: 1rem 0;
+            padding: var(--spacing-sm) 0;
             margin-top: auto;
+            font-size: var(--font-size-sm);
         }
 
+        /* ===============================
+           MOBILE FIRST ADJUSTMENTS
+        =============================== */
         @media (max-width: 768px) {
+
+            main {
+                padding: var(--spacing-md) var(--spacing-sm);
+            }
+
+            h2 {
+                font-size: 1.25rem;
+            }
+
             .navbar-collapse {
                 background-color: var(--primary-color);
-                padding: 1rem;
+                padding: var(--spacing-md);
                 border-radius: 0.5rem;
-                margin-top: 0.5rem;
+                margin-top: var(--spacing-sm);
             }
 
             .navbar-nav {
-                gap: 0.5rem;
+                gap: var(--spacing-sm);
+            }
+
+            .btn,
+            .form-control,
+            .form-select {
+                font-size: var(--font-size-sm);
             }
         }
     </style>
@@ -80,7 +167,6 @@
 </head>
 <body>
 
-    {# ✅ SHOW HEADER ONLY ON HOME + FIELDREP DASHBOARD #}
     {% if request.resolver_match.url_name == "manage_data_panel" or request.resolver_match.url_name == "fieldrep_dashboard" %}
     <nav class="navbar navbar-expand-lg navbar-dark">
         <div class="container">
@@ -126,7 +212,6 @@
             {% endfor %}
         {% endif %}
 
-        {# ✅ SHOW BACK + HOME ONLY ON HOME + FIELDREP DASHBOARD #}
         {% if request.resolver_match.url_name == "manage_data_panel" or request.resolver_match.url_name == "fieldrep_dashboard" %}
         <div class="d-flex gap-2 mb-3">
             <a href="javascript:history.back()" class="btn btn-outline-secondary">
@@ -148,32 +233,9 @@
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
-
     <script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}" defer></script>
 
     {% block bottomjs %}{% endblock %}
-
-    <script>
-        document.addEventListener("DOMContentLoaded", function () {
-
-            const logoutForm = document.getElementById("logoutForm");
-            const recaptchaToken = document.getElementById("recaptchaToken");
-
-            if (logoutForm && recaptchaToken && window.grecaptcha) {
-                logoutForm.addEventListener("submit", function (e) {
-                    e.preventDefault();
-                    grecaptcha.ready(function () {
-                        grecaptcha.execute("{{ RECAPTCHA_SITE_KEY }}", { action: "logout" })
-                            .then(function (token) {
-                                recaptchaToken.value = token;
-                                logoutForm.submit();
-                            });
-                    });
-                });
-            }
-
-        });
-    </script>
 
 </body>
 </html>
