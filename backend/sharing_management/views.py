@@ -64,6 +64,86 @@ import re
 from django.utils import timezone
 from collateral_management.models import Collateral
 
+def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, field_id: str = '', first_name: str = '', last_name: str = '', raw_password: str = ''):
+    """
+    Ensure the Field Rep is visible in the Field Rep Portal for the specified brand campaign.
+
+    This keeps sharing-registration flows and the portal in sync by ensuring:
+      - a user_management.User (role='field_rep') exists
+      - campaign_management.CampaignAssignment exists
+      - admin_dashboard.FieldRepCampaign exists
+
+    Fail-safe by design: if anything goes wrong, registration/login flows must continue unchanged.
+    """
+    try:
+        if not brand_campaign_id or not email:
+            return
+
+        from campaign_management.models import Campaign, CampaignAssignment
+        from admin_dashboard.models import FieldRepCampaign
+        from user_management.models import User
+
+        campaign_obj = Campaign.objects.filter(brand_campaign_id=brand_campaign_id).first()
+        if not campaign_obj:
+            return
+
+        # Find existing portal user case-insensitively
+        user = User.objects.filter(email__iexact=email).first()
+
+        if user:
+            # Do not assign non-field-rep accounts to campaigns
+            if getattr(user, 'role', None) != 'field_rep':
+                return
+        else:
+            # Create a portal user (field rep)
+            base_username = (email.split('@')[0] or email).strip()[:140]
+            username_candidate = base_username or email[:140]
+            suffix = 0
+            while User.objects.filter(username=username_candidate).exists():
+                suffix += 1
+                username_candidate = f"{base_username}_{suffix}"[:150]
+
+            user = User.objects.create_user(
+                username=username_candidate,
+                email=email.lower(),
+                password=raw_password or User.objects.make_random_password(),
+            )
+            user.role = 'field_rep'
+            user.is_active = True
+            user.field_id = field_id or user.field_id
+            user.first_name = first_name or user.first_name
+            user.last_name = last_name or user.last_name
+            user.save()
+
+        # Light updates only if missing
+        changed = False
+        if field_id and not getattr(user, 'field_id', None):
+            user.field_id = field_id
+            changed = True
+        if first_name and not getattr(user, 'first_name', ''):
+            user.first_name = first_name
+            changed = True
+        if last_name and not getattr(user, 'last_name', ''):
+            user.last_name = last_name
+            changed = True
+        if changed:
+            user.save()
+
+        CampaignAssignment.objects.get_or_create(
+            campaign=campaign_obj,
+            field_rep=user,
+            defaults={'assigned_by': None},
+        )
+        FieldRepCampaign.objects.get_or_create(
+            campaign=campaign_obj,
+            field_rep=user,
+        )
+
+    except Exception as e:
+        # Do not break registration flows if portal sync fails.
+        print(f"Portal sync error: {e}")
+
+
 def get_active_collaterals_for_brand_campaign(brand_campaign_id: str):
     """
     Returns ONLY collaterals that are:
