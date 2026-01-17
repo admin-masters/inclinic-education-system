@@ -1,11 +1,283 @@
+/* ===============================
+   ADMIN DASHBOARD - MOBILE FIRST
+   =============================== */
+
+/* Base table styles - mobile first */
 .admin-dashboard {
-  border-collapse: collapse;
-  width: 100%;
+    border-collapse: collapse;
+    width: 100%;
+    font-size: var(--font-size-sm);
+    line-height: var(--line-height-base);
 }
-.admin-dashboard th, .admin-dashboard td {
-  border: 1px solid #ccc;
-  padding: 6px 10px;
+
+.admin-dashboard th,
+.admin-dashboard td {
+    border: 1px solid var(--border-color);
+    padding: var(--spacing-2) var(--spacing-3);
+    text-align: left;
+    vertical-align: middle;
 }
+
 .admin-dashboard th {
-  background: #f4f4f4;
+    background: var(--background-light);
+    font-weight: 600;
+    color: var(--text-dark);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.admin-dashboard td {
+    background: var(--background-white);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+}
+
+/* Mobile-specific table improvements */
+@media (max-width: 767.98px) {
+    .admin-dashboard {
+        font-size: var(--font-size-xs);
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    .admin-dashboard th,
+    .admin-dashboard td {
+        padding: var(--spacing-2);
+        min-width: 120px;
+        white-space: nowrap;
+    }
+    
+    /* Hide less important columns on very small screens */
+    .admin-dashboard th.hide-mobile,
+    .admin-dashboard td.hide-mobile {
+        display: none;
+    }
+}
+
+/* Tablet styles */
+@media (min-width: 768px) {
+    .admin-dashboard {
+        font-size: var(--font-size-sm);
+    }
+    
+    .admin-dashboard th,
+    .admin-dashboard td {
+        padding: var(--spacing-3) var(--spacing-4);
+    }
+}
+
+/* Desktop styles */
+@media (min-width: 992px) {
+    .admin-dashboard {
+        font-size: var(--font-size-base);
+    }
+    
+    .admin-dashboard th,
+    .admin-dashboard td {
+        padding: var(--spacing-3) var(--spacing-5);
+    }
+}
+
+/* Hover effects for larger screens */
+@media (min-width: 768px) {
+    .admin-dashboard tbody tr:hover {
+        background-color: rgba(51, 144, 255, 0.05);
+        transition: background-color var(--transition-fast);
+    }
+}
+
+/* Responsive container for dashboard */
+.dashboard-container {
+    width: 100%;
+    padding: var(--spacing-4);
+    margin: 0 auto;
+}
+
+@media (min-width: 768px) {
+    .dashboard-container {
+        padding: var(--spacing-6);
+    }
+}
+
+@media (min-width: 992px) {
+    .dashboard-container {
+        padding: var(--spacing-8);
+    }
+}
+
+/* Dashboard cards and widgets */
+.dashboard-card {
+    background: var(--background-white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    padding: var(--spacing-6);
+    margin-bottom: var(--spacing-4);
+    transition: box-shadow var(--transition-fast);
+}
+
+.dashboard-card:hover {
+    box-shadow: var(--shadow-md);
+}
+
+/* Dashboard grid layout */
+.dashboard-grid {
+    display: grid;
+    gap: var(--spacing-4);
+    grid-template-columns: 1fr;
+}
+
+@media (min-width: 768px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (min-width: 992px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (min-width: 1200px) {
+    .dashboard-grid {
+        grid-template-columns: repeat(4, 1fr);
+    }
+}
+
+/* Dashboard stats cards */
+.stat-card {
+    background: var(--background-white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-5);
+    text-align: center;
+    box-shadow: var(--shadow-sm);
+    transition: transform var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.stat-number {
+    font-size: var(--font-size-3xl);
+    font-weight: 700;
+    color: var(--primary-color);
+    margin-bottom: var(--spacing-2);
+}
+
+.stat-label {
+    font-size: var(--font-size-sm);
+    color: var(--text-muted);
+    font-weight: 500;
+}
+
+@media (max-width: 767.98px) {
+    .stat-number {
+        font-size: var(--font-size-2xl);
+    }
+    
+    .stat-card {
+        padding: var(--spacing-4);
+    }
+}
+
+/* Action buttons */
+.dashboard-actions {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-3);
+    margin-bottom: var(--spacing-5);
+}
+
+@media (min-width: 768px) {
+    .dashboard-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+        align-items: center;
+    }
+}
+
+/* Filter and search controls */
+.dashboard-filters {
+    background: var(--background-white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-5);
+    margin-bottom: var(--spacing-5);
+}
+
+.filter-group {
+    margin-bottom: var(--spacing-4);
+}
+
+.filter-group:last-child {
+    margin-bottom: 0;
+}
+
+@media (min-width: 768px) {
+    .dashboard-filters {
+        padding: var(--spacing-6);
+    }
+    
+    .filter-group {
+        margin-bottom: 0;
+        margin-right: var(--spacing-4);
+    }
+}
+
+/* Responsive table wrapper */
+.table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: var(--spacing-5);
+}
+
+/* Loading states */
+.loading {
+    opacity: 0.6;
+    pointer-events: none;
+}
+
+.loading::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 20px;
+    height: 20px;
+    margin: -10px 0 0 -10px;
+    border: 2px solid var(--border-color);
+    border-top: 2px solid var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Print styles */
+@media print {
+    .admin-dashboard {
+        font-size: 10pt;
+    }
+    
+    .dashboard-actions,
+    .dashboard-filters {
+        display: none;
+    }
+    
+    .admin-dashboard th,
+    .admin-dashboard td {
+        border: 1pt solid #000;
+        padding: 4pt;
+    }
 }

@@ -6,57 +6,76 @@
 {% endblock %}
 
 {% block content %}
-<h1>Inditech Admin Dashboard</h1>
+<div class="dashboard-container">
+  <h1 class="mb-5">Inditech Admin Dashboard</h1>
 
-<table class="admin-dashboard">
-  <thead>
-    <tr>
-      <th>Campaign</th>
-      <th>Shares</th>
-      <th>PDF Impressions</th>
-      <th>Video Completions (Old)</th>
-      <th>Video Completions (New)</th>
-      <th>Links</th>
-    </tr>
-  </thead>
-  <tbody>
-    {% for stat in stats %}
-    <tr>
-      <td>{{ stat.campaign.name }}</td>
-      <td>{{ stat.shares }}</td>
-      <td>{{ stat.pdf_completions }}</td>
-      <td>{{ stat.video_completions_old }}</td>
-      <td>{{ stat.video_completions_new }}</td>
-      <td>
-        <a href="{% url 'admin:campaign_management_campaign_change' stat.campaign.id %}">Edit Campaign</a>
-      </td>
-    </tr>
-    {% empty %}
-    <tr>
-      <td colspan="6">No campaigns found.</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
+  <div class="table-wrapper">
+    <table class="admin-dashboard">
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th>Shares</th>
+          <th>PDF Impressions</th>
+          <th>Video Completions (Old)</th>
+          <th>Video Completions (New)</th>
+          <th class="hide-mobile">Links</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for stat in stats %}
+        <tr>
+          <td>{{ stat.campaign.name }}</td>
+          <td>{{ stat.shares }}</td>
+          <td>{{ stat.pdf_completions }}</td>
+          <td>{{ stat.video_completions_old }}</td>
+          <td>{{ stat.video_completions_new }}</td>
+          <td class="hide-mobile">
+            <a href="{% url 'admin:campaign_management_campaign_change' stat.campaign.id %}" class="btn btn-sm btn-outline-primary">Edit Campaign</a>
+          </td>
+        </tr>
+        {% empty %}
+        <tr>
+          <td colspan="6">No campaigns found.</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
 
-<p><a href="{% url 'admin_dashboard:bulk_upload' %}">Bulk upload Field Reps</a></p>
+  <div class="dashboard-actions mt-4">
+    <a href="{% url 'admin_dashboard:bulk_upload' %}" class="btn btn-outline-primary">
+      <i class="bi bi-upload me-2"></i>Bulk Upload Field Reps
+    </a>
+  </div>
 
-<!-- ✅ Bulk Sharing Links -->
-<p class="mt-4">
-  <a href="{% url 'campaign_create' %}" class="btn btn-primary w-100 mb-2">
-    + Add a New Campaign
-  </a>
-  <a href="{% url 'bulk_manual_upload' %}" class="btn btn-outline-primary w-100 mb-2">
-    Bulk Registration – Manual Sharing
-  </a>
-  <a href="{% url 'bulk_pre_mapped_upload' %}" class="btn btn-outline-primary w-100 mb-2">
-    Bulk Registration – Pre-mapped Doctors Sharing
-  </a>
-  <a href="{% url 'bulk_manual_upload_whatsapp' %}" class="btn btn-outline-success w-100 mb-2">
-    Bulk Registration – Manual Sharing by WhatsApp
-  </a>
-  <a href="{% url 'collateral_add' %}" class="btn btn-primary w-100">
-    + Add Collateral
-  </a>
-</p>
+  <!-- Quick Actions Dashboard -->
+  <div class="dashboard-grid mt-5">
+    <div class="dashboard-card">
+      <h3 class="mb-4">Campaign Management</h3>
+      <div class="d-flex flex-column gap-3">
+        <a href="{% url 'campaign_create' %}" class="btn btn-primary">
+          <i class="bi bi-plus-circle me-2"></i>Add New Campaign
+        </a>
+        <a href="{% url 'bulk_manual_upload' %}" class="btn btn-outline-primary">
+          <i class="bi bi-people me-2"></i>Bulk Registration – Manual Sharing
+        </a>
+        <a href="{% url 'bulk_pre_mapped_upload' %}" class="btn btn-outline-primary">
+          <i class="bi bi-link-45deg me-2"></i>Bulk Registration – Pre-mapped Doctors
+        </a>
+        <a href="{% url 'bulk_manual_upload_whatsapp' %}" class="btn btn-outline-success">
+          <i class="bi bi-whatsapp me-2"></i>Bulk Registration – WhatsApp Sharing
+        </a>
+      </div>
+    </div>
+
+    <div class="dashboard-card">
+      <h3 class="mb-4">Content Management</h3>
+      <div class="d-flex flex-column gap-3">
+        <a href="{% url 'collateral_add' %}" class="btn btn-primary">
+          <i class="bi bi-file-earmark-plus me-2"></i>Add Collateral
+        </a>
+      </div>
+    </div>
+  </div>
+</div>
 {% endblock %}

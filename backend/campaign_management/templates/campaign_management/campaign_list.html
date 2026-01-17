@@ -2,66 +2,77 @@
 {% load static %}
 
 {% block content %}
-<style>
-  body {
-    background-color: #f4f6fa;
-  }
+<div class="container">
+  <div class="d-flex justify-content-between align-items-center mb-5">
+    <h2 class="fw-bold mb-0">All Campaigns</h2>
+    <a class="btn btn-primary" href="{% url 'campaign_create' %}">
+      <i class="bi bi-plus-circle me-2"></i>Create New Campaign
+    </a>
+  </div>
 
-  .campaign-card {
-    background: #fff;
-    box-shadow: 0 4px 16px rgba(51, 144, 255, 0.08), 0 1px 4px rgba(0, 0, 0, 0.04);
-    border-radius: 0.5rem;
-    margin-bottom: 1.5rem;
-    padding: 1.5rem 1.5rem 1rem 1.5rem;
-  }
-
-  .campaign-title {
-    font-size: 1.2rem;
-    font-weight: 600;
-    color: #1769aa;
-    margin-bottom: 0.25rem;
-  }
-
-  .campaign-status {
-    font-size: 0.98rem;
-    color: #555;
-  }
-
-  .campaign-id {
-    font-family: monospace;
-    background-color: #f8f9fa;
-    padding: 0.2rem 0.5rem;
-    border-radius: 0.25rem;
-    font-size: 0.9rem;
-    color: #495057;
-    border: 1px solid #e9ecef;
-  }
-</style>
-<div class="d-flex justify-content-between align-items-center mb-4">
-  <h2 class="fw-bold mb-0">All Campaigns</h2>
-  <a class="btn btn-primary" href="{% url 'campaign_create' %}">
-    <i class="bi bi-plus-circle me-1"></i> Create New Campaign
-  </a>
-</div>
-<div class="list-group">
-  {% for campaign in campaigns %}
-  <div class="campaign-card list-group-item">
-    <div class="d-flex justify-content-between align-items-center flex-wrap">
-      <div>
-        <div class="campaign-id mb-2">
+  <div class="dashboard-grid">
+    {% for campaign in campaigns %}
+    <div class="dashboard-card">
+      <div class="d-flex justify-content-between align-items-start mb-3">
+        <div class="campaign-id">
           <code>{{ campaign.brand_campaign_id }}</code>
         </div>
-        <div class="campaign-title">
-          <a class="text-decoration-none" href="{% url 'campaign_detail' campaign.id %}">{{ campaign.name }}</a>
-        </div>
-        <div class="campaign-status">Status: {{ campaign.status }}</div>
+        <div class="badge bg-primary">{{ campaign.status }}</div>
+      </div>
+      
+      <div class="campaign-title mb-3">
+        <a class="text-decoration-none text-dark fw-semibold" href="{% url 'campaign_detail' campaign.id %}">
+          {{ campaign.name }}
+        </a>
+      </div>
+      
+      <div class="d-flex justify-content-between align-items-center">
+        <small class="text-muted">Campaign ID: {{ campaign.id }}</small>
+        <a href="{% url 'campaign_detail' campaign.id %}" class="btn btn-sm btn-outline-primary">
+          View Details <i class="bi bi-arrow-right ms-1"></i>
+        </a>
       </div>
     </div>
+    {% empty %}
+    <div class="col-12">
+      <div class="alert alert-info text-center">
+        <i class="bi bi-info-circle me-2"></i>No campaigns found.
+      </div>
+    </div>
+    {% endfor %}
   </div>
-  {% empty %}
-  <div class="alert alert-info">No campaigns found.</div>
-  {% endfor %}
 </div>
+
+<style>
+.campaign-id {
+  font-family: var(--font-family-mono);
+  background-color: var(--background-light);
+  padding: var(--spacing-1) var(--spacing-2);
+  border-radius: var(--radius-base);
+  font-size: var(--font-size-xs);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+}
+
+.campaign-title a {
+  font-size: var(--font-size-lg);
+  line-height: var(--line-height-tight);
+}
+
+.campaign-title a:hover {
+  color: var(--primary-color) !important;
+}
+
+@media (max-width: 767.98px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+  
+  .campaign-title a {
+    font-size: var(--font-size-base);
+  }
+}
+</style>
 {% endblock %}
 
 {% block extrajs %}

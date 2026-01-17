@@ -1,45 +1,47 @@
 {% extends "base.html" %}
 {% block content %}
 <div class="container py-4">
-  <h4 class="mb-3">Collateral Transactions – Brand {{ brand_campaign_id }}</h4>
+  <h4 class="mb-4">Collateral Transactions – Brand {{ brand_campaign_id }}</h4>
 
   <!-- Summary cards -->
-  <div class="row g-3 mb-4">
+  <div class="dashboard-grid mb-5">
     {% for title, value in summary_items %}
-      <div class="col-6 col-md-3">
-        <div class="card shadow-sm">
-          <div class="card-body text-center">
-            <div class="fw-semibold">{{ title }}</div>
-            <div class="display-6">{{ value }}</div>
-          </div>
-        </div>
+      <div class="stat-card">
+        <div class="stat-label">{{ title }}</div>
+        <div class="stat-number">{{ value }}</div>
       </div>
     {% endfor %}
   </div>
 
   <!-- Filters -->
-  <div class="d-flex gap-2 mb-2">
-    <input class="form-control" id="search" placeholder="Search doctor name/number">
-    <select class="form-select" id="statusFilter" style="max-width:220px">
-      <option value="">All</option>
-      <option value="not_clicked">Needs Click</option>
-      <option value="clicked">Clicked</option>
-      <option value="downloaded">PDF Downloaded</option>
-      <option value="last_page">Viewed Last Page</option>
-      <option value="video_lt_50">Video &lt; 50%</option>
-      <option value="video_gt_50">Video ≥ 50%</option>
-      <option value="video_100">Video 100%</option>
-    </select>
-    <select class="form-select" id="collateralFilter" style="max-width:320px">
-      <option value="">All Collaterals</option>
-      {% for c in collaterals %}
-        <option value="{{ c.id }}" {% if selected_collateral_id and c.id == selected_collateral_id %}selected{% endif %}>{{ c.title }}</option>
-      {% endfor %}
-    </select>
+  <div class="dashboard-filters">
+    <div class="filter-group">
+      <input class="form-control" id="search" placeholder="Search doctor name/number">
+    </div>
+    <div class="filter-group">
+      <select class="form-select" id="statusFilter">
+        <option value="">All</option>
+        <option value="not_clicked">Needs Click</option>
+        <option value="clicked">Clicked</option>
+        <option value="downloaded">PDF Downloaded</option>
+        <option value="last_page">Viewed Last Page</option>
+        <option value="video_lt_50">Video &lt; 50%</option>
+        <option value="video_gt_50">Video ≥ 50%</option>
+        <option value="video_100">Video 100%</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <select class="form-select" id="collateralFilter">
+        <option value="">All Collaterals</option>
+        {% for c in collaterals %}
+          <option value="{{ c.id }}" {% if selected_collateral_id and c.id == selected_collateral_id %}selected{% endif %}>{{ c.title }}</option>
+        {% endfor %}
+      </select>
+    </div>
   </div>
 
   <!-- Table -->
-  <div class="table-responsive">
+  <div class="table-wrapper">
     <table class="table table-sm align-middle" id="txTable">
       <thead class="table-light">
         <tr>
