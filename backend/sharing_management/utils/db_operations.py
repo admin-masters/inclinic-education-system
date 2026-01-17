@@ -885,34 +885,63 @@ def grant_download_access(short_link_id):
 def authenticate_field_representative(email, password):
     """
     Authenticate a field representative using email and password.
-    
-    Args:
-        email: Email address
-        password: Plain text password
-    
-    Returns:
-        tuple: (user_id, field_id, email) if successful, (None, None, None) if failed
+
+    Supports both Django-hashed passwords and legacy plaintext passwords.
+    If a legacy plaintext password is detected and matches, it is upgraded to a Django hash.
     """
+    if not email or not password:
+        return None, None, None
+
     try:
         from django.contrib.auth.hashers import check_password
-        
+
         with connection.cursor() as cursor:
             cursor.execute("""
-                SELECT id, field_id, email, password 
-                FROM sharing_management_fieldrepresentative 
-                WHERE email = %s AND is_active = 1
+                SELECT id, field_id, email, password
+                FROM sharing_management_fieldrepresentative
+                WHERE LOWER(email) = LOWER(%s) AND is_active = 1
+                LIMIT 1
             """, [email])
-            
             result = cursor.fetchone()
-            if result:
-                user_id, field_id, email, hashed_password = result
-                if check_password(password, hashed_password):
-                    return user_id, field_id, email
+
+        if not result:
             return None, None, None
-            
+
+        user_id, field_id, db_email, stored_password = result
+
+        if not stored_password:
+            return None, None, None
+
+        # Normal (hashed) password path
+        try:
+            if check_password(password, stored_password):
+                return user_id, field_id, db_email
+        except Exception:
+            # If stored_password isn't a valid hash format, fall back to plaintext check
+            pass
+
+        # Legacy plaintext support
+        if password == stored_password:
+            try:
+                new_hash = make_password(password)
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        UPDATE sharing_management_fieldrepresentative
+                        SET password=%s, updated_at=NOW()
+                        WHERE id=%s
+                    """, [new_hash, user_id])
+            except Exception:
+                # Do not block login if upgrade fails
+                pass
+
+            return user_id, field_id, db_email
+
+        return None, None, None
+
     except Exception as e:
         print(f"Error authenticating field representative: {e}")
         return None, None, None
+
 
 def reset_field_representative_password(email, new_password):
     """
