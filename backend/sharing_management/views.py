@@ -29,8 +29,6 @@ from django.db.models import Max, Q, F, ExpressionWrapper, DateTimeField
 from django.utils import timezone
 from datetime import timedelta
 from .decorators import field_rep_required
-from .models import FieldRep, BrandCampaign
-
 from .forms import (
     ShareForm,
     BulkManualShareForm,
@@ -1147,32 +1145,17 @@ def fieldrep_email_registration(request):
     if request.method == 'POST':
         email = request.POST.get('email')
         brand_campaign_id = request.POST.get('brand_campaign_id') or request.GET.get('campaign')
-
-        # 1. Get or create field rep
-        fieldrep, created = FieldRep.objects.get_or_create(
-            email=email
-        )
-
-        # 2. Assign to brand campaign
-        if brand_campaign_id:
-            campaign = BrandCampaign.objects.get(id=brand_campaign_id)
-            fieldrep.campaigns.add(campaign)  # ManyToMany
-            # OR if ForeignKey:
-            # fieldrep.campaign = campaign
-            fieldrep.save()
-
-        # 3. Redirect to password creation
+        # Redirect to password creation page with email and brand_campaign_id as GET params
         redirect_url = f'/share/fieldrep-create-password/?email={email}'
         if brand_campaign_id:
             redirect_url += f'&campaign={brand_campaign_id}'
-
         return redirect(redirect_url)
-
+    
+    # Get brand_campaign_id from GET parameter for template context
     brand_campaign_id = request.GET.get('campaign')
     return render(request, 'sharing_management/fieldrep_email_registration.html', {
         'brand_campaign_id': brand_campaign_id
     })
-
 
 def fieldrep_create_password(request):
     email = request.GET.get('email') or request.POST.get('email')
@@ -4845,4 +4828,3 @@ def dashboard_delete_collateral(request, pk):
     if campaign_filter:
         return redirect(f"{reverse('fieldrep_dashboard')}?campaign={campaign_filter}")
     return redirect('fieldrep_dashboard')
-
