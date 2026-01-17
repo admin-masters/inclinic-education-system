@@ -54,8 +54,12 @@
               <select class="form-select" name="collateral" required id="collateralSelect">
                 <option value="">Select Collateral</option>
                 {% for c in collaterals %}
-                <option value="{{ c.id }}">{{ c.name }}</option>
+                <option value="{{ c.id }}"
+                {% if selected_collateral_id and c.id|stringformat:"s" == selected_collateral_id|stringformat:"s" %}selected{% endif %}>
+                {{ c.name }}
+                </option>
                 {% endfor %}
+
               </select>
             </div>
             <button type="submit" class="btn btn-primary w-100" style="background:#1877f2; border:none;">Submit</button>
@@ -116,54 +120,72 @@
 
 {% block extra_js %}
 <script>
-  document.addEventListener('DOMContentLoaded', function() {
-    const doctorSearch = document.getElementById('doctorSearch');
-    const statusFilter = document.getElementById('statusFilter');
-    const doctorRows = document.querySelectorAll('.doctor-row');
-    const collateralSelect = document.getElementById('collateralSelect');
-
-    // Search functionality
-    doctorSearch.addEventListener('input', function() {
-      const searchTerm = this.value.toLowerCase();
-      filterDoctors();
-    });
-
-    // Status filter functionality
-    statusFilter.addEventListener('change', function() {
-      filterDoctors();
-    });
-
-    function filterDoctors() {
-      const searchTerm = doctorSearch.value.toLowerCase();
-      const statusFilterValue = statusFilter.value;
-
-      doctorRows.forEach(row => {
-        const name = row.getAttribute('data-name');
-        const phone = row.getAttribute('data-phone');
-        const status = row.getAttribute('data-status');
-        
-        const matchesSearch = name.includes(searchTerm) || phone.includes(searchTerm);
-        const matchesStatus = !statusFilterValue || status === statusFilterValue;
-        
-        if (matchesSearch && matchesStatus) {
-          row.style.display = '';
-        } else {
-          row.style.display = 'none';
-        }
+    document.addEventListener('DOMContentLoaded', function() {
+      const doctorSearch = document.getElementById('doctorSearch');
+      const statusFilter = document.getElementById('statusFilter');
+      const doctorRows = document.querySelectorAll('.doctor-row');
+      const collateralSelect = document.getElementById('collateralSelect');
+  
+      // Search functionality
+      doctorSearch.addEventListener('input', function() {
+        const searchTerm = this.value.toLowerCase();
+        filterDoctors();
       });
-    }
-
-    // Keep hidden collateral inputs in list forms synced with selection
-    if (collateralSelect) {
-      collateralSelect.addEventListener('change', function() {
-        const val = this.value;
-        document.querySelectorAll('input[name="collateral"]').forEach(inp => {
-          inp.value = val;
+  
+      // Status filter functionality
+      statusFilter.addEventListener('change', function() {
+        filterDoctors();
+      });
+  
+      function filterDoctors() {
+        const searchTerm = doctorSearch.value.toLowerCase();
+        const statusFilterValue = statusFilter.value;
+  
+        doctorRows.forEach(row => {
+          const name = row.getAttribute('data-name');
+          const phone = row.getAttribute('data-phone');
+          const status = row.getAttribute('data-status');
+          
+          const matchesSearch = name.includes(searchTerm) || phone.includes(searchTerm);
+          const matchesStatus = !statusFilterValue || status === statusFilterValue;
+          
+          if (matchesSearch && matchesStatus) {
+            row.style.display = '';
+          } else {
+            row.style.display = 'none';
+          }
         });
-      });
-    }
-  });
-</script>
+      }
+  
+      // Keep hidden collateral inputs in list forms synced with selection
+      if (collateralSelect) {
+        function syncHiddenCollateralInputs(val) {
+          document.querySelectorAll('.doctor-row form input[name="collateral"]').forEach(inp => {
+            inp.value = val;
+          });
+        }
+  
+        // Initial sync on page load
+        syncHiddenCollateralInputs(collateralSelect.value);
+  
+        collateralSelect.addEventListener('change', function() {
+          const val = this.value || "";
+          syncHiddenCollateralInputs(val);
+  
+          const url = new URL(window.location.href);
+  
+          if (val) url.searchParams.set('collateral', val);
+          else url.searchParams.delete('collateral');
+  
+          const bc = url.searchParams.get('brand_campaign_id') || url.searchParams.get('campaign');
+          if (bc) url.searchParams.set('brand_campaign_id', bc);
+  
+          window.location.href = url.toString();
+        });
+      }
+    });
+  </script>
+  
 {% endblock %}
 
 {% endblock %}
