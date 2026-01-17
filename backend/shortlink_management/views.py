@@ -79,22 +79,39 @@ class ShortLinkDeleteView(DeleteView):
 # ----------------------------------------------------------------
 # Resolve Short Link
 # ----------------------------------------------------------------
-def resolve_shortlink(request, short_code):
+def resolve_shortlink(request, code=None, short_code=None):
+    """
+    Resolve a short link code to the collateral verification URL.
+
+    Accepts both `code` and `short_code` for compatibility with URL kwarg naming.
+    """
+    short_code = short_code or code
+    if not short_code:
+        return HttpResponse("Short link not found", status=404)
+
     try:
         shortlink = ShortLink.objects.get(short_code=short_code, is_active=True)
+        shortlink.increment_clicks()
+
+        # Determine base URL depending on environment
+        base_url = settings.SITE_URL if hasattr(settings, "SITE_URL") else request.build_absolute_uri("/")[:-1]
+
+        # Capture optional share_id passed through the shortlink
+        share_id = request.GET.get("share_id") or request.GET.get("s") or request.GET.get("share")
+
+        verify_url = f"{base_url}/view/collateral/verify/?short_link_id={shortlink.id}"
+        if share_id:
+            verify_url += f"&share_id={urllib.parse.quote(str(share_id))}"
+
+        return redirect(verify_url)
+
     except ShortLink.DoesNotExist:
-        raise Http404("Short link not found")
+        logger.warning(f"ShortLink not found: {short_code}")
+        return HttpResponse("Short link not found", status=404)
+    except Exception as e:
+        logger.error(f"Error resolving shortlink {short_code}: {e}")
+        return HttpResponse("An error occurred resolving the short link.", status=500)
 
-    base_url = settings.SITE_URL if hasattr(settings, "SITE_URL") else request.build_absolute_uri("/")[:-1]
-
-    # Preserve share_id so opens can be tracked per ShareLog (per doctor)
-    share_id = request.GET.get("share_id") or request.GET.get("s") or request.GET.get("share")
-
-    verify_url = f"{base_url}/view/collateral/verify/?short_link_id={shortlink.id}"
-    if share_id:
-        verify_url += f"&share_id={urllib.parse.quote(str(share_id))}"
-
-    return redirect(verify_url)
 
 
 def debug_shortlink(request, code):
