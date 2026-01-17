@@ -365,7 +365,16 @@ def share_content(request):
     if collateral_id:
         initial['collateral'] = collateral_id
     brand_campaign_id = request.POST.get('brand_campaign_id') or request.GET.get('brand_campaign_id')
-    
+    # Auto-detect brand_campaign_id from collateral if not provided
+    if not brand_campaign_id and collateral_id:
+        try:
+            from collateral_management.models import CampaignCollateral
+            cc = CampaignCollateral.objects.filter(collateral_id=collateral_id).first()
+            if cc:
+                brand_campaign_id = cc.campaign.brand_campaign_id
+                print(f"[share_content] Auto-detected brand_campaign_id: {brand_campaign_id} from collateral {collateral_id}")
+        except Exception as e:
+            print(f"[share_content] Error auto-detecting brand_campaign_id: {e}")
     # Debug logging
     print(f"[share_content] GET brand_campaign_id: {request.GET.get('brand_campaign_id')}")
     print(f"[share_content] POST brand_campaign_id: {request.POST.get('brand_campaign_id')}")
