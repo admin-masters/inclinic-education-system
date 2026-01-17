@@ -2728,7 +2728,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, field_rep_user)
 
-                short_url = request.build_absolute_uri(f'/r/{short_link.short_code}/') if short_link else ''
+                short_url = request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/") if short_link else ""
                 collateral_name = selected_collateral.get('name') if selected_collateral else (getattr(collateral_obj, 'name', '') or '')
                 collateral_link = short_url or (selected_collateral.get('link') if selected_collateral else '')
                 message = get_brand_specific_message(
@@ -2970,7 +2970,16 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         assigned_doctors = Doctor.objects.filter(q)
     
     # Get the selected collateral ID from URL parameters
-    selected_collateral_id = request.GET.get('collateral')
+    # -----------------------------
+    # Default collateral selection
+    # -----------------------------
+    selected_collateral_id = (request.GET.get('collateral') or '').strip()
+
+    # If the link doesn't include ?collateral=..., default to first available collateral
+    # so button statuses compute correctly (same behavior as other share pages).
+    if not selected_collateral_id and collaterals_list:
+        selected_collateral_id = str(collaterals_list[0]['id'])
+
     
     # Prepare doctors with status
     doctors_with_status = []
