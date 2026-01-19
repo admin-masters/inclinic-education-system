@@ -1,91 +1,290 @@
 {% extends "base.html" %}
 {% block content %}
-<div class="container py-4">
-  <h4 class="mb-4">Collateral Transactions – Brand {{ brand_campaign_id }}</h4>
 
-  <!-- Summary cards -->
-  <div class="dashboard-grid mb-5">
-    {% for title, value in summary_items %}
-      <div class="stat-card">
-        <div class="stat-label">{{ title }}</div>
-        <div class="stat-number">{{ value }}</div>
+<style>
+  body {
+    background: #f5f6fa;
+  }
+
+  .page-wrap {
+    max-width: 1050px;
+    margin: auto;
+    padding: 20px 0 40px;
+  }
+
+  .outer-card {
+    border-radius: 14px;
+    overflow: hidden;
+    border: none;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.08);
+    background: white;
+  }
+
+  .green-titlebar {
+    background: #007bff;
+    color: #fff;
+    padding: 14px 22px;
+    font-weight: 700;
+    font-size: 18px;
+  }
+
+  .section-bar {
+    background: #007bff;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 15px;
+    margin-top: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .inner-box {
+    background: #fff;
+    border-radius: 12px;
+    padding: 22px;
+    margin-top: 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+  }
+
+  .filters-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+
+  @media (max-width: 768px) {
+    .filters-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .filter-label {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 7px;
+    color: #333;
+  }
+
+  .form-select,
+  .form-control {
+    border-radius: 8px;
+    padding: 10px 12px;
+    border: 1px solid #e0e0e0;
+  }
+
+  .form-select:focus,
+  .form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.15rem rgba(76,175,80,.25);
+  }
+
+  .btn-reset {
+    border-radius: 8px;
+    padding: 8px 18px;
+    background: #fff;
+    border: 1px solid #d8d8d8;
+  }
+
+  .btn-csv {
+    border-radius: 8px;
+    padding: 8px 18px;
+    background: #007bff;
+    border: none;
+    color: white;
+    font-weight: 600;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 28px;
+  }
+
+  @media (max-width: 768px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 4px 0;
+  }
+
+  .stat-row span:last-child {
+    color: #007bff;
+    font-weight: 700;
+  }
+
+  .table-wrap {
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 10px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+  }
+
+  table thead th {
+    background: #007bff !important;
+    color: white !important;
+    font-weight: 700;
+    font-size: 12px;
+    border-color: #007bff !important;
+  }
+
+  table tbody td {
+    font-size: 12px;
+    vertical-align: middle;
+  }
+</style>
+
+<div class="page-wrap">
+  <div class="outer-card">
+
+    <!-- ✅ Main green header -->
+    <div class="green-titlebar">
+      Collateral Management System
+    </div>
+
+    <div class="p-4">
+
+      <!-- ✅ Filters (Top card exactly like screenshot) -->
+      <div class="inner-box">
+        <div class="filters-grid">
+          <div>
+            <div class="filter-label">Brand Campaign</div>
+            <select class="form-select" id="brandCampaign">
+              <option selected>{{ brand_campaign_id }}</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="filter-label">Collateral</div>
+            <select class="form-select" id="collateralFilter">
+              <option value="">All Collaterals</option>
+              {% for c in collaterals %}
+                <option value="{{ c.id }}"
+                  {% if selected_collateral_id and c.id == selected_collateral_id %}selected{% endif %}>
+                  {{ c.title }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-3">
+          <button class="btn btn-reset" type="button"
+            onclick="window.location.href=window.location.pathname;">
+            Reset
+          </button>
+
+          <button class="btn btn-csv" type="button">
+            Download CSV
+          </button>
+        </div>
       </div>
-    {% endfor %}
-  </div>
 
-  <!-- Filters -->
-  <div class="dashboard-filters">
-    <div class="filter-group">
-      <input class="form-control" id="search" placeholder="Search doctor name/number">
-    </div>
-    <div class="filter-group">
-      <select class="form-select" id="statusFilter">
-        <option value="">All</option>
-        <option value="not_clicked">Needs Click</option>
-        <option value="clicked">Clicked</option>
-        <option value="downloaded">PDF Downloaded</option>
-        <option value="last_page">Viewed Last Page</option>
-        <option value="video_lt_50">Video &lt; 50%</option>
-        <option value="video_gt_50">Video ≥ 50%</option>
-        <option value="video_100">Video 100%</option>
-      </select>
-    </div>
-    <div class="filter-group">
-      <select class="form-select" id="collateralFilter">
-        <option value="">All Collaterals</option>
-        {% for c in collaterals %}
-          <option value="{{ c.id }}" {% if selected_collateral_id and c.id == selected_collateral_id %}selected{% endif %}>{{ c.title }}</option>
-        {% endfor %}
-      </select>
-    </div>
-  </div>
+      <!-- ✅ Statistics Summary (like screenshot) -->
+      <div class="section-bar">
+        <div>Statistics Summary</div>
+      </div>
 
-  <!-- Table -->
-  <div class="table-wrapper">
-    <table class="table table-sm align-middle" id="txTable">
-      <thead class="table-light">
-        <tr>
-          <th>Transaction ID</th>
-          <th>Doctor</th>
-          <th>Phone</th>
-          <th>Collateral</th>
-          <th>Clicked</th>
-          <th>PDF Download</th>
-          <th>Last Page</th>
-          <th>Video %</th>
-          <th>Video Events</th>
-          <th>Tx Date</th>
-          <th>Updated</th>
-        </tr>
-      </thead>
-      <tbody>
-        {% for r in rows %}
-          <tr data-name="{{ r.doctor_name|default:''|lower }}" data-phone="{{ r.doctor_number }}"
-              data-state="{% if r.has_viewed %}clicked{% else %}not_clicked{% endif %}{% if r.has_downloaded_pdf %} downloaded{% endif %}{% if r.has_viewed_last_page %} last_page{% endif %}{% if r.video_view_lt_50 %} video_lt_50{% endif %}{% if r.video_view_gt_50 %} video_gt_50{% endif %}{% if r.video_view_100 %} video_100{% endif %}"
-          >
-            <td>{{ r.transaction_id_display }}</td>
-            <td>{{ r.doctor_name }}</td>
-            <td>{{ r.doctor_number }}</td>
-            <td>{{ r.collateral_id }}</td>
-            <td>{% if r.has_viewed %}✅{% else %}—{% endif %}</td>
-            <td>{% if r.has_downloaded_pdf %}✅{% else %}—{% endif %}</td>
-            <td>
-              {% if r.has_viewed_last_page %}✅{% else %}—{% endif %}
-              {% if r.last_page_scrolled %}<small class="text-muted"> ({{ r.last_page_scrolled }})</small>{% endif %}
-            </td>
-            <td>
-              {{ r.last_video_percentage }}%
-              {% if r.video_view_100 %}<span class="badge bg-success ms-1">100%</span>
-              {% elif r.video_view_gt_50 %}<span class="badge bg-warning text-dark ms-1">≥50%</span>
-              {% elif r.video_view_lt_50 %}<span class="badge bg-secondary ms-1">&lt;50%</span>{% endif %}
-            </td>
-            <td>{{ r.total_video_events }}</td>
-            <td>{{ r.transaction_date }}</td>
-            <td>{{ r.updated_at|date:"Y-m-d H:i" }}</td>
-          </tr>
-        {% endfor %}
-      </tbody>
-    </table>
+      <div class="inner-box">
+        <div class="stats-grid">
+          {% for title, value in summary_items %}
+            <div class="stat-row">
+              <span>{{ title }}</span>
+              <span>{{ value }}</span>
+            </div>
+          {% endfor %}
+        </div>
+      </div>
+
+      <!-- ✅ Unique Doctors section -->
+      <div class="section-bar">
+        <div>Unique Doctors</div>
+        <div style="font-size:12px;font-weight:600;">
+          {{ rows|length }} doctors
+        </div>
+      </div>
+
+      <div class="table-wrap">
+
+        <!-- ✅ Optional search box (DataTables style) -->
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <span style="font-size:12px;">Search:</span>
+            <input class="form-control" id="search" placeholder="Doctor name / number" style="max-width: 240px;">
+          </div>
+
+          <select class="form-select" id="statusFilter" style="max-width:220px">
+            <option value="">All</option>
+            <option value="not_clicked">Needs Click</option>
+            <option value="clicked">Clicked</option>
+            <option value="downloaded">PDF Downloaded</option>
+            <option value="last_page">Viewed Last Page</option>
+            <option value="video_lt_50">Video &lt; 50%</option>
+            <option value="video_gt_50">Video ≥ 50%</option>
+            <option value="video_100">Video 100%</option>
+          </select>
+        </div>
+
+        <div class="table-responsive">
+          <table class="table table-sm align-middle" id="txTable">
+            <thead>
+              <tr>
+                <th>Transaction ID</th>
+                <th>Doctor</th>
+                <th>Phone</th>
+                <th>Collateral</th>
+                <th>Clicked</th>
+                <th>PDF Download</th>
+                <th>Last Page</th>
+                <th>Video %</th>
+                <th>Video Events</th>
+                <th>Tx Date</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in rows %}
+                <tr
+                  data-name="{{ r.doctor_name|default:''|lower }}"
+                  data-phone="{{ r.doctor_number }}"
+                  data-state="{% if r.has_viewed %}clicked{% else %}not_clicked{% endif %}{% if r.has_downloaded_pdf %} downloaded{% endif %}{% if r.last_page_scrolled == 2 %} last_page{% endif %}{% if r.last_video_percentage > 0 and r.last_video_percentage < 50 %} video_lt_50{% endif %}{% if r.last_video_percentage >= 50 and r.last_video_percentage < 100 %} video_gt_50{% endif %}{% if r.last_video_percentage >= 100 %} video_100{% endif %}"
+                >
+                  <td>{{ r.transaction_id_display }}</td>
+                  <td>{{ r.doctor_name|default:"—" }}</td>
+                  <td>{{ r.doctor_number }}</td>
+                  <td>{{ r.collateral_title }}</td>
+
+                  <td>{% if r.has_viewed %}1{% else %}0{% endif %}</td>
+                  <td>{% if r.has_downloaded_pdf %}1{% else %}0{% endif %}</td>
+
+                  <td>
+                    {% if r.last_page_scrolled == 2 %}1
+                    {% elif r.last_page_scrolled == 1 %}1
+                    {% else %}0{% endif %}
+                  </td>
+
+                  <td>{{ r.last_video_percentage|default:0 }}%</td>
+                  <td>{{ r.total_video_events }}</td>
+                  <td>{{ r.transaction_date }}</td>
+                  <td>{{ r.updated_at|date:"Y-m-d H:i" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+      </div>
+
+    </div>
   </div>
 </div>
 
@@ -93,22 +292,26 @@
 (function () {
   const $q = s => document.querySelector(s);
   const rows = Array.from(document.querySelectorAll('#txTable tbody tr'));
+
   function filter() {
     const term = ($q('#search').value || '').toLowerCase();
     const state = $q('#statusFilter').value;
+
     rows.forEach(tr => {
       const name = tr.dataset.name || '';
       const phone = tr.dataset.phone || '';
       const matchesText = !term || name.includes(term) || phone.includes(term);
+
       const states = (tr.dataset.state || '').split(' ').filter(Boolean);
       const matchesState = !state || states.includes(state);
+
       tr.style.display = (matchesText && matchesState) ? '' : 'none';
     });
   }
-  ['input','change'].forEach(ev => {
-    $q('#search').addEventListener(ev, filter);
-    $q('#statusFilter').addEventListener(ev, filter);
-  });
+
+  if ($q('#search')) $q('#search').addEventListener('input', filter);
+  if ($q('#statusFilter')) $q('#statusFilter').addEventListener('change', filter);
+
   const collSel = $q('#collateralFilter');
   if (collSel) {
     collSel.addEventListener('change', function() {
@@ -120,4 +323,5 @@
   }
 })();
 </script>
+
 {% endblock %}
