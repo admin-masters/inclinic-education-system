@@ -7,6 +7,12 @@
 <div class="container mt-4">
   <div class="card mx-auto" style="max-width: 900px">
 
+    {% comment %} Debug Info {% endcomment %}
+    <h6 style="color:red;">
+      debug engagement_id = {{ engagement_id|default:"NONE" }}
+      {{ share_id|json_script:"share_id" }}
+    </h6>
+
     <div class="card-header text-center">
       <h4 class="mb-0">{{ collateral.title }}</h4>
 
@@ -21,11 +27,6 @@
 
     <div class="card-body text-center">
 
-      <!-- ===== 1) Banner (PRIMARY) ===== -->
-      {% comment %}
-        show banner_1 (primary) and banner_2 (secondary) if present.
-        For remote storage you can pass absolute_banner_1 from view using _safe_absolute_file_url.
-      {% endcomment %}
       {% if collateral.banner_1 or collateral.banner_2 %}
         <div class="mb-4">
           {% if collateral.banner_1 %}
@@ -52,20 +53,16 @@
         </div>
       {% endif %}
 
-      <!-- ===== 2) Video (if present) ===== -->
       {% if collateral.vimeo_url %}
         <div class="ratio ratio-16x9 mb-3">
           {% if "vimeo.com" in collateral.vimeo_url %}
-            <!-- full vimeo url provided -->
             <iframe src="{{ collateral.vimeo_url }}" allowfullscreen></iframe>
           {% else %}
-            <!-- vimeo id provided -->
             <iframe src="https://player.vimeo.com/video/{{ collateral.vimeo_url }}" allowfullscreen></iframe>
           {% endif %}
         </div>
       {% endif %}
 
-      <!-- ===== 3) PDF (if present) ===== -->
       {% if collateral.file %}
         <a
           href="{{ absolute_pdf_url|default:'#' }}"
@@ -73,35 +70,66 @@
           target="_blank"
           rel="noopener"
           style="background: #1877f2; border: none"
+          onclick="sendEngagement({ event: 'clicked_pdf_button' })"
         >
-          <i class="bi bi-download me-2"></i>CLICK HERE to download PDF
+          CLICK HERE to download the PDF
         </a>
 
-        <p class="text-muted mb-3">If you are not able to see the PDF, please refresh the page!</p>
+        <p>If you are not able to see the PDF, please refresh the page!</p>
 
         <div
           class="pdf-container mb-4"
           style="
-            border: 1px solid var(--border-color);
+            border: 1px solid #ccc;
             height: 600px;
             overflow: hidden;
             position: relative;
-            background: var(--background-light);
-            border-radius: var(--radius-lg);
-            box-shadow: var(--shadow-sm);
+            background: #f8f9fa;
           "
         >
-          <iframe
-            src="{{ absolute_pdf_url|default:'about:blank' }}#toolbar=0&navpanes=0&scrollbar=0"
-            width="100%"
-            height="100%"
-            style="border: none; min-height: 100%; border-radius: var(--radius-lg);"
-            title="{{ collateral.title }} PDF"
-          ></iframe>
+          <div
+            class="pdf-controls"
+            style="
+              background: white;
+              padding: 10px;
+              border-bottom: 1px solid #ddd;
+              display: flex;
+              gap: 10px;
+              align-items: center;
+              justify-content: center;
+            "
+          >
+            <a
+              href="{{ absolute_pdf_url|default:'#' }}"
+              class="btn btn-outline-secondary btn-sm"
+              target="_blank"
+              rel="noopener"
+              onclick="sendEngagement({ event: 'open_pdf_new_tab' })"
+            >
+              Open in New Tab
+            </a>
+
+            <a
+              href="{{ absolute_pdf_url|default:'#' }}"
+              class="btn btn-outline-success btn-sm"
+              download
+              onclick="sendEngagement({ event: 'pdf_download' })"
+            >
+              Download
+            </a>
+          </div>
+
+          <div class="pdf-scroll-box" style="height: calc(100% - 50px); overflow: auto; position: relative">
+            <iframe
+              src="{{ absolute_pdf_url|default:'about:blank' }}"
+              width="100%"
+              height="100%"
+              style="border: none; min-height: 100%"
+            ></iframe>
+          </div>
         </div>
       {% endif %}
 
-      <!-- ===== 4) Archives ===== -->
       {% if archives %}
         <hr class="my-4" />
         <div class="text-start">
@@ -118,6 +146,7 @@
                       <a
                         class="btn btn-sm btn-outline-primary w-100"
                         href="{% url 'resolve_shortlink' item.short_code %}"
+                        onclick="sendEngagement({ event: 'archive_open' })"
                       >
                         Open
                       </a>
@@ -134,7 +163,6 @@
         </div>
       {% endif %}
 
-      <!-- ===== 5) Webinar ===== -->
       {% if collateral.webinar_title or collateral.webinar_url %}
         <hr class="my-4" />
         <div class="text-start">
@@ -162,6 +190,7 @@
                     href="{{ collateral.webinar_url }}"
                     target="_blank"
                     rel="noopener"
+                    onclick="sendEngagement({ event: 'webinar_open' })"
                   >
                     View on DIAP
                   </a>
@@ -175,6 +204,84 @@
     </div>
   </div>
 </div>
+
+{% if engagement_id %}
+  {{ engagement_id|json_script:"engagement_id" }}
+{% endif %}
+
+<script>
+  const engagement = JSON.parse(document.getElementById("engagement_id").textContent);
+
+  const shareEl = document.getElementById("share_id");
+  const shareId = shareEl ? JSON.parse(shareEl.textContent) : null;
+
+  function sendEngagement(payload) {
+    if (!engagement) return;
+
+    payload.engagement_id = engagement;
+
+    if (shareId) {
+      payload.share_id = shareId;
+    }
+
+    fetch("{% url 'doctor_view_log' %}", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  }
+</script>
+
+<script>
+  let sent_level = 0;
+  const pdfScrollBox = document.querySelector(".pdf-scroll-box");
+
+  if (pdfScrollBox) {
+    pdfScrollBox.addEventListener("scroll", function () {
+      const scrollTop = pdfScrollBox.scrollTop;
+      const maxScroll = pdfScrollBox.scrollHeight - pdfScrollBox.clientHeight;
+
+      if (maxScroll <= 0) return;
+
+      const ratio = scrollTop / maxScroll;
+
+      if (ratio > 0.5 && sent_level < 1) {
+        sent_level = 1;
+        sendEngagement({ event: "page_scroll", value: 1 });
+      }
+
+      if (ratio > 0.9 && sent_level < 2) {
+        sent_level = 2;
+        sendEngagement({ event: "page_scroll", value: 2 });
+      }
+    });
+  }
+</script>
+
+{% if collateral.vimeo_url %}
+  <script src="https://player.vimeo.com/api/player.js"></script>
+
+  <script>
+    const vimeoFrame = document.querySelector("iframe[src*='vimeo']");
+    if (vimeoFrame && window.Vimeo) {
+      const player = new Vimeo.Player(vimeoFrame);
+      let lastSent = -1;
+
+      player.on("timeupdate", function (data) {
+        const percent = Math.floor((data.percent || 0) * 100);
+
+        if (percent !== lastSent) {
+          lastSent = percent;
+
+          sendEngagement({
+            event: "video_progress",
+            value: percent
+          });
+        }
+      });
+    }
+  </script>
+{% endif %}
 
 {% else %}
 
