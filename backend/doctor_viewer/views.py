@@ -131,81 +131,86 @@ def resolve_view(request, code: str):
 @csrf_exempt
 def log_engagement(request):
     if request.method != "POST":
-        print("[doctor_viewer][log_engagement] ❌ request.method != POST")
-        return HttpResponseBadRequest("POST required")
+        return JsonResponse({"ok": False, "error": "POST required"}, status=405)
 
     try:
-        raw_body = request.body.decode("utf-8") or "{}"
-        print("[doctor_viewer][log_engagement] raw_body =", raw_body)
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
 
-        data = json.loads(raw_body)
-        engagement_id = int(data.get("engagement_id"))
-    except Exception as e:
-        print("[doctor_viewer][log_engagement] ❌ Invalid JSON or missing engagement_id:", e)
-        return HttpResponseBadRequest("Invalid JSON")
-
-    engagement = get_object_or_404(DoctorEngagement, id=engagement_id)
-
-    collateral = None
-    try:
-        collateral = engagement.short_link.get_collateral()
-    except Exception as e:
-        print("[doctor_viewer][log_engagement] ❌ error getting collateral:", e)
-        collateral = None
-
-    print("\n================ DEBUG LOG ENGAGEMENT =================")
-    print("[doctor_viewer][log_engagement] ✅ engagement_id:", engagement_id)
-    print("[doctor_viewer][log_engagement] short_link_id:", engagement.short_link_id)
-    print("[doctor_viewer][log_engagement] collateral is None?", collateral is None)
-    if collateral:
-        print("[doctor_viewer][log_engagement] collateral_id:", getattr(collateral, "id", None))
-        print("[doctor_viewer][log_engagement] collateral_title:", getattr(collateral, "title", None))
-        print("[doctor_viewer][log_engagement] collateral_type:", getattr(collateral, "type", None))
-    print("[doctor_viewer][log_engagement] session.share_id:", request.session.get("share_id"))
-    print("======================================================\n")
-
-    event = (data.get("event") or "").strip()
+    event = str(data.get("event") or "").strip()
     value = data.get("value")
 
-    print("[doctor_viewer][log_engagement] event =", event, " value =", value)
+    engagement_id_raw = data.get("engagement_id")
+    share_id = data.get("share_id") or request.session.get("share_id")
 
-    before = {
-        "last_page_scrolled": engagement.last_page_scrolled,
-        "pdf_completed": engagement.pdf_completed,
-        "video_watch_percentage": engagement.video_watch_percentage,
-        "status": engagement.status,
-    }
+    if not engagement_id_raw or not event:
+        return JsonResponse({"ok": False, "error": "engagement_id and event are required"}, status=400)
 
+    try:
+        engagement_id = int(engagement_id_raw)
+    except Exception:
+        return JsonResponse({"ok": False, "error": "engagement_id must be int"}, status=400)
+
+    engagement = DoctorEngagement.objects.filter(id=engagement_id).select_related("short_link").first()
+    if not engagement:
+        return JsonResponse({"ok": False, "error": "DoctorEngagement not found"}, status=404)
+
+    now = timezone.now()
+
+    # ✅ PDF Download Tracking
     if event == "pdf_download":
         engagement.pdf_completed = True
 
+    # ✅ PDF Page Tracking (real page number from PDF.js)
     elif event == "page_scroll":
         try:
-            v = int(value)
+            page_number = int(data.get("page_number") or 1)
         except Exception:
-            v = 0
-        engagement.last_page_scrolled = max(int(engagement.last_page_scrolled or 0), v)
+            page_number = 1
 
+        if page_number < 1:
+            page_number = 1
+
+        engagement.last_page_scrolled = max(int(engagement.last_page_scrolled or 1), page_number)
+
+        try:
+            pdf_total_pages = int(data.get("pdf_total_pages") or 0)
+        except Exception:
+            pdf_total_pages = 0
+
+        if pdf_total_pages > 0:
+            half = (pdf_total_pages + 1) // 2
+            last_page = int(engagement.last_page_scrolled or 1)
+
+            if last_page <= 1:
+                engagement.status = 0
+            elif last_page >= pdf_total_pages:
+                engagement.status = 2
+            elif last_page >= half:
+                engagement.status = 1
+            else:
+                engagement.status = 0
+
+    # ✅ Video Tracking (only 0 / 50 / 100)
     elif event == "video_progress":
         try:
             pct = int(value)
         except Exception:
             pct = 0
+
         pct = max(0, min(100, pct))
+
+        if pct >= 100:
+            pct = 100
+        elif pct >= 50:
+            pct = 50
+        else:
+            pct = 0
+
         engagement.video_watch_percentage = max(int(engagement.video_watch_percentage or 0), pct)
 
-    pdf_total_pages = data.get("pdf_total_pages") or _page_count(collateral)
-
-    if pdf_total_pages:
-        last_page = int(engagement.last_page_scrolled or 0)
-        if last_page <= 0:
-            engagement.status = 0
-        elif last_page < 2:
-            engagement.status = 1
-        else:
-            engagement.status = 2
-
-    engagement.updated_at = timezone.now()
+    engagement.updated_at = now
     engagement.save(
         update_fields=[
             "last_page_scrolled",
@@ -216,34 +221,16 @@ def log_engagement(request):
         ]
     )
 
-    after = {
-        "last_page_scrolled": engagement.last_page_scrolled,
-        "pdf_completed": engagement.pdf_completed,
-        "video_watch_percentage": engagement.video_watch_percentage,
-        "status": engagement.status,
-    }
-
-    print("[doctor_viewer][log_engagement] BEFORE:", before)
-    print("[doctor_viewer][log_engagement] AFTER :", after)
-
-    share_id = (
-        request.GET.get("share_id")
-        or request.POST.get("share_id")
-        or request.session.get("share_id")
-    )
-
-    print("[doctor_viewer][log_engagement] resolved share_id =", share_id)
-
+    # ✅ Update ShareLog / CollateralTransaction (Dashboard data source)
     if share_id:
         try:
             sl = ShareLog.objects.get(id=share_id)
-            print("[doctor_viewer][log_engagement] ✅ ShareLog FOUND id =", sl.id)
 
             mark_viewed(sl, sm_engagement_id=None)
 
             mark_pdf_progress(
                 sl,
-                last_page=int(engagement.last_page_scrolled or 0),
+                last_page=int(engagement.last_page_scrolled or 1),
                 completed=bool(engagement.pdf_completed),
                 dv_engagement_id=engagement.id,
             )
@@ -251,19 +238,12 @@ def log_engagement(request):
             if engagement.pdf_completed:
                 mark_downloaded_pdf(sl)
 
-            print("[doctor_viewer][log_engagement] ✅ CollateralTransaction updated successfully")
-
         except ShareLog.DoesNotExist:
-            print("[doctor_viewer][log_engagement] ❌ ShareLog NOT FOUND for id =", share_id)
-
+            pass
         except Exception as e:
-            print("[doctor_viewer][log_engagement] ❌ ERROR updating transaction:", e)
+            print("[doctor_viewer][log_engagement] error updating transaction:", e)
 
-    else:
-        print("[doctor_viewer][log_engagement] ⚠️ No share_id found → skipping ShareLog update")
-
-    print("[doctor_viewer][log_engagement] ✅ returning ok\n")
-    return JsonResponse({"status": "ok"})
+    return JsonResponse({"ok": True, "event": event})
 
 # ──────────────────────────────────────────────────────────────
 # GET  /view/report/<code>/     → JSON report
@@ -499,16 +479,19 @@ def doctor_collateral_verify(request):
 
         absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
 
-        existing_engagement_id = request.session.get("dv_engagement_id")
+        session_key = f"dv_engagement_id_{short_link_id}"
+        existing_engagement_id = request.session.get(session_key)
 
+        engagement = None
         if existing_engagement_id:
-            engagement = DoctorEngagement.objects.filter(id=existing_engagement_id).first()
-        else:
-            engagement = None
+            engagement = DoctorEngagement.objects.filter(
+                id=existing_engagement_id,
+                short_link=short_link
+            ).first()
 
         if not engagement:
             engagement = DoctorEngagement.objects.create(short_link=short_link)
-            request.session["dv_engagement_id"] = engagement.id
+            request.session[session_key] = engagement.id
 
         print("[verify] ✅ using engagement_id =", engagement.id)
 
