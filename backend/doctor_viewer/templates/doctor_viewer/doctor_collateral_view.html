@@ -7,12 +7,6 @@
 <div class="container mt-4">
   <div class="card mx-auto" style="max-width: 900px">
 
-    {% comment %} Debug Info {% endcomment %}
-    <h6 style="color:red;">
-      debug engagement_id = {{ engagement_id|default:"NONE" }}
-      {{ share_id|json_script:"share_id" }}
-    </h6>
-
     <div class="card-header text-center">
       <h4 class="mb-0">{{ collateral.title }}</h4>
 
@@ -64,69 +58,49 @@
       {% endif %}
 
       {% if collateral.file %}
-        <a
-          href="{{ absolute_pdf_url|default:'#' }}"
-          class="btn btn-primary mb-3"
-          target="_blank"
-          rel="noopener"
-          style="background: #1877f2; border: none"
-          onclick="sendEngagement({ event: 'clicked_pdf_button' })"
-        >
-          CLICK HERE to download the PDF
-        </a>
+        <div class="mb-3 d-flex justify-content-center gap-2 flex-wrap">
+          <button
+            class="btn btn-primary"
+            id="openPdfBtn"
+            style="background: #1877f2; border: none"
+          >
+            Open PDF
+          </button>
 
-        <p>If you are not able to see the PDF, please refresh the page!</p>
+          <a
+            href="{{ absolute_pdf_url|default:'#' }}"
+            class="btn btn-outline-success"
+            download
+            id="downloadPdfBtn"
+          >
+            Download PDF
+          </a>
+
+          <a
+            href="{{ absolute_pdf_url|default:'#' }}"
+            class="btn btn-outline-secondary"
+            target="_blank"
+            rel="noopener"
+            id="openPdfNewTabBtn"
+          >
+            Open in New Tab
+          </a>
+        </div>
+
+        <p class="text-muted">
+          If PDF is not loading properly, please refresh the page.
+        </p>
 
         <div
-          class="pdf-container mb-4"
-          style="
-            border: 1px solid #ccc;
-            height: 600px;
-            overflow: hidden;
-            position: relative;
-            background: #f8f9fa;
-          "
+          id="pdfBox"
+          class="border rounded mb-4"
+          style="height: 600px; overflow-y: auto; display: none; background: #f8f9fa;"
         >
-          <div
-            class="pdf-controls"
-            style="
-              background: white;
-              padding: 10px;
-              border-bottom: 1px solid #ddd;
-              display: flex;
-              gap: 10px;
-              align-items: center;
-              justify-content: center;
-            "
-          >
-            <a
-              href="{{ absolute_pdf_url|default:'#' }}"
-              class="btn btn-outline-secondary btn-sm"
-              target="_blank"
-              rel="noopener"
-              onclick="sendEngagement({ event: 'open_pdf_new_tab' })"
-            >
-              Open in New Tab
-            </a>
+          <div id="pdfViewer" class="p-2"></div>
+        </div>
 
-            <a
-              href="{{ absolute_pdf_url|default:'#' }}"
-              class="btn btn-outline-success btn-sm"
-              download
-              onclick="sendEngagement({ event: 'pdf_download' })"
-            >
-              Download
-            </a>
-          </div>
-
-          <div class="pdf-scroll-box" style="height: calc(100% - 50px); overflow: auto; position: relative">
-            <iframe
-              src="{{ absolute_pdf_url|default:'about:blank' }}"
-              width="100%"
-              height="100%"
-              style="border: none; min-height: 100%"
-            ></iframe>
-          </div>
+        <div class="mt-2 text-muted small" id="pdfProgressText" style="display:none;">
+          Loading PDF...
         </div>
       {% endif %}
 
@@ -205,12 +179,14 @@
   </div>
 </div>
 
-{% if engagement_id %}
-  {{ engagement_id|json_script:"engagement_id" }}
-{% endif %}
+{{ share_id|json_script:"share_id" }}
+{{ engagement_id|json_script:"engagement_id" }}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 
 <script>
-  const engagement = JSON.parse(document.getElementById("engagement_id").textContent);
+  const el = document.getElementById("engagement_id");
+  const engagement = el ? JSON.parse(el.textContent) : null;
 
   const shareEl = document.getElementById("share_id");
   const shareId = shareEl ? JSON.parse(shareEl.textContent) : null;
@@ -218,42 +194,159 @@
   function sendEngagement(payload) {
     if (!engagement) return;
 
-    payload.engagement_id = engagement;
-
-    if (shareId) {
-      payload.share_id = shareId;
-    }
+    const body = {
+      engagement_id: engagement,
+      share_id: shareId,
+      ...payload
+    };
 
     fetch("{% url 'doctor_view_log' %}", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(body),
     }).catch(() => {});
   }
 </script>
 
 <script>
-  let sent_level = 0;
-  const pdfScrollBox = document.querySelector(".pdf-scroll-box");
+  const openPdfBtn = document.getElementById("openPdfBtn");
+  const openPdfNewTabBtn = document.getElementById("openPdfNewTabBtn");
+  const downloadPdfBtn = document.getElementById("downloadPdfBtn");
+  const pdfBox = document.getElementById("pdfBox");
+  const pdfViewer = document.getElementById("pdfViewer");
+  const pdfProgressText = document.getElementById("pdfProgressText");
 
-  if (pdfScrollBox) {
-    pdfScrollBox.addEventListener("scroll", function () {
-      const scrollTop = pdfScrollBox.scrollTop;
-      const maxScroll = pdfScrollBox.scrollHeight - pdfScrollBox.clientHeight;
+  let pdfDoc = null;
+  let totalPages = 0;
+  let maxPageReached = 1;
+  let lastSentLevel = 0;
 
-      if (maxScroll <= 0) return;
+  function computeScrollLevel(maxPage, total) {
+    if (!total || total <= 1) return 0;
+    if (maxPage <= 1) return 0;
 
-      const ratio = scrollTop / maxScroll;
+    const half = Math.ceil(total / 2);
 
-      if (ratio > 0.5 && sent_level < 1) {
-        sent_level = 1;
-        sendEngagement({ event: "page_scroll", value: 1 });
+    if (maxPage >= total) return 2;
+    if (maxPage >= half) return 1;
+    return 0;
+  }
+
+  async function renderPdf(url) {
+    pdfViewer.innerHTML = "";
+    maxPageReached = 1;
+    lastSentLevel = 0;
+
+    pdfProgressText.style.display = "block";
+    pdfProgressText.textContent = "Loading PDF...";
+
+    pdfjsLib.GlobalWorkerOptions.workerSrc =
+      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+
+    pdfDoc = await pdfjsLib.getDocument(url).promise;
+    totalPages = pdfDoc.numPages;
+
+    pdfProgressText.textContent = `PDF Loaded: ${totalPages} pages`;
+
+    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
+      const page = await pdfDoc.getPage(pageNum);
+
+      const viewport = page.getViewport({ scale: 1.4 });
+      const canvas = document.createElement("canvas");
+      canvas.dataset.pageNumber = pageNum;
+
+      const context = canvas.getContext("2d");
+      canvas.height = viewport.height;
+      canvas.width = viewport.width;
+
+      const wrapper = document.createElement("div");
+      wrapper.style.marginBottom = "14px";
+      wrapper.style.display = "flex";
+      wrapper.style.justifyContent = "center";
+      wrapper.appendChild(canvas);
+
+      pdfViewer.appendChild(wrapper);
+
+      await page.render({ canvasContext: context, viewport }).promise;
+    }
+
+    pdfProgressText.textContent = `Scroll to read (${totalPages} pages)`;
+  }
+
+  function detectMaxVisiblePage() {
+    const canvases = pdfViewer.querySelectorAll("canvas[data-page-number]");
+    let best = 1;
+
+    const boxRect = pdfBox.getBoundingClientRect();
+
+    canvases.forEach((c) => {
+      const rect = c.getBoundingClientRect();
+      const visible = rect.top < boxRect.bottom && rect.bottom > boxRect.top;
+
+      if (visible) {
+        const pageNum = parseInt(c.dataset.pageNumber || "1");
+        if (pageNum > best) best = pageNum;
       }
+    });
 
-      if (ratio > 0.9 && sent_level < 2) {
-        sent_level = 2;
-        sendEngagement({ event: "page_scroll", value: 2 });
+    return best;
+  }
+
+  let scrollTimer = null;
+  function onPdfScroll() {
+    if (scrollTimer) clearTimeout(scrollTimer);
+
+    scrollTimer = setTimeout(() => {
+      const visiblePage = detectMaxVisiblePage();
+      maxPageReached = Math.max(maxPageReached, visiblePage);
+
+      const level = computeScrollLevel(maxPageReached, totalPages);
+
+      pdfProgressText.textContent =
+        `Reached page ${maxPageReached}/${totalPages} (level=${level})`;
+
+      if (level > lastSentLevel) {
+        lastSentLevel = level;
+
+        sendEngagement({
+          event: "page_scroll",
+          value: level,
+          page_number: maxPageReached,
+          pdf_total_pages: totalPages
+        });
       }
+    }, 250);
+  }
+
+  if (pdfBox) {
+    pdfBox.addEventListener("scroll", onPdfScroll);
+  }
+
+  if (openPdfBtn) {
+    openPdfBtn.addEventListener("click", async () => {
+      const pdfUrl = "{{ absolute_pdf_url }}";
+      if (!pdfUrl || pdfUrl === "#") return;
+
+      pdfBox.style.display = "block";
+      pdfProgressText.style.display = "block";
+
+      sendEngagement({ event: "clicked_pdf_button" });
+
+      await renderPdf(pdfUrl);
+
+      sendEngagement({ event: "open_pdf_new_tab", value: 1 });
+    });
+  }
+
+  if (openPdfNewTabBtn) {
+    openPdfNewTabBtn.addEventListener("click", () => {
+      sendEngagement({ event: "open_pdf_new_tab", value: 1 });
+    });
+  }
+
+  if (downloadPdfBtn) {
+    downloadPdfBtn.addEventListener("click", () => {
+      sendEngagement({ event: "pdf_download", value: 1 });
     });
   }
 </script>
@@ -265,17 +358,26 @@
     const vimeoFrame = document.querySelector("iframe[src*='vimeo']");
     if (vimeoFrame && window.Vimeo) {
       const player = new Vimeo.Player(vimeoFrame);
-      let lastSent = -1;
+
+      let sent50 = false;
+      let sent100 = false;
 
       player.on("timeupdate", function (data) {
         const percent = Math.floor((data.percent || 0) * 100);
 
-        if (percent !== lastSent) {
-          lastSent = percent;
-
+        if (!sent50 && percent >= 50 && percent < 100) {
+          sent50 = true;
           sendEngagement({
             event: "video_progress",
-            value: percent
+            value: 50
+          });
+        }
+
+        if (!sent100 && percent >= 99) {
+          sent100 = true;
+          sendEngagement({
+            event: "video_progress",
+            value: 100
           });
         }
       });
@@ -307,4 +409,5 @@
 </div>
 
 {% endif %}
+
 {% endblock %}
