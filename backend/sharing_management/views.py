@@ -65,6 +65,141 @@ import re
 from django.utils import timezone
 from collateral_management.models import Collateral
 from django.contrib.auth import get_user_model
+from django.views.decorators.csrf import csrf_exempt
+from django.http import JsonResponse
+from django.utils import timezone
+import json
+
+from sharing_management.models import CollateralTransaction
+from shortlink_management.models import ShortLink
+from campaign_management.models import CampaignCollateral
+
+@csrf_exempt
+def doctor_view_log(request):
+    if request.method != "POST":
+        return JsonResponse({"ok": False, "error": "POST required"}, status=405)
+
+    try:
+        data = json.loads(request.body.decode("utf-8") or "{}")
+    except Exception:
+        return JsonResponse({"ok": False, "error": "Invalid JSON"}, status=400)
+
+    engagement_id = str(data.get("engagement_id") or "").strip()
+    event = str(data.get("event") or "").strip()
+    value = data.get("value")
+
+    if not engagement_id or not event:
+        return JsonResponse({"ok": False, "error": "engagement_id and event are required"}, status=400)
+
+    # ✅ engagement_id is expected to be a ShortLink short_code (recommended)
+    # Example: /shortlinks/go/<short_code>/
+    sl = ShortLink.objects.filter(short_code=engagement_id, is_active=True).first()
+    if not sl:
+        return JsonResponse({"ok": False, "error": "ShortLink not found"}, status=404)
+
+    # ✅ Resolve collateral_id from shortlink
+    if sl.resource_type != "collateral":
+        return JsonResponse({"ok": False, "error": "Invalid shortlink resource_type"}, status=400)
+
+    collateral_id = sl.resource_id
+
+    # ✅ Find the most recent transaction row for this collateral + doctor
+    # NOTE: doctor_number is stored as doctor_identifier at share-time
+    doctor_number = (
+        request.GET.get("doctor") or
+        request.headers.get("X-Doctor") or
+        None
+    )
+
+    # If you already store doctor_number in session or in a querystring, use that.
+    # Otherwise this will update only if we can find 1 latest row for the collateral.
+    tx = None
+
+    if doctor_number:
+        tx = (
+            CollateralTransaction.objects
+            .filter(collateral_id=collateral_id, doctor_number=str(doctor_number).strip())
+            .order_by("-updated_at")
+            .first()
+        )
+    else:
+        # fallback: update latest transaction for this collateral
+        tx = (
+            CollateralTransaction.objects
+            .filter(collateral_id=collateral_id)
+            .order_by("-updated_at")
+            .first()
+        )
+
+    if not tx:
+        return JsonResponse({"ok": False, "error": "Transaction not found for this collateral"}, status=404)
+
+    # ✅ APPLY EVENTS
+    now = timezone.now()
+
+    if event == "clicked":
+        tx.has_viewed = True
+
+    elif event == "pdf_download":
+        tx.has_downloaded_pdf = True
+
+    elif event == "page_scroll":
+        try:
+            v = int(value)
+        except Exception:
+            v = 0
+
+        # 0 = first page only
+        # 1 = half viewed
+        # 2 = last page viewed
+        if v >= 2:
+            tx.last_page_scrolled = 2
+            tx.has_viewed_last_page = True
+        elif v == 1:
+            tx.last_page_scrolled = max(int(tx.last_page_scrolled or 0), 1)
+        else:
+            tx.last_page_scrolled = max(int(tx.last_page_scrolled or 0), 0)
+
+    elif event == "video_progress":
+        try:
+            pct = int(value)
+        except Exception:
+            pct = 0
+
+        if pct < 0:
+            pct = 0
+        if pct > 100:
+            pct = 100
+
+        tx.last_video_percentage = max(int(tx.last_video_percentage or 0), pct)
+
+        # reset flags then compute
+        tx.video_view_lt_50 = False
+        tx.video_view_gt_50 = False
+        tx.video_view_100 = False
+
+        if tx.last_video_percentage >= 100:
+            tx.video_view_100 = True
+        elif tx.last_video_percentage >= 50:
+            tx.video_view_gt_50 = True
+        elif tx.last_video_percentage > 0:
+            tx.video_view_lt_50 = True
+
+    # ignore unknown events safely
+    tx.updated_at = now
+    tx.save(update_fields=[
+        "has_viewed",
+        "has_downloaded_pdf",
+        "last_page_scrolled",
+        "has_viewed_last_page",
+        "last_video_percentage",
+        "video_view_lt_50",
+        "video_view_gt_50",
+        "video_view_100",
+        "updated_at"
+    ])
+
+    return JsonResponse({"ok": True, "event": event})
 
 User = get_user_model()
 def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, field_id: str = '', first_name: str = '', last_name: str = '', raw_password: str = ''):
