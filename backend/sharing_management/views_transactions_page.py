@@ -52,7 +52,7 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
     total_unique_doctors = base_rows.values("doctor_number").distinct().count()
     clicked_doctors = base_rows.filter(has_viewed=True).values("doctor_number").distinct().count()
     downloaded_pdf_doctors = base_rows.filter(has_downloaded_pdf=True).values("doctor_number").distinct().count()
-    viewed_last_page_doctors = base_rows.filter(last_page_scrolled=2).values("doctor_number").distinct().count()
+    viewed_last_page_doctors = base_rows.filter(has_viewed_last_page=True).values("doctor_number").distinct().count()
     video_lt_50_doctors = base_rows.filter(video_view_lt_50=True).values("doctor_number").distinct().count()
     video_gt_50_doctors = base_rows.filter(video_view_gt_50=True).values("doctor_number").distinct().count()
     video_100_doctors = base_rows.filter(video_view_100=True).values("doctor_number").distinct().count()
