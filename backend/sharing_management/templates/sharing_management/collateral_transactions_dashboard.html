@@ -146,14 +146,12 @@
 <div class="page-wrap">
   <div class="outer-card">
 
-    <!-- ✅ Main green header -->
     <div class="green-titlebar">
       Collateral Management System
     </div>
 
     <div class="p-4">
 
-      <!-- ✅ Filters (Top card exactly like screenshot) -->
       <div class="inner-box">
         <div class="filters-grid">
           <div>
@@ -183,13 +181,12 @@
             Reset
           </button>
 
-          <button class="btn btn-csv" type="button">
+          <button class="btn btn-csv" id="btnCsv" type="button">
             Download CSV
           </button>
         </div>
       </div>
 
-      <!-- ✅ Statistics Summary (like screenshot) -->
       <div class="section-bar">
         <div>Statistics Summary</div>
       </div>
@@ -205,7 +202,6 @@
         </div>
       </div>
 
-      <!-- ✅ Unique Doctors section -->
       <div class="section-bar">
         <div>Unique Doctors</div>
         <div style="font-size:12px;font-weight:600;">
@@ -215,7 +211,6 @@
 
       <div class="table-wrap">
 
-        <!-- ✅ Optional search box (DataTables style) -->
         <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
           <div class="d-flex align-items-center gap-2">
             <span style="font-size:12px;">Search:</span>
@@ -256,7 +251,7 @@
                 <tr
                   data-name="{{ r.doctor_name|default:''|lower }}"
                   data-phone="{{ r.doctor_number }}"
-                  data-state="{% if r.has_viewed %}clicked{% else %}not_clicked{% endif %}{% if r.has_downloaded_pdf %} downloaded{% endif %}{% if r.last_page_scrolled == 2 %} last_page{% endif %}{% if r.last_video_percentage > 0 and r.last_video_percentage < 50 %} video_lt_50{% endif %}{% if r.last_video_percentage >= 50 and r.last_video_percentage < 100 %} video_gt_50{% endif %}{% if r.last_video_percentage >= 100 %} video_100{% endif %}"
+                  data-state="{% if r.has_viewed %}clicked{% else %}not_clicked{% endif %}{% if r.has_downloaded_pdf %} downloaded{% endif %}{% if r.has_viewed_last_page %} last_page{% endif %}{% if r.last_video_percentage > 0 and r.last_video_percentage < 50 %} video_lt_50{% endif %}{% if r.last_video_percentage >= 50 and r.last_video_percentage < 100 %} video_gt_50{% endif %}{% if r.last_video_percentage >= 100 %} video_100{% endif %}"
                 >
                   <td>{{ r.transaction_id_display }}</td>
                   <td>{{ r.doctor_name|default:"—" }}</td>
@@ -266,14 +261,10 @@
                   <td>{% if r.has_viewed %}1{% else %}0{% endif %}</td>
                   <td>{% if r.has_downloaded_pdf %}1{% else %}0{% endif %}</td>
 
-                  <td>
-                    {% if r.last_page_scrolled == 2 %}1
-                    {% elif r.last_page_scrolled == 1 %}1
-                    {% else %}0{% endif %}
-                  </td>
+                  <td>{{ r.last_page_scrolled|default:0 }}</td>
 
                   <td>{{ r.last_video_percentage|default:0 }}%</td>
-                  <td>{{ r.total_video_events }}</td>
+                  <td>{{ r.total_video_events|default:0 }}</td>
                   <td>{{ r.transaction_date }}</td>
                   <td>{{ r.updated_at|date:"Y-m-d H:i" }}</td>
                 </tr>
@@ -317,6 +308,16 @@
     collSel.addEventListener('change', function() {
       const val = this.value;
       const qs = val ? ('?collateral_id=' + encodeURIComponent(val)) : '';
+      const base = window.location.origin + window.location.pathname;
+      window.location.href = base + qs;
+    });
+  }
+
+  const btnCsv = $q('#btnCsv');
+  if (btnCsv) {
+    btnCsv.addEventListener('click', function() {
+      const val = collSel ? collSel.value : '';
+      const qs = val ? ('?collateral_id=' + encodeURIComponent(val) + '&export=1') : '?export=1';
       const base = window.location.origin + window.location.pathname;
       window.location.href = base + qs;
     });
