@@ -34,6 +34,7 @@ from sharing_management.services.transactions import (
     mark_pdf_progress,
     mark_viewed,
 )
+from sharing_management.services.transactions import mark_video_event
 
 # ──────────────────────────────────────────────────────────────
 # Safe page count helper – works with local + remote storage
@@ -156,13 +157,22 @@ def log_engagement(request):
     if not engagement:
         return JsonResponse({"ok": False, "error": "DoctorEngagement not found"}, status=404)
 
+    old_last_page = int(engagement.last_page_scrolled or 1)
+    old_pdf_completed = bool(engagement.pdf_completed)
+    old_video_pct = int(engagement.video_watch_percentage or 0)
+    old_status = int(engagement.status or 0)
+
     now = timezone.now()
 
-    # ✅ PDF Download Tracking
+    pdf_total_pages = 0
+    try:
+        pdf_total_pages = int(data.get("pdf_total_pages") or 0)
+    except Exception:
+        pdf_total_pages = 0
+
     if event == "pdf_download":
         engagement.pdf_completed = True
 
-    # ✅ PDF Page Tracking (real page number from PDF.js)
     elif event == "page_scroll":
         try:
             page_number = int(data.get("page_number") or 1)
@@ -173,11 +183,6 @@ def log_engagement(request):
             page_number = 1
 
         engagement.last_page_scrolled = max(int(engagement.last_page_scrolled or 1), page_number)
-
-        try:
-            pdf_total_pages = int(data.get("pdf_total_pages") or 0)
-        except Exception:
-            pdf_total_pages = 0
 
         if pdf_total_pages > 0:
             half = (pdf_total_pages + 1) // 2
@@ -192,7 +197,6 @@ def log_engagement(request):
             else:
                 engagement.status = 0
 
-    # ✅ Video Tracking (only 0 / 50 / 100)
     elif event == "video_progress":
         try:
             pct = int(value)
@@ -221,27 +225,77 @@ def log_engagement(request):
         ]
     )
 
-    # ✅ Update ShareLog / CollateralTransaction (Dashboard data source)
+    new_last_page = int(engagement.last_page_scrolled or 1)
+    new_pdf_completed = bool(engagement.pdf_completed)
+    new_video_pct = int(engagement.video_watch_percentage or 0)
+    new_status = int(engagement.status or 0)
+
+    if new_last_page != old_last_page:
+        print(
+            f"[TRACKING DEBUG] PDF last_page_scrolled changed: {old_last_page} -> {new_last_page} "
+            f"(engagement_id={engagement.id}, share_id={share_id}, event={event})"
+        )
+
+    if new_status != old_status:
+        print(
+            f"[TRACKING DEBUG] PDF status changed: {old_status} -> {new_status} "
+            f"(0=no scroll, 1=half, 2=full) (engagement_id={engagement.id}, share_id={share_id})"
+        )
+
+    if new_pdf_completed != old_pdf_completed:
+        print(
+            f"[TRACKING DEBUG] PDF downloaded changed: {old_pdf_completed} -> {new_pdf_completed} "
+            f"(engagement_id={engagement.id}, share_id={share_id})"
+        )
+
+    if new_video_pct != old_video_pct:
+        print(
+            f"[TRACKING DEBUG] Video % changed: {old_video_pct}% -> {new_video_pct}% "
+            f"(engagement_id={engagement.id}, share_id={share_id})"
+        )
+
     if share_id:
         try:
             sl = ShareLog.objects.get(id=share_id)
 
             mark_viewed(sl, sm_engagement_id=None)
 
+            # ✅ PDF -> update dashboard (IMPORTANT: total_pages added)
             mark_pdf_progress(
                 sl,
                 last_page=int(engagement.last_page_scrolled or 1),
                 completed=bool(engagement.pdf_completed),
                 dv_engagement_id=engagement.id,
+                total_pages=pdf_total_pages,
             )
+            print("[TRACKING DEBUG] ✅ mark_pdf_progress called for share_id =", sl.id)
 
             if engagement.pdf_completed:
                 mark_downloaded_pdf(sl)
+                print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called for share_id =", sl.id)
+
+            # ✅ VIDEO -> update dashboard
+            if event == "video_progress":
+                from sharing_management.services.transactions import mark_video_event
+
+                mark_video_event(
+                    sl,
+                    status=int(engagement.video_watch_percentage or 0),
+                    percentage=int(engagement.video_watch_percentage or 0),
+                    event_id=0,
+                    when=timezone.now(),
+                )
+                print(
+                    "[TRACKING DEBUG] ✅ mark_video_event called for share_id =",
+                    sl.id,
+                    " pct =",
+                    int(engagement.video_watch_percentage or 0),
+                )
 
         except ShareLog.DoesNotExist:
-            pass
+            print(f"[TRACKING DEBUG] ShareLog not found for share_id={share_id}")
         except Exception as e:
-            print("[doctor_viewer][log_engagement] error updating transaction:", e)
+            print("[TRACKING DEBUG] ERROR updating ShareLog/CollateralTransaction:", e)
 
     return JsonResponse({"ok": True, "event": event})
 
