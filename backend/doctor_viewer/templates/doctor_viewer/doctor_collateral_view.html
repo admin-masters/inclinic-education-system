@@ -76,9 +76,13 @@
         <div
           id="pdfBox"
           class="border rounded mb-4"
-          style="height: 600px; overflow-y: auto; background: #f8f9fa;"
+          style="height: 600px; overflow-y: auto; display: block; background: #f8f9fa;"
         >
           <div id="pdfViewer" class="p-2"></div>
+        </div>
+
+        <div class="mt-2 text-muted small" id="pdfProgressText" style="display:none;">
+          Loading PDF...
         </div>
       {% endif %}
 
@@ -190,6 +194,7 @@
   const downloadPdfBtn = document.getElementById("downloadPdfBtn");
   const pdfBox = document.getElementById("pdfBox");
   const pdfViewer = document.getElementById("pdfViewer");
+  const pdfProgressText = document.getElementById("pdfProgressText");
 
   let pdfDoc = null;
   let totalPages = 0;
@@ -212,11 +217,22 @@
     maxPageReached = 1;
     lastSentLevel = 0;
 
+    pdfProgressText.style.display = "block";
+    pdfProgressText.textContent = "Loading PDF...";
+
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
     pdfDoc = await pdfjsLib.getDocument(url).promise;
     totalPages = pdfDoc.numPages;
+
+    sendEngagement({
+      event: "pdf_auto_open",
+      value: 1,
+      pdf_total_pages: totalPages
+    });
+
+    pdfProgressText.textContent = `PDF Loaded: ${totalPages} pages`;
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
       const page = await pdfDoc.getPage(pageNum);
@@ -240,11 +256,7 @@
       await page.render({ canvasContext: context, viewport }).promise;
     }
 
-    sendEngagement({
-      event: "pdf_opened",
-      value: 1,
-      pdf_total_pages: totalPages
-    });
+    pdfProgressText.textContent = `Scroll to read (${totalPages} pages)`;
   }
 
   function detectMaxVisiblePage() {
@@ -276,6 +288,9 @@
 
       const level = computeScrollLevel(maxPageReached, totalPages);
 
+      pdfProgressText.textContent =
+        `Reached page ${maxPageReached}/${totalPages} (level=${level})`;
+
       if (level > lastSentLevel) {
         lastSentLevel = level;
 
@@ -293,18 +308,24 @@
     pdfBox.addEventListener("scroll", onPdfScroll);
   }
 
-  window.addEventListener("load", async () => {
-    const pdfUrl = "{{ absolute_pdf_url }}";
-    if (!pdfUrl || pdfUrl === "#") return;
-
-    await renderPdf(pdfUrl);
-  });
-
   if (downloadPdfBtn) {
     downloadPdfBtn.addEventListener("click", () => {
       sendEngagement({ event: "pdf_download", value: 1 });
     });
   }
+
+  // ✅ Auto-load PDF on page load
+  window.addEventListener("load", async () => {
+    const pdfUrl = "{{ absolute_pdf_url }}";
+    if (!pdfUrl || pdfUrl === "#") return;
+
+    try {
+      await renderPdf(pdfUrl);
+    } catch (e) {
+      pdfProgressText.textContent = "Failed to load PDF. Please refresh.";
+      sendEngagement({ event: "pdf_load_failed", value: 1 });
+    }
+  });
 </script>
 
 {% if collateral.vimeo_url %}
