@@ -256,14 +256,34 @@
                   <td>{{ r.transaction_id_display }}</td>
                   <td>{{ r.doctor_name|default:"—" }}</td>
                   <td>{{ r.doctor_number }}</td>
-                  <td>{{ r.collateral_title }}</td>
+
+                  <td>{{ r.collateral_id }}</td>
 
                   <td>{% if r.has_viewed %}1{% else %}0{% endif %}</td>
                   <td>{% if r.has_downloaded_pdf %}1{% else %}0{% endif %}</td>
 
-                  <td>{{ r.last_page_scrolled|default:0 }}</td>
+                  <td>
+                    {% if r.has_viewed_last_page %}
+                      2
+                    {% else %}
+                      {% if r.last_page_scrolled|default:0|add:0 <= 1 %}
+                        0
+                      {% else %}
+                        1
+                      {% endif %}
+                    {% endif %}
+                  </td>
 
-                  <td>{{ r.last_video_percentage|default:0 }}%</td>
+                  <td>
+                    {% if r.last_video_percentage|default:0|add:0 >= 100 %}
+                      100%
+                    {% elif r.last_video_percentage|default:0|add:0 >= 40 %}
+                      50%
+                    {% else %}
+                      0%
+                    {% endif %}
+                  </td>
+
                   <td>{{ r.total_video_events|default:0 }}</td>
                   <td>{{ r.transaction_date }}</td>
                   <td>{{ r.updated_at|date:"Y-m-d H:i" }}</td>
