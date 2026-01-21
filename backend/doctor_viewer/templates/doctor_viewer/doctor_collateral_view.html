@@ -59,14 +59,6 @@
 
       {% if collateral.file %}
         <div class="mb-3 d-flex justify-content-center gap-2 flex-wrap">
-          <button
-            class="btn btn-primary"
-            id="openPdfBtn"
-            style="background: #1877f2; border: none"
-          >
-            Open PDF
-          </button>
-
           <a
             href="{{ absolute_pdf_url|default:'#' }}"
             class="btn btn-outline-success"
@@ -74,16 +66,6 @@
             id="downloadPdfBtn"
           >
             Download PDF
-          </a>
-
-          <a
-            href="{{ absolute_pdf_url|default:'#' }}"
-            class="btn btn-outline-secondary"
-            target="_blank"
-            rel="noopener"
-            id="openPdfNewTabBtn"
-          >
-            Open in New Tab
           </a>
         </div>
 
@@ -94,13 +76,9 @@
         <div
           id="pdfBox"
           class="border rounded mb-4"
-          style="height: 600px; overflow-y: auto; display: none; background: #f8f9fa;"
+          style="height: 600px; overflow-y: auto; background: #f8f9fa;"
         >
           <div id="pdfViewer" class="p-2"></div>
-        </div>
-
-        <div class="mt-2 text-muted small" id="pdfProgressText" style="display:none;">
-          Loading PDF...
         </div>
       {% endif %}
 
@@ -209,12 +187,9 @@
 </script>
 
 <script>
-  const openPdfBtn = document.getElementById("openPdfBtn");
-  const openPdfNewTabBtn = document.getElementById("openPdfNewTabBtn");
   const downloadPdfBtn = document.getElementById("downloadPdfBtn");
   const pdfBox = document.getElementById("pdfBox");
   const pdfViewer = document.getElementById("pdfViewer");
-  const pdfProgressText = document.getElementById("pdfProgressText");
 
   let pdfDoc = null;
   let totalPages = 0;
@@ -237,16 +212,11 @@
     maxPageReached = 1;
     lastSentLevel = 0;
 
-    pdfProgressText.style.display = "block";
-    pdfProgressText.textContent = "Loading PDF...";
-
     pdfjsLib.GlobalWorkerOptions.workerSrc =
       "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
 
     pdfDoc = await pdfjsLib.getDocument(url).promise;
     totalPages = pdfDoc.numPages;
-
-    pdfProgressText.textContent = `PDF Loaded: ${totalPages} pages`;
 
     for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
       const page = await pdfDoc.getPage(pageNum);
@@ -270,7 +240,11 @@
       await page.render({ canvasContext: context, viewport }).promise;
     }
 
-    pdfProgressText.textContent = `Scroll to read (${totalPages} pages)`;
+    sendEngagement({
+      event: "pdf_opened",
+      value: 1,
+      pdf_total_pages: totalPages
+    });
   }
 
   function detectMaxVisiblePage() {
@@ -302,9 +276,6 @@
 
       const level = computeScrollLevel(maxPageReached, totalPages);
 
-      pdfProgressText.textContent =
-        `Reached page ${maxPageReached}/${totalPages} (level=${level})`;
-
       if (level > lastSentLevel) {
         lastSentLevel = level;
 
@@ -322,27 +293,12 @@
     pdfBox.addEventListener("scroll", onPdfScroll);
   }
 
-  if (openPdfBtn) {
-    openPdfBtn.addEventListener("click", async () => {
-      const pdfUrl = "{{ absolute_pdf_url }}";
-      if (!pdfUrl || pdfUrl === "#") return;
+  window.addEventListener("load", async () => {
+    const pdfUrl = "{{ absolute_pdf_url }}";
+    if (!pdfUrl || pdfUrl === "#") return;
 
-      pdfBox.style.display = "block";
-      pdfProgressText.style.display = "block";
-
-      sendEngagement({ event: "clicked_pdf_button" });
-
-      await renderPdf(pdfUrl);
-
-      sendEngagement({ event: "open_pdf_new_tab", value: 1 });
-    });
-  }
-
-  if (openPdfNewTabBtn) {
-    openPdfNewTabBtn.addEventListener("click", () => {
-      sendEngagement({ event: "open_pdf_new_tab", value: 1 });
-    });
-  }
+    await renderPdf(pdfUrl);
+  });
 
   if (downloadPdfBtn) {
     downloadPdfBtn.addEventListener("click", () => {
