@@ -19,8 +19,6 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
 
     collaterals = [{"id": cc.collateral_id, "title": cc.collateral.title} for cc in collaterals_qs]
 
-    collateral_title_by_id = {c["id"]: c["title"] for c in collaterals}
-
     selected_collateral_id = request.GET.get("collateral_id")
     try:
         selected_collateral_id_int = int(selected_collateral_id) if selected_collateral_id else None
@@ -37,9 +35,8 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
             brand_campaign_id=brand_campaign_id,
             doctor_number=OuterRef("doctor_number"),
             collateral_id=OuterRef("collateral_id"),
-            field_rep_id=OuterRef("field_rep_id"),   # ✅ ADD THIS
         )
-        .order_by("-updated_at", "-id")
+        .order_by("-updated_at")
         .values("updated_at")[:1]
     )
 
@@ -82,9 +79,6 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
         else:
             rep_display = raw_rep or ""
         r.transaction_id_display = f"{rep_display}-{r.doctor_number}-{r.collateral_id}"
-    
-    for r in rows:
-        r.collateral_title = collateral_title_by_id.get(r.collateral_id, "—")
 
     context = {
         "brand_campaign_id": brand_campaign_id,
