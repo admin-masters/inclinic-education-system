@@ -1,396 +1,348 @@
 {% extends "base.html" %}
-{% load static %}
-
 {% block content %}
-{% if verified and collateral %}
 
-<div class="container mt-4">
-  <div class="card mx-auto" style="max-width: 900px">
+<style>
+  body {
+    background: #f5f6fa;
+  }
 
-    <div class="card-header text-center">
-      <h4 class="mb-0">{{ collateral.title }}</h4>
+  .page-wrap {
+    max-width: 1050px;
+    margin: auto;
+    padding: 20px 0 40px;
+  }
 
-      {% if collateral.description %}
-        <p class="text-muted mb-0">{{ collateral.description }}</p>
-      {% endif %}
+  .outer-card {
+    border-radius: 14px;
+    overflow: hidden;
+    border: none;
+    box-shadow: 0 10px 26px rgba(0,0,0,0.08);
+    background: white;
+  }
 
-      {% if collateral.doctor_name %}
-        <p class="text-muted mb-0">By Dr. {{ collateral.doctor_name }}</p>
-      {% endif %}
+  .green-titlebar {
+    background: #007bff;
+    color: #fff;
+    padding: 14px 22px;
+    font-weight: 700;
+    font-size: 18px;
+  }
+
+  .section-bar {
+    background: #007bff;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 10px;
+    font-weight: 700;
+    font-size: 15px;
+    margin-top: 18px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+
+  .inner-box {
+    background: #fff;
+    border-radius: 12px;
+    padding: 22px;
+    margin-top: 12px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+  }
+
+  .filters-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 22px;
+  }
+
+  @media (max-width: 768px) {
+    .filters-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .filter-label {
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 7px;
+    color: #333;
+  }
+
+  .form-select,
+  .form-control {
+    border-radius: 8px;
+    padding: 10px 12px;
+    border: 1px solid #e0e0e0;
+  }
+
+  .form-select:focus,
+  .form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 0.15rem rgba(76,175,80,.25);
+  }
+
+  .btn-reset {
+    border-radius: 8px;
+    padding: 8px 18px;
+    background: #fff;
+    border: 1px solid #d8d8d8;
+  }
+
+  .btn-csv {
+    border-radius: 8px;
+    padding: 8px 18px;
+    background: #007bff;
+    border: none;
+    color: white;
+    font-weight: 600;
+  }
+
+  .stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 28px;
+  }
+
+  @media (max-width: 768px) {
+    .stats-grid {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  .stat-row {
+    display: flex;
+    justify-content: space-between;
+    font-size: 13px;
+    padding: 4px 0;
+  }
+
+  .stat-row span:last-child {
+    color: #007bff;
+    font-weight: 700;
+  }
+
+  .table-wrap {
+    background: white;
+    border-radius: 12px;
+    padding: 16px;
+    margin-top: 10px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.06);
+  }
+
+  table thead th {
+    background: #007bff !important;
+    color: white !important;
+    font-weight: 700;
+    font-size: 12px;
+    border-color: #007bff !important;
+  }
+
+  table tbody td {
+    font-size: 12px;
+    vertical-align: middle;
+  }
+</style>
+
+<div class="page-wrap">
+  <div class="outer-card">
+
+    <div class="green-titlebar">
+      Collateral Management System
     </div>
 
-    <div class="card-body text-center">
+    <div class="p-4">
 
-      {% if collateral.banner_1 or collateral.banner_2 %}
-        <div class="mb-4">
-          {% if collateral.banner_1 %}
-            <div class="mb-3">
-              <img
-                src="{{ collateral.banner_1.url }}"
-                alt="{{ collateral.title }} banner"
-                class="img-fluid w-100 rounded"
-                style="object-fit: cover; max-height: 300px;"
-              />
+      <div class="inner-box">
+        <div class="filters-grid">
+          <div>
+            <div class="filter-label">Brand Campaign</div>
+            <select class="form-select" id="brandCampaign">
+              <option selected>{{ brand_campaign_id }}</option>
+            </select>
+          </div>
+
+          <div>
+            <div class="filter-label">Collateral</div>
+            <select class="form-select" id="collateralFilter">
+              <option value="">All Collaterals</option>
+              {% for c in collaterals %}
+                <option value="{{ c.id }}"
+                  {% if selected_collateral_id and c.id == selected_collateral_id %}selected{% endif %}>
+                  {{ c.title }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+
+        <div class="d-flex gap-2 mt-3">
+          <button class="btn btn-reset" type="button"
+            onclick="window.location.href=window.location.pathname;">
+            Reset
+          </button>
+
+          <button class="btn btn-csv" id="btnCsv" type="button">
+            Download CSV
+          </button>
+        </div>
+      </div>
+
+      <div class="section-bar">
+        <div>Statistics Summary</div>
+      </div>
+
+      <div class="inner-box">
+        <div class="stats-grid">
+          {% for title, value in summary_items %}
+            <div class="stat-row">
+              <span>{{ title }}</span>
+              <span>{{ value }}</span>
             </div>
-          {% endif %}
-
-          {% if collateral.banner_2 %}
-            <div>
-              <img
-                src="{{ collateral.banner_2.url }}"
-                alt="{{ collateral.title }} secondary banner"
-                class="img-fluid w-100 rounded"
-                style="object-fit: cover; max-height: 180px;"
-              />
-            </div>
-          {% endif %}
+          {% endfor %}
         </div>
-      {% endif %}
+      </div>
 
-      {% if collateral.vimeo_url %}
-        <div class="ratio ratio-16x9 mb-3">
-          {% if "vimeo.com" in collateral.vimeo_url %}
-            <iframe src="{{ collateral.vimeo_url }}" allowfullscreen></iframe>
-          {% else %}
-            <iframe src="https://player.vimeo.com/video/{{ collateral.vimeo_url }}" allowfullscreen></iframe>
-          {% endif %}
+      <div class="section-bar">
+        <div>Unique Doctors</div>
+        <div style="font-size:12px;font-weight:600;">
+          {{ rows|length }} doctors
         </div>
-      {% endif %}
+      </div>
 
-      {% if collateral.file %}
-        <div class="mb-3 d-flex justify-content-center gap-2 flex-wrap">
-          <a
-            href="{{ absolute_pdf_url|default:'#' }}"
-            class="btn btn-outline-success"
-            download
-            id="downloadPdfBtn"
-          >
-            Download PDF
-          </a>
+      <div class="table-wrap">
+
+        <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+          <div class="d-flex align-items-center gap-2">
+            <span style="font-size:12px;">Search:</span>
+            <input class="form-control" id="search" placeholder="Doctor name / number" style="max-width: 240px;">
+          </div>
+
+          <select class="form-select" id="statusFilter" style="max-width:220px">
+            <option value="">All</option>
+            <option value="not_clicked">Needs Click</option>
+            <option value="clicked">Clicked</option>
+            <option value="downloaded">PDF Downloaded</option>
+            <option value="last_page">Viewed Last Page</option>
+            <option value="video_lt_50">Video &lt; 50%</option>
+            <option value="video_gt_50">Video ≥ 50%</option>
+            <option value="video_100">Video 100%</option>
+          </select>
         </div>
 
-        <p class="text-muted">
-          If PDF is not loading properly, please refresh the page.
-        </p>
+        <div class="table-responsive">
+          <table class="table table-sm align-middle" id="txTable">
+            <thead>
+              <tr>
+                <th>Transaction ID</th>
+                <th>Doctor</th>
+                <th>Phone</th>
+                <th>Collateral</th>
+                <th>Clicked</th>
+                <th>PDF Download</th>
+                <th>Last Page</th>
+                <th>Video %</th>
+                <th>Video Events</th>
+                <th>Tx Date</th>
+                <th>Updated</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for r in rows %}
+                <tr
+                  data-name="{{ r.doctor_name|default:''|lower }}"
+                  data-phone="{{ r.doctor_number }}"
+                  data-state="{% if r.has_viewed %}clicked{% else %}not_clicked{% endif %}{% if r.has_downloaded_pdf %} downloaded{% endif %}{% if r.has_viewed_last_page %} last_page{% endif %}{% if r.last_video_percentage > 0 and r.last_video_percentage < 50 %} video_lt_50{% endif %}{% if r.last_video_percentage >= 50 and r.last_video_percentage < 100 %} video_gt_50{% endif %}{% if r.last_video_percentage >= 100 %} video_100{% endif %}"
+                >
+                  <td>{{ r.transaction_id_display }}</td>
+                  <td>{{ r.doctor_name|default:"—" }}</td>
+                  <td>{{ r.doctor_number }}</td>
 
-        <div
-          id="pdfBox"
-          class="border rounded mb-4"
-          style="height: 600px; overflow-y: auto; display: block; background: #f8f9fa;"
-        >
-          <div id="pdfViewer" class="p-2"></div>
-        </div>
+                  <td>{{ r.collateral_id }}</td>
 
-        <div class="mt-2 text-muted small" id="pdfProgressText" style="display:none;">
-          Loading PDF...
-        </div>
-      {% endif %}
+                  <td>{% if r.has_viewed %}1{% else %}0{% endif %}</td>
+                  <td>{% if r.has_downloaded_pdf %}1{% else %}0{% endif %}</td>
 
-      {% if archives %}
-        <hr class="my-4" />
-        <div class="text-start">
-          <h5 class="mb-3">Archives</h5>
-          <div class="row g-3">
-            {% for item in archives %}
-              <div class="col-12 col-md-4">
-                <div class="card h-100">
-                  <div class="card-body">
-                    <h6 class="card-title">{{ item.obj.title }}</h6>
-                  </div>
-                  <div class="card-footer bg-white border-0">
-                    {% if item.short_code %}
-                      <a
-                        class="btn btn-sm btn-outline-primary w-100"
-                        href="{% url 'resolve_shortlink' item.short_code %}"
-                        onclick="sendEngagement({ event: 'archive_open' })"
-                      >
-                        Open
-                      </a>
+                  <td>
+                    {% if r.has_viewed_last_page %}
+                      2
                     {% else %}
-                      <button class="btn btn-sm btn-outline-secondary w-100" disabled>
-                        No link available
-                      </button>
+                      {% if r.last_page_scrolled|default:0|add:0 <= 1 %}
+                        0
+                      {% else %}
+                        1
+                      {% endif %}
                     {% endif %}
-                  </div>
-                </div>
-              </div>
-            {% endfor %}
-          </div>
+                  </td>
+
+                  <td>
+                    {% if r.last_video_percentage|default:0|add:0 >= 100 %}
+                      100%
+                    {% elif r.last_video_percentage|default:0|add:0 >= 40 %}
+                      50%
+                    {% else %}
+                      0%
+                    {% endif %}
+                  </td>
+
+                  <td>{{ r.total_video_events|default:0 }}</td>
+                  <td>{{ r.transaction_date }}</td>
+                  <td>{{ r.updated_at|date:"Y-m-d H:i" }}</td>
+                </tr>
+              {% endfor %}
+            </tbody>
+          </table>
         </div>
-      {% endif %}
 
-      {% if collateral.webinar_title or collateral.webinar_url %}
-        <hr class="my-4" />
-        <div class="text-start">
-          <h5 class="mb-3">Webinar</h5>
-          <div class="card">
-            <div class="card-body">
-              <div class="d-flex justify-content-between align-items-start">
-                <div>
-                  <h6 class="mb-1">
-                    {{ collateral.webinar_title|default:"Learning Webinar" }}
-                  </h6>
-
-                  {% if collateral.webinar_date %}
-                    <small class="text-muted">{{ collateral.webinar_month_year }}</small>
-                  {% endif %}
-
-                  {% if collateral.webinar_description %}
-                    <p class="mt-2 mb-0">{{ collateral.webinar_description }}</p>
-                  {% endif %}
-                </div>
-
-                {% if collateral.webinar_url %}
-                  <a
-                    class="btn btn-outline-primary"
-                    href="{{ collateral.webinar_url }}"
-                    target="_blank"
-                    rel="noopener"
-                    onclick="sendEngagement({ event: 'webinar_open' })"
-                  >
-                    View on DIAP
-                  </a>
-                {% endif %}
-              </div>
-            </div>
-          </div>
-        </div>
-      {% endif %}
+      </div>
 
     </div>
   </div>
 </div>
 
-{{ share_id|json_script:"share_id" }}
-{{ engagement_id|json_script:"engagement_id" }}
-
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
-
 <script>
-  const el = document.getElementById("engagement_id");
-  const engagement = el ? JSON.parse(el.textContent) : null;
+(function () {
+  const $q = s => document.querySelector(s);
+  const rows = Array.from(document.querySelectorAll('#txTable tbody tr'));
 
-  const shareEl = document.getElementById("share_id");
-  const shareId = shareEl ? JSON.parse(shareEl.textContent) : null;
+  function filter() {
+    const term = ($q('#search').value || '').toLowerCase();
+    const state = $q('#statusFilter').value;
 
-  function sendEngagement(payload) {
-    if (!engagement) return;
+    rows.forEach(tr => {
+      const name = tr.dataset.name || '';
+      const phone = tr.dataset.phone || '';
+      const matchesText = !term || name.includes(term) || phone.includes(term);
 
-    const body = {
-      engagement_id: engagement,
-      share_id: shareId,
-      ...payload
-    };
+      const states = (tr.dataset.state || '').split(' ').filter(Boolean);
+      const matchesState = !state || states.includes(state);
 
-    fetch("{% url 'doctor_view_log' %}", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    }).catch(() => {});
-  }
-</script>
-
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-  sendEngagement({ event: "clicked", value: 1 });
-});
-</script>
-
-<script>
-  const downloadPdfBtn = document.getElementById("downloadPdfBtn");
-  const pdfBox = document.getElementById("pdfBox");
-  const pdfViewer = document.getElementById("pdfViewer");
-  const pdfProgressText = document.getElementById("pdfProgressText");
-
-  let pdfDoc = null;
-  let totalPages = 0;
-  let maxPageReached = 1;
-  let lastSentLevel = 0;
-
-  function computeScrollLevel(maxPage, total) {
-    if (!total || total <= 1) return 0;
-    if (maxPage <= 1) return 0;
-
-    const half = Math.ceil(total / 2);
-
-    if (maxPage >= total) return 2;
-    if (maxPage >= half) return 1;
-    return 0;
-  }
-
-  async function renderPdf(url) {
-    pdfViewer.innerHTML = "";
-    maxPageReached = 1;
-    lastSentLevel = 0;
-
-    pdfProgressText.style.display = "block";
-    pdfProgressText.textContent = "Loading PDF...";
-
-    pdfjsLib.GlobalWorkerOptions.workerSrc =
-      "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
-
-    pdfDoc = await pdfjsLib.getDocument(url).promise;
-    totalPages = pdfDoc.numPages;
-
-    sendEngagement({
-      event: "pdf_auto_open",
-      value: 1,
-      pdf_total_pages: totalPages
-    });
-
-    pdfProgressText.textContent = `PDF Loaded: ${totalPages} pages`;
-
-    for (let pageNum = 1; pageNum <= totalPages; pageNum++) {
-      const page = await pdfDoc.getPage(pageNum);
-
-      const viewport = page.getViewport({ scale: 1.4 });
-      const canvas = document.createElement("canvas");
-      canvas.dataset.pageNumber = pageNum;
-
-      const context = canvas.getContext("2d");
-      canvas.height = viewport.height;
-      canvas.width = viewport.width;
-
-      const wrapper = document.createElement("div");
-      wrapper.style.marginBottom = "14px";
-      wrapper.style.display = "flex";
-      wrapper.style.justifyContent = "center";
-      wrapper.appendChild(canvas);
-
-      pdfViewer.appendChild(wrapper);
-
-      await page.render({ canvasContext: context, viewport }).promise;
-    }
-
-    pdfProgressText.textContent = `Scroll to read (${totalPages} pages)`;
-  }
-
-  function detectMaxVisiblePage() {
-    const canvases = pdfViewer.querySelectorAll("canvas[data-page-number]");
-    let best = 1;
-
-    const boxRect = pdfBox.getBoundingClientRect();
-
-    canvases.forEach((c) => {
-      const rect = c.getBoundingClientRect();
-      const visible = rect.top < boxRect.bottom && rect.bottom > boxRect.top;
-
-      if (visible) {
-        const pageNum = parseInt(c.dataset.pageNumber || "1");
-        if (pageNum > best) best = pageNum;
-      }
-    });
-
-    return best;
-  }
-
-  let scrollTimer = null;
-  function onPdfScroll() {
-    if (scrollTimer) clearTimeout(scrollTimer);
-
-    scrollTimer = setTimeout(() => {
-      const visiblePage = detectMaxVisiblePage();
-      maxPageReached = Math.max(maxPageReached, visiblePage);
-
-      const level = computeScrollLevel(maxPageReached, totalPages);
-
-      pdfProgressText.textContent =
-        `Reached page ${maxPageReached}/${totalPages} (level=${level})`;
-
-      if (level > lastSentLevel) {
-        lastSentLevel = level;
-
-        sendEngagement({
-          event: "page_scroll",
-          value: level,
-          page_number: maxPageReached,
-          pdf_total_pages: totalPages
-        });
-      }
-    }, 250);
-  }
-
-  if (pdfBox) {
-    pdfBox.addEventListener("scroll", onPdfScroll);
-  }
-
-  if (downloadPdfBtn) {
-    downloadPdfBtn.addEventListener("click", () => {
-      sendEngagement({ event: "pdf_download", value: 1 });
+      tr.style.display = (matchesText && matchesState) ? '' : 'none';
     });
   }
 
-  // ✅ Auto-load PDF on page load
-  window.addEventListener("load", async () => {
-    const pdfUrl = "{{ absolute_pdf_url }}";
-    if (!pdfUrl || pdfUrl === "#") return;
+  if ($q('#search')) $q('#search').addEventListener('input', filter);
+  if ($q('#statusFilter')) $q('#statusFilter').addEventListener('change', filter);
 
-    try {
-      await renderPdf(pdfUrl);
-    } catch (e) {
-      pdfProgressText.textContent = "Failed to load PDF. Please refresh.";
-      sendEngagement({ event: "pdf_load_failed", value: 1 });
-    }
-  });
+  const collSel = $q('#collateralFilter');
+  if (collSel) {
+    collSel.addEventListener('change', function() {
+      const val = this.value;
+      const qs = val ? ('?collateral_id=' + encodeURIComponent(val)) : '';
+      const base = window.location.origin + window.location.pathname;
+      window.location.href = base + qs;
+    });
+  }
+
+  const btnCsv = $q('#btnCsv');
+  if (btnCsv) {
+    btnCsv.addEventListener('click', function() {
+      const val = collSel ? collSel.value : '';
+      const qs = val ? ('?collateral_id=' + encodeURIComponent(val) + '&export=1') : '?export=1';
+      const base = window.location.origin + window.location.pathname;
+      window.location.href = base + qs;
+    });
+  }
+})();
 </script>
-
-{% if collateral.vimeo_url %}
-  <script src="https://player.vimeo.com/api/player.js"></script>
-
-  <script>
-    const vimeoFrame = document.querySelector("iframe[src*='vimeo']");
-    if (vimeoFrame && window.Vimeo) {
-      const player = new Vimeo.Player(vimeoFrame);
-
-      let sent50 = false;
-      let sent100 = false;
-
-      player.on("timeupdate", function (data) {
-        const percent = Math.floor((data.percent || 0) * 100);
-
-        if (!sent50 && percent >= 50 && percent < 100) {
-          sent50 = true;
-          sendEngagement({
-            event: "video_progress",
-            value: 50
-          });
-        }
-
-        if (!sent100 && percent >= 99) {
-          sent100 = true;
-          sendEngagement({
-            event: "video_progress",
-            value: 100
-          });
-        }
-      });
-    }
-  </script>
-{% endif %}
-
-{% else %}
-
-<div
-  class="d-flex justify-content-center align-items-center"
-  style="min-height: 80vh; background: #fff"
->
-  <div class="card shadow" style="width: 100%; max-width: 400px">
-    <div class="card-body p-4">
-      <h3 class="text-center mb-4">Access Denied</h3>
-      <p class="text-center text-muted">
-        Please verify your WhatsApp number to access this content.
-      </p>
-      <a
-        href="{% url 'doctor_collateral_verify' %}"
-        class="btn btn-primary w-100"
-        style="background: #1877f2; border: none"
-      >
-        Go Back to Verification
-      </a>
-    </div>
-  </div>
-</div>
-
-{% endif %}
 
 {% endblock %}
