@@ -131,18 +131,11 @@ def doctor_view_log(request):
         except Exception:
             pdf_total_pages = 0
 
-        if pdf_total_pages > 0:
-            half = (pdf_total_pages + 1) // 2
-            last_page = int(engagement.last_page_scrolled or 1)
-
-            if last_page <= 1:
-                engagement.status = 0
-            elif last_page >= pdf_total_pages:
-                engagement.status = 2
-            elif last_page >= half:
-                engagement.status = 1
-            else:
-                engagement.status = 0
+        pdf_total_pages = 0
+        try:
+            pdf_total_pages = int(data.get("pdf_total_pages") or 0)
+        except Exception:
+            pdf_total_pages = 0
 
     # ✅ Video Progress (store only 0 / 50 / 100)
     elif event == "video_progress":
@@ -152,6 +145,14 @@ def doctor_view_log(request):
             pct = 0
 
         pct = max(0, min(100, pct))
+
+        if pct >= 100:
+            pct = 100
+        elif pct >= 50:
+            pct = 50
+        else:
+            pct = 0
+
         engagement.video_watch_percentage = max(int(engagement.video_watch_percentage or 0), pct)
 
     engagement.updated_at = now
@@ -187,6 +188,7 @@ def doctor_view_log(request):
 
             if engagement.pdf_completed:
                 mark_downloaded_pdf(sl)
+            
             if event == "video_progress":
                 pct = int(engagement.video_watch_percentage or 0)
                 mark_video_event(
