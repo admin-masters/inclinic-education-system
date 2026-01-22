@@ -39,7 +39,13 @@ from .forms import (
 )
 from campaign_management.models import Campaign, CampaignAssignment
 from admin_dashboard.models import FieldRepCampaign
-from sharing_management.services.transactions import upsert_from_sharelog, mark_video_event
+from sharing_management.services.transactions import (
+    upsert_from_sharelog,
+    mark_viewed,
+    mark_pdf_progress,
+    mark_downloaded_pdf,
+    mark_video_event,
+)
 from collateral_management.models import Collateral
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
 from doctor_viewer.models import DoctorEngagement
@@ -146,14 +152,6 @@ def doctor_view_log(request):
             pct = 0
 
         pct = max(0, min(100, pct))
-
-        if pct >= 100:
-            pct = 100
-        elif pct >= 50:
-            pct = 50
-        else:
-            pct = 0
-
         engagement.video_watch_percentage = max(int(engagement.video_watch_percentage or 0), pct)
 
     engagement.updated_at = now
@@ -173,20 +171,37 @@ def doctor_view_log(request):
             # Important: you already use these helpers elsewhere
             mark_viewed(sl, sm_engagement_id=None)
 
+            pdf_total_pages = 0
+            try:
+                pdf_total_pages = int(data.get("pdf_total_pages") or 0)
+            except Exception:
+                pdf_total_pages = 0
+
             mark_pdf_progress(
                 sl,
                 last_page=int(engagement.last_page_scrolled or 1),
                 completed=bool(engagement.pdf_completed),
                 dv_engagement_id=engagement.id,
+                total_pages=pdf_total_pages,
             )
 
             if engagement.pdf_completed:
                 mark_downloaded_pdf(sl)
+            if event == "video_progress":
+                pct = int(engagement.video_watch_percentage or 0)
+                mark_video_event(
+                    sl,
+                    status=pct,
+                    percentage=pct,
+                    event_id=0,
+                    when=timezone.now(),
+                )
 
         except ShareLog.DoesNotExist:
             pass
         except Exception as e:
-            print("[doctor_view_log] error updating ShareLog/CollateralTransaction:", e)
+            print("[doctor_view_log] error updating ShareLog/CollateralTransaction:", str(e))
+            return JsonResponse({"ok": False, "error": "Failed to update transaction"}, status=500)
 
     return JsonResponse({"ok": True, "event": event})
 
