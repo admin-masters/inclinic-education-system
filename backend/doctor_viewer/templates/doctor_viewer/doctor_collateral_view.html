@@ -191,6 +191,12 @@
 </script>
 
 <script>
+document.addEventListener("DOMContentLoaded", function () {
+  sendEngagement({ event: "clicked", value: 1 });
+});
+</script>
+
+<script>
   const downloadPdfBtn = document.getElementById("downloadPdfBtn");
   const pdfBox = document.getElementById("pdfBox");
   const pdfViewer = document.getElementById("pdfViewer");
