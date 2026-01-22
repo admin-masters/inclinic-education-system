@@ -145,14 +145,6 @@ def doctor_view_log(request):
             pct = 0
 
         pct = max(0, min(100, pct))
-
-        if pct >= 100:
-            pct = 100
-        elif pct >= 50:
-            pct = 50
-        else:
-            pct = 0
-
         engagement.video_watch_percentage = max(int(engagement.video_watch_percentage or 0), pct)
 
     engagement.updated_at = now
@@ -185,6 +177,7 @@ def doctor_view_log(request):
                 dv_engagement_id=engagement.id,
                 total_pages=pdf_total_pages,
             )
+
 
             if engagement.pdf_completed:
                 mark_downloaded_pdf(sl)
