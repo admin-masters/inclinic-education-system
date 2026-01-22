@@ -110,7 +110,13 @@ def resolve_view(request, code: str):
             pass
     else:
         try:
-            sl = ShareLog.objects.filter(short_link=short_link).order_by("-share_timestamp").first()
+            sl = (
+                ShareLog.objects
+                .filter(short_link=short_link)
+                .order_by("-share_timestamp", "-id")
+                .first()
+            )
+
             if sl:
                 mark_viewed(sl, sm_engagement_id=None)
                 request.session["share_id"] = sl.id
