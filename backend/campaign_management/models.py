@@ -23,7 +23,7 @@ class Collateral(models.Model):
 # ✅ Now define Campaign
 class Campaign(models.Model):
     name = models.CharField(max_length=255)
-    brand_name = models.CharField(max_length=255)
+    brand_name = models.CharField(max_length=255, blank=True, null=True)
 
     brand_campaign_id = models.CharField(
         max_length=64, unique=True, db_index=True, blank=True,
@@ -35,11 +35,11 @@ class Campaign(models.Model):
     description = models.TextField(blank=True)
 
     # ——— NEW fields for the Brand Campaign Form ———
-    company_name = models.CharField(max_length=255, blank=True)
-    incharge_name = models.CharField(max_length=255, blank=True)
-    incharge_contact = models.CharField(max_length=20, blank=True)       # phone, keep string for flexibility
+    company_name = models.CharField(max_length=255, blank=True, null=True)
+    incharge_name = models.CharField(max_length=255, blank=True, null=True)
+    incharge_contact = models.CharField(max_length=20, blank=True, null=True)
     incharge_designation = models.CharField(max_length=255, blank=True)
-    num_doctors = models.PositiveIntegerField(default=0)
+    num_doctors = models.PositiveIntegerField(null=True, blank=True)
     items_per_clinic_per_year = models.PositiveIntegerField(default=0)
     contract = models.FileField(upload_to="campaigns/contracts/", blank=True, null=True)
     brand_logo = models.ImageField(upload_to="campaigns/logos/brand/", blank=True, null=True)

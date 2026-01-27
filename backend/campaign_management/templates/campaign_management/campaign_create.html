@@ -1,15 +1,23 @@
 {% extends "base.html" %}
+
 {% block content %}
-<h2>Create Campaign</h2>
-<form method="post" enctype="multipart/form-data">
-  {% csrf_token %}
-  {% if form.non_field_errors %}
-    <div class="alert alert-danger">{{ form.non_field_errors }}</div>
+<div class="container mt-4">
+  <h2>Create Campaign Details</h2>
+
+  {% if campaign_id %}
+    <p><strong>Campaign ID:</strong> {{ campaign_id }}</p>
   {% endif %}
-  {{ form.as_p }}
-  <button type="submit" class="btn btn-primary">Save</button>
-</form>
-{% endblock %}
-{% block extrajs %}
-<script src="https://www.google.com/recaptcha/api.js?render={{ RECAPTCHA_SITE_KEY }}"></script>
+
+  <form method="post" enctype="multipart/form-data">
+    {% csrf_token %}
+
+    {% if campaign_id %}
+      <input type="hidden" name="campaign-id" value="{{ campaign_id }}">
+    {% endif %}
+
+    {{ form.as_p }}
+
+    <button type="submit" class="btn btn-primary">Save</button>
+  </form>
+</div>
 {% endblock %}

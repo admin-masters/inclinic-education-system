@@ -126,6 +126,18 @@ DATABASES = {
         "HOST": "localhost",
         "PORT": "3306",
     },
+    'master': {
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': 'healthcare_forms',    # Your DB name
+        'USER': 'admin',                # Username shown in your screenshot
+        'PASSWORD': 'Hemsod-vytsew-7qypxa',    # Enter the correct root password
+        'HOST': 'new-forms-rds.cbnobb8kfeuq.ap-south-1.rds.amazonaws.com',
+        'PORT': '3306',
+        'OPTIONS': {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        },
+    },
 }
 
 AUTH_USER_MODEL = "user_management.User"
@@ -241,3 +253,15 @@ DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
+
+# JWT validation (master publishing system -> PE system)
+PUBLISHER_JWT_SECRET = os.getenv("PUBLISHER_JWT_SECRET", "")         # HS256
+PUBLISHER_JWT_PUBLIC_KEY = os.getenv("PUBLISHER_JWT_PUBLIC_KEY", "") # RS256/ES256 etc.
+PUBLISHER_JWT_ALGORITHMS = os.getenv("PUBLISHER_JWT_ALGORITHMS", "HS256").split(",")
+PUBLISHER_JWT_ISSUER = os.getenv("PUBLISHER_JWT_ISSUER", "project1")
+PUBLISHER_JWT_AUDIENCE = os.getenv("PUBLISHER_JWT_AUDIENCE", "project2")
+PUBLISHER_JWT_LEEWAY_SECONDS = int(os.getenv("PUBLISHER_JWT_LEEWAY_SECONDS", "30"))
+
+# Master DB table names (configurable, since master system schema naming may differ)
+MASTER_CAMPAIGN_DB_TABLE = os.getenv("MASTER_CAMPAIGN_DB_TABLE", "Campaign")
+MASTER_BRAND_DB_TABLE = os.getenv("MASTER_BRAND_DB_TABLE", "Brand")

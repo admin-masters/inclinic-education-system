@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Edit another campaign</h2>
+
+  <form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+      <label for="campaign-id" class="form-label">Campaign ID</label>
+      <input id="campaign-id" name="campaign-id" class="form-control" placeholder="e.g. 3b0f1a7e-..." required>
+    </div>
+    <button type="submit" class="btn btn-primary">Edit campaign</button>
+  </form>
+</div>
+{% endblock %}

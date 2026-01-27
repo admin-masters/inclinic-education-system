@@ -1,5 +1,5 @@
 # campaign_management/views.py
-
+from django.http import HttpResponseBadRequest, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from django.urls import reverse_lazy, reverse
@@ -12,10 +12,24 @@ from django.core.paginator import Paginator
 import uuid
 import re
 
+from django.conf import settings
+from django.db import connections
+
+from .master_models import MasterCampaign
+from .publisher_auth import publisher_or_login_required
+
 from .models import Campaign, CampaignAssignment, CampaignCollateral
 from .forms import CampaignForm, CampaignAssignmentForm, CampaignCollateralForm, CampaignSearchForm, CampaignFilterForm
 from .decorators import admin_required
 from user_management.models import User
+from .publisher_auth import (
+    establish_publisher_session,
+    extract_jwt_from_request,
+    publisher_or_login_required,
+    publisher_session_required,
+    validate_publisher_jwt,
+)
+from .master_models import MasterCampaign
 
 # ------------------------------------------------------------------------
 # Campaign List (open to all roles to see a list, but optional restrict)
@@ -78,56 +92,180 @@ class CampaignDetailView(DetailView):
 # ------------------------------------------------------------------------
 # Create Campaign (now available to any authenticated user)
 # ------------------------------------------------------------------------
-@method_decorator(login_required, name='dispatch')
+@method_decorator(publisher_or_login_required, name="dispatch")
 class CampaignCreateView(CreateView):
     model = Campaign
     form_class = CampaignForm
-    template_name = 'campaign_management/campaign_create.html'
-    success_url = reverse_lazy('manage_data_panel')
+    template_name = "campaign_management/campaign_create.html"
+
+    def _get_campaign_id(self):
+        return (
+            self.request.POST.get("campaign-id")
+            or self.request.POST.get("campaign_id")
+            or self.request.GET.get("campaign-id")
+            or self.request.GET.get("campaign_id")
+            or self.request.session.get("publisher_campaign_id")
+        )
+
+    def dispatch(self, request, *args, **kwargs):
+        self.passed_campaign_id = self._get_campaign_id()
+
+        # If campaign already exists in default DB, go to update instead of crashing on unique constraint
+        if self.passed_campaign_id:
+            request.session["publisher_campaign_id"] = self.passed_campaign_id
+            if Campaign.objects.filter(brand_campaign_id=self.passed_campaign_id).exists():
+                return redirect("publisher_campaign_update", campaign_id=self.passed_campaign_id)
+
+        return super().dispatch(request, *args, **kwargs)
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs['initial'] = {
-            'status': 'draft',  # Default status for new campaigns
-        }
+        kwargs.setdefault("initial", {})
+        kwargs["initial"].setdefault("status", Campaign.StatusChoices.DRAFT)
         return kwargs
 
-    def form_valid(self, form):
-        form.instance.created_by = self.request.user
-        
-        # Safety: ensure brand_campaign_id is set even if form did not include it
-        if not getattr(form.instance, 'brand_campaign_id', None):
-            base = (form.cleaned_data.get('brand_name') or form.cleaned_data.get('name') or 'CMP')
-            base = re.sub(r'[^A-Za-z0-9]+', '-', base).strip('-').upper()[:12]
-            if not base:
-                base = 'CMP'
-            form.instance.brand_campaign_id = f"{base}-{uuid.uuid4().hex[:6].upper()}"
-        
-        resp = super().form_valid(form)
-        return resp
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["campaign_id"] = self.passed_campaign_id
+        return context
 
-    def form_invalid(self, form):
-        messages.error(self.request, "Please correct the errors below.")
-        return super().form_invalid(form)
+    def form_valid(self, form):
+        campaign_id = self._get_campaign_id()
+        if not campaign_id:
+            return HttpResponseBadRequest("Missing campaign-id")
+
+        # Use campaign-id from master system, do NOT generate
+        form.instance.brand_campaign_id = campaign_id
+
+        # Insert NULL for master-owned fields (per requirement)
+        form.instance.company_name = None
+        form.instance.incharge_name = None
+        form.instance.incharge_contact = None
+        form.instance.num_doctors = None
+        form.instance.brand_name = None
+
+        if self.request.user.is_authenticated:
+            form.instance.created_by = self.request.user
+
+        return super().form_valid(form)
+
+    def get_success_url(self):
+        # For publisher flow, go directly to edit screen
+        if self.passed_campaign_id or self.request.session.get("publisher_authenticated"):
+            return reverse("publisher_campaign_update", kwargs={"campaign_id": self.object.brand_campaign_id})
+        return reverse("manage_data_panel")
+
 
 
 # ------------------------------------------------------------------------
 # Update Campaign (any authenticated user)
 # ------------------------------------------------------------------------
-@method_decorator(login_required, name='dispatch')
+# @method_decorator(publisher_or_login_required, name="dispatch")
 class CampaignUpdateView(UpdateView):
     model = Campaign
     form_class = CampaignForm
-    template_name = 'campaign_management/campaign_update.html'
-    success_url = reverse_lazy('manage_data_panel')
+    template_name = "campaign_management/campaign_update.html"
+    context_object_name = "campaign"
+
+    # Only these are editable in PE system
+    EDITABLE_FIELDS = [
+        "name",
+        "incharge_designation",
+        "items_per_clinic_per_year",
+        "start_date",
+        "end_date",
+        "contract",
+        "brand_logo",
+        "company_logo",
+        "printing_required",
+        "description",
+        "status",
+    ]
+
+    def dispatch(self, request, *args, **kwargs):
+        self.publisher_campaign_id = kwargs.get("campaign_id")
+
+        # If publisher tries to edit a campaign that doesn't exist in default DB yet, route to create.
+        if self.publisher_campaign_id and not Campaign.objects.filter(brand_campaign_id=self.publisher_campaign_id).exists():
+            return redirect(f"{reverse('campaign_create')}?campaign-id={self.publisher_campaign_id}")
+
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_object(self, queryset=None):
+        # Publisher route uses campaign-id, not pk
+        campaign_id = self.kwargs.get("campaign_id")
+        if campaign_id:
+            return get_object_or_404(Campaign, brand_campaign_id=campaign_id)
+
+        # Admin/internal route: existing pk behavior
+        return super().get_object(queryset)
+
+    def _fetch_master_campaign(self):
+        """
+        Load master campaign using UUID = brand_campaign_id.
+        If brand_campaign_id is not a UUID, return None.
+        """
+        campaign_id = self.object.brand_campaign_id
+        try:
+            campaign_uuid = uuid.UUID(str(campaign_id))
+        except Exception:
+            return None
+
+        try:
+            return MasterCampaign.objects.using("master").select_related("brand").get(pk=campaign_uuid)
+        except MasterCampaign.DoesNotExist:
+            return None
+
+    def _fetch_master_company_name(self, master_campaign):
+        """
+        Company name isn't present in your provided master Campaign model snippet.
+        This attempts to fetch Brand.company_name from master DB if it exists.
+        If your schema differs, set MASTER_BRAND_DB_TABLE and/or adjust this query.
+        """
+        if not master_campaign or not getattr(master_campaign, "brand_id", None):
+            return None
+
+        brand_table = getattr(settings, "MASTER_BRAND_DB_TABLE", "Brand")
+        conn = connections["master"]
+        quoted_table = conn.ops.quote_name(brand_table)
+
+        try:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    f"SELECT company_name FROM {quoted_table} WHERE id = %s",
+                    [str(master_campaign.brand_id)],
+                )
+                row = cursor.fetchone()
+                return row[0] if row else None
+        except Exception:
+            return None
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+
+        master_campaign = self._fetch_master_campaign()
+        master_company_name = self._fetch_master_company_name(master_campaign)
+
+        context["master_fields"] = {
+            "Brand–Campaign ID": self.object.brand_campaign_id,
+            "Brand name": getattr(getattr(master_campaign, "brand", None), "name", None),
+            "Company name": master_company_name,
+            "Incharge name": getattr(master_campaign, "contact_person_name", None),
+            "Incharge contact": getattr(master_campaign, "contact_person_phone", None),
+            "Num doctors": getattr(master_campaign, "num_doctors_supported", None),
+        }
+        return context
 
     def form_valid(self, form):
-        return super().form_valid(form)
+        # Save only editable fields to DEFAULT DB row
+        self.object = form.save(commit=False)
+        self.object.save(update_fields=self.EDITABLE_FIELDS)
+        return redirect(self.get_success_url())
 
-    def form_invalid(self, form):
-        messages.error(self.request, "Please correct the errors below.")
-        return super().form_invalid(form)
-
+    def get_success_url(self):
+        if self.kwargs.get("campaign_id") or self.request.session.get("publisher_authenticated"):
+            return reverse("publisher_campaign_update", kwargs={"campaign_id": self.object.brand_campaign_id})
+        return reverse("manage_data_panel")
 
 # ------------------------------------------------------------------------
 # Delete Campaign (any authenticated user)
@@ -383,3 +521,65 @@ def quick_update_status(request, pk):
             messages.error(request, "Invalid status selected.")
     
     return redirect('campaign_detail', pk=campaign.pk)
+
+
+def publisher_landing_page(request):
+    """
+    URL entry point from the master publishing system.
+
+    Expected inputs:
+      - JWT: Authorization: Bearer <token> OR ?jwt=<token>
+      - campaign-id: ?campaign-id=<uuid>
+    """
+    token, source = extract_jwt_from_request(request)
+
+    if token:
+        try:
+            payload = validate_publisher_jwt(token)
+        except Exception:
+            return HttpResponse("unauthorised access", status=401)
+
+        establish_publisher_session(request, payload)
+
+        # If token came via query string, strip it from URL to reduce leakage.
+        if source == "query_string":
+            params = request.GET.copy()
+            for k in ("jwt", "token", "access_token"):
+                params.pop(k, None)
+            url = request.path
+            if params:
+                url += "?" + params.urlencode()
+            return redirect(url)
+
+    # No token -> require existing publisher session
+    if not request.session.get("publisher_authenticated"):
+        return HttpResponse("unauthorised access", status=401)
+
+    campaign_id = request.GET.get("campaign-id") or request.GET.get("campaign_id")
+    if not campaign_id:
+        return HttpResponseBadRequest("Missing campaign-id")
+
+    request.session["publisher_campaign_id"] = campaign_id
+
+    return render(
+        request,
+        "campaign_management/publisher_landing_page.html",
+        {
+            "campaign_id": campaign_id,
+            "publisher_username": request.session.get("publisher_username", ""),
+        },
+    )
+
+
+@publisher_session_required
+def publisher_campaign_select(request):
+    """
+    Simple “enter another campaign-id” page for publishers.
+    """
+    if request.method == "POST":
+        campaign_id = request.POST.get("campaign-id") or request.POST.get("campaign_id")
+        if not campaign_id:
+            return HttpResponseBadRequest("Missing campaign-id")
+        return redirect("publisher_campaign_update", campaign_id=campaign_id)
+
+    return render(request, "campaign_management/publisher_campaign_select.html")

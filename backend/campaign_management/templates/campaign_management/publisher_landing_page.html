@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container mt-4">
+  <h2>Publisher landing page</h2>
+
+  <p><strong>Publisher:</strong> {{ publisher_username | default("unknown") }}</p>
+  <p><strong>Campaign ID:</strong> {{ campaign_id }}</p>
+
+  <hr>
+
+  <ul>
+    <li>
+      <a href="{% url 'campaign_create' %}?campaign-id={{ campaign_id|urlencode }}">
+        Add details for this campaign
+      </a>
+    </li>
+    <li>
+      <a href="{% url 'publisher_campaign_select' %}">
+        Edit details for any other campaign
+      </a>
+    </li>
+  </ul>
+</div>
+{% endblock %}
