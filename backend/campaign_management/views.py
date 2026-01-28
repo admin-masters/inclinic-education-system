@@ -263,11 +263,16 @@ class CampaignUpdateView(UpdateView):
         context = super().get_context_data(**kwargs)
 
         master_campaign = self._fetch_master_campaign()
+        company_name = self._fetch_master_company_name(master_campaign)
 
         context["master_fields"] = {
             "Brand–Campaign ID": self.object.brand_campaign_id,
-            "Brand name": getattr(master_campaign, "name", None),
-            "Company name": None,
+            "Brand name": getattr(
+                getattr(master_campaign, "brand", None),
+                "name",
+                None
+            ),
+            "Company name": company_name,
             "Incharge name": getattr(master_campaign, "contact_person_name", None),
             "Incharge contact": getattr(master_campaign, "contact_person_phone", None),
             "Num doctors": getattr(master_campaign, "num_doctors_supported", None),
