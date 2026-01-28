@@ -27,9 +27,11 @@ class Campaign(models.Model):
     name = models.CharField(max_length=255)
     brand_name = models.CharField(max_length=255, blank=True, null=True)
 
-    brand_campaign_id = models.CharField(
-        max_length=64, unique=True, db_index=True, blank=True,
-        help_text="ID used by marketing / brand team"
+    brand_campaign_id = models.UUIDField(
+        unique=True,
+        db_index=True,
+        editable=False,
+        help_text="External Brand Campaign UUID"
     )
 
     start_date = models.DateTimeField()
