@@ -36,4 +36,4 @@ class MasterCampaign(models.Model):
 
     class Meta:
         managed = False
-        db_table = getattr(settings, "MASTER_CAMPAIGN_DB_TABLE", "Campaign")
+        db_table = getattr(settings, "MASTER_CAMPAIGN_DB_TABLE", "campaign_campaign")
