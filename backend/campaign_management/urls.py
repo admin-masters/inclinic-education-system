@@ -16,8 +16,8 @@ urlpatterns = [
 
     path('<str:pk>/', CampaignDetailView.as_view(), name='campaign_detail'),
     path('create/', CampaignCreateView.as_view(), name='campaign_create'),
-    path('<int:pk>/edit/', CampaignUpdateView.as_view(), name='campaign_update'),
-    path('<int:pk>/delete/', CampaignDeleteView.as_view(), name='campaign_delete'),
+    path('<str:pk>/edit/', CampaignUpdateView.as_view(), name='campaign_update'),
+    path('<str:pk>/delete/', CampaignDeleteView.as_view(), name='campaign_delete'),
 
     # Field Rep assignment
     path('<int:pk>/assign/', assign_field_reps, name='assign_field_reps'),
