@@ -6,7 +6,7 @@ from django.db import models
 
 
 class MasterBrand(models.Model):
-    id = models.UUIDField(primary_key=True, editable=False)
+    id = models.CharField(max_length=36, primary_key=True)  # was UUIDField
     name = models.CharField(max_length=200, blank=True, default="")
 
     class Meta:
@@ -15,8 +15,7 @@ class MasterBrand(models.Model):
 
 
 class MasterCampaign(models.Model):
-    id = models.UUIDField(primary_key=True, editable=False)
-
+    id = models.CharField(max_length=32, primary_key=True)  # was UUIDField, now dashless string
     brand = models.ForeignKey(
         MasterBrand,
         on_delete=models.DO_NOTHING,
