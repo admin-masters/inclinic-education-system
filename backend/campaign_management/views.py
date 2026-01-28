@@ -143,11 +143,12 @@ class CampaignCreateView(CreateView):
         form.instance.brand_campaign_id = campaign_id
 
         # Insert NULL for master-owned fields (per requirement)
-        form.instance.company_name = None
-        form.instance.incharge_name = None
-        form.instance.incharge_contact = None
+        # Insert empty values for master-owned fields (DB-safe)
+        form.instance.company_name = ""
+        form.instance.incharge_name = ""
+        form.instance.incharge_contact = ""
         form.instance.num_doctors = None
-        form.instance.brand_name = None
+        form.instance.brand_name = ""
 
         if self.request.user.is_authenticated:
             form.instance.created_by = self.request.user
