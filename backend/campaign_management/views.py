@@ -376,37 +376,27 @@ def campaign_reports(request):
     return render(request, 'campaign_management/campaign_reports.html', context)
 
 
-from django.db import connection
-
 from django.shortcuts import render
 from django.contrib.auth.decorators import login_required
-from campaign_management.models import Campaign
 from campaign_management.master_models import MasterCampaign
-from django.db import connections
-
-from django.db import connections
 
 @login_required
 def manage_data_panel(request):
     # Fetch campaigns from master DB
-    with connections['master'].cursor() as cursor:
-        cursor.execute("""
-            SELECT CAST(id AS CHAR) AS id_str, brand_campaign_id, name, start_date, end_date
-            FROM campaign_campaign
-        """)
-        rows = cursor.fetchall()
+    master_campaigns = MasterCampaign.objects.all()
 
     campaigns = []
-    for row in rows:
+    for c in master_campaigns:
         campaigns.append({
-            "id": row[0],  # keep as string, no UUID conversion
-            "brand_campaign_id": row[1],  # dash or no dash, as-is
-            "name": row[2],
-            "start_date": row[3],
-            "end_date": row[4],
+            "id": c.id,  # dashless or dashed string
+            "brand_campaign_id": c.id,  # use the id as brand_campaign_id for display
+            "name": c.name,
+            "start_date": getattr(c, "start_date", None),  # may not exist in master
+            "end_date": getattr(c, "end_date", None),      # may not exist in master
         })
 
     return render(request, "campaign_management/manage_data_panel.html", {"campaigns": campaigns})
+
 
 
 
