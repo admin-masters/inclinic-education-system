@@ -173,6 +173,10 @@ class CampaignUpdateView(UpdateView):
     template_name = "campaign_management/campaign_update.html"
     context_object_name = "campaign"
 
+    def get_queryset(self):
+        # FORCE default DB
+        return Campaign.objects.using("default")
+
     # Only these are editable in PE system
     EDITABLE_FIELDS = [
         "name",
@@ -192,7 +196,9 @@ class CampaignUpdateView(UpdateView):
         self.publisher_campaign_id = kwargs.get("campaign_id")
 
         # If publisher tries to edit a campaign that doesn't exist in default DB yet, route to create.
-        if self.publisher_campaign_id and not Campaign.objects.filter(brand_campaign_id=self.publisher_campaign_id).exists():
+        if self.publisher_campaign_id and not Campaign.objects.using("default").filter(
+                brand_campaign_id=self.publisher_campaign_id
+        ).exists():
             return redirect(f"{reverse('campaign_create')}?campaign-id={self.publisher_campaign_id}")
 
         return super().dispatch(request, *args, **kwargs)
@@ -201,7 +207,10 @@ class CampaignUpdateView(UpdateView):
         # Publisher route uses campaign-id, not pk
         campaign_id = self.kwargs.get("campaign_id")
         if campaign_id:
-            return get_object_or_404(Campaign, brand_campaign_id=campaign_id)
+            return get_object_or_404(
+                Campaign.objects.using("default"),
+                brand_campaign_id=campaign_id
+            )
 
         # Admin/internal route: existing pk behavior
         return super().get_object(queryset)
@@ -265,7 +274,10 @@ class CampaignUpdateView(UpdateView):
     def form_valid(self, form):
         # Save only editable fields to DEFAULT DB row
         self.object = form.save(commit=False)
-        self.object.save(update_fields=self.EDITABLE_FIELDS)
+        self.object.save(
+            using="default",
+            update_fields=self.EDITABLE_FIELDS
+        )
         return redirect(self.get_success_url())
 
     def get_success_url(self):
