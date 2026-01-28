@@ -376,44 +376,29 @@ def campaign_reports(request):
     return render(request, 'campaign_management/campaign_reports.html', context)
 
 
+from django.db import connection
+
 @login_required
 def manage_data_panel(request):
-    campaigns = Campaign.objects.using("default").all()
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT id, brand_campaign_id, name, start_date, end_date
+            FROM campaign_campaign
+        """)
+        rows = cursor.fetchall()
 
-    campaign_list = []
-
-    for c in campaigns:
-        # Default DB stores UUID, convert to string
-        campaign_id_str = str(c.brand_campaign_id)
-
-        # Fetch master data safely
-        try:
-            mc = MasterCampaign.objects.using("master").get(
-                id=campaign_id_str.replace("-", "")  # remove dashes for master DB
-            )
-            brand_name = mc.brand.name if mc.brand else None
-            company_name = getattr(mc.brand, "company_name", None)
-            incharge_name = mc.contact_person_name
-            incharge_contact = mc.contact_person_phone
-            num_doctors = mc.num_doctors_supported
-        except MasterCampaign.DoesNotExist:
-            brand_name = company_name = incharge_name = incharge_contact = num_doctors = None
-
-        campaign_list.append({
-            "id": c.id,
-            "brand_campaign_id": campaign_id_str,
-            "brand_name": brand_name,
-            "company_name": company_name,
-            "start_date": c.start_date,
-            "end_date": c.end_date,
-            "incharge_name": incharge_name,
-            "incharge_contact": incharge_contact,
-            "num_doctors": num_doctors,
+    campaigns = []
+    for row in rows:
+        campaigns.append({
+            "id": row[0],
+            "brand_campaign_id": row[1],  # leave as string
+            "name": row[2],
+            "start_date": row[3],
+            "end_date": row[4],
         })
 
-    return render(request, "campaign_management/manage_data_panel.html", {
-        "campaigns": campaign_list
-    })
+    return render(request, "campaign_management/manage_data_panel.html", {"campaigns": campaigns})
+
 
 
 
