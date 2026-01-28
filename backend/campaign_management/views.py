@@ -223,21 +223,19 @@ class CampaignUpdateView(UpdateView):
     def _fetch_master_campaign(self):
         brand_id = self.object.brand_campaign_id
 
-        print("DEBUG:_fetch_master_campaign: brand_campaign_id =", brand_id, type(brand_id))
-        logger.debug("brand_campaign_id=%s type=%s", brand_id, type(brand_id))
+        print("DEBUG:_fetch_master_campaign: raw brand_id =", brand_id, type(brand_id))
 
-        if not isinstance(brand_id, str):
-            print("DEBUG:_fetch_master_campaign: NOT A STRING → abort")
-            return None
+        # Normalize to UUID
+        if isinstance(brand_id, uuid.UUID):
+            brand_uuid = brand_id
+        else:
+            try:
+                brand_uuid = uuid.UUID(str(brand_id))
+            except (ValueError, TypeError) as e:
+                print("DEBUG:_fetch_master_campaign: UUID normalization failed:", e)
+                return None
 
-        try:
-            brand_uuid = uuid.UUID(brand_id)
-            print("DEBUG:_fetch_master_campaign: Parsed UUID =", brand_uuid)
-            logger.debug("Parsed UUID=%s", brand_uuid)
-        except (ValueError, TypeError) as e:
-            print("DEBUG:_fetch_master_campaign: UUID parse FAILED:", e)
-            logger.exception("UUID parse failed")
-            return None
+        print("DEBUG:_fetch_master_campaign: normalized brand_uuid =", brand_uuid)
 
         qs = (
             MasterCampaign.objects
@@ -246,17 +244,14 @@ class CampaignUpdateView(UpdateView):
             .filter(brand_id=brand_uuid)
         )
 
-        print("DEBUG:_fetch_master_campaign: SQL =", str(qs.query))
-        logger.debug("MasterCampaign SQL=%s", str(qs.query))
+        print("DEBUG:_fetch_master_campaign: SQL =", qs.query)
 
         mc = qs.first()
 
         if mc:
             print("DEBUG:_fetch_master_campaign: FOUND MasterCampaign id =", mc.id)
-            logger.debug("Found MasterCampaign id=%s", mc.id)
         else:
             print("DEBUG:_fetch_master_campaign: NO MasterCampaign FOUND")
-            logger.warning("No MasterCampaign found for brand_id=%s", brand_uuid)
 
         return mc
 
