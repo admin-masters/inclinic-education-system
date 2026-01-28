@@ -147,7 +147,7 @@ class CampaignCreateView(CreateView):
         form.instance.company_name = ""
         form.instance.incharge_name = ""
         form.instance.incharge_contact = ""
-        form.instance.num_doctors = None
+        form.instance.num_doctors = 0
         form.instance.brand_name = ""
 
         if self.request.user.is_authenticated:
