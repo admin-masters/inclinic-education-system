@@ -383,19 +383,20 @@ from campaign_management.master_models import MasterCampaign
 @login_required
 def manage_data_panel(request):
     # Fetch campaigns from master DB
-    master_campaigns = MasterCampaign.objects.all()
+    master_campaigns = MasterCampaign.objects.using('master').all()
 
     campaigns = []
     for c in master_campaigns:
         campaigns.append({
             "id": c.id,  # dashless or dashed string
-            "brand_campaign_id": c.id,  # use the id as brand_campaign_id for display
+            "brand_campaign_id": c.id,  # just show the id as brand_campaign_id
             "name": c.name,
-            "start_date": getattr(c, "start_date", None),  # may not exist in master
-            "end_date": getattr(c, "end_date", None),      # may not exist in master
+            "start_date": getattr(c, "start_date", None),  # if exists
+            "end_date": getattr(c, "end_date", None),      # if exists
         })
 
     return render(request, "campaign_management/manage_data_panel.html", {"campaigns": campaigns})
+
 
 
 
