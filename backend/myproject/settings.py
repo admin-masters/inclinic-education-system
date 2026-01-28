@@ -265,3 +265,18 @@ PUBLISHER_JWT_LEEWAY_SECONDS = int(os.getenv("PUBLISHER_JWT_LEEWAY_SECONDS", "30
 # Master DB table names (configurable, since master system schema naming may differ)
 MASTER_CAMPAIGN_DB_TABLE = os.getenv("MASTER_CAMPAIGN_DB_TABLE", "Campaign")
 MASTER_BRAND_DB_TABLE = os.getenv("MASTER_BRAND_DB_TABLE", "Brand")
+
+# Toggle: when False, SSO settings do NOT consult environment variables at all.
+PUBLISHER_SSO_USE_ENV = False
+
+def _sso_setting(name: str, default):
+    if PUBLISHER_SSO_USE_ENV:
+        return os.getenv(name, default)
+    return default
+
+PUBLISHER_SSO_SHARED_SECRET = _sso_setting(
+    "PUBLISHER_SSO_SHARED_SECRET",
+    "CHANGE-ME-TO-A-LONG-RANDOM-STRING",
+)
+
+PUBLISHER_JWT_SECRET = PUBLISHER_SSO_SHARED_SECRET
