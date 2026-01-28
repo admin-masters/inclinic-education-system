@@ -378,10 +378,43 @@ def campaign_reports(request):
 
 @login_required
 def manage_data_panel(request):
-    campaigns = Campaign.objects.all().order_by('-start_date')
-    return render(request, 'campaign_management/manage_data_panel.html', {
-        'campaigns': campaigns,
+    campaigns = Campaign.objects.using("default").all()
+
+    campaign_list = []
+
+    for c in campaigns:
+        # Default DB stores UUID, convert to string
+        campaign_id_str = str(c.brand_campaign_id)
+
+        # Fetch master data safely
+        try:
+            mc = MasterCampaign.objects.using("master").get(
+                id=campaign_id_str.replace("-", "")  # remove dashes for master DB
+            )
+            brand_name = mc.brand.name if mc.brand else None
+            company_name = getattr(mc.brand, "company_name", None)
+            incharge_name = mc.contact_person_name
+            incharge_contact = mc.contact_person_phone
+            num_doctors = mc.num_doctors_supported
+        except MasterCampaign.DoesNotExist:
+            brand_name = company_name = incharge_name = incharge_contact = num_doctors = None
+
+        campaign_list.append({
+            "id": c.id,
+            "brand_campaign_id": campaign_id_str,
+            "brand_name": brand_name,
+            "company_name": company_name,
+            "start_date": c.start_date,
+            "end_date": c.end_date,
+            "incharge_name": incharge_name,
+            "incharge_contact": incharge_contact,
+            "num_doctors": num_doctors,
+        })
+
+    return render(request, "campaign_management/manage_data_panel.html", {
+        "campaigns": campaign_list
     })
+
 
 
 # ------------------------------------------------------------------------
