@@ -86,11 +86,11 @@ class CampaignDetailView(DetailView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         campaign = self.get_object()
-        
+
         # Add related data to context
         context['assignments'] = CampaignAssignment.objects.filter(campaign=campaign).select_related('field_rep')
         context['collaterals'] = CampaignCollateral.objects.filter(campaign=campaign).select_related('collateral')
-        
+
         return context
 
 
@@ -378,29 +378,10 @@ def campaign_reports(request):
 
 @login_required
 def manage_data_panel(request):
-    # Fetch campaigns from master DB
-    master_campaigns = MasterCampaign.objects.using('master').all()
-
-    campaigns = []
-    for c in master_campaigns:
-        campaigns.append({
-            "id": str(c.id),  # ensure string
-            "brand_campaign_id": str(c.id),
-            "name": c.name,
-            "start_date": getattr(c, "start_date", None),
-            "end_date": getattr(c, "end_date", None),
-        })
-
-    return render(
-        request,
-        "campaign_management/manage_data_panel.html",
-        {"campaigns": campaigns}
-    )
-
-
-
-
-
+    campaigns = Campaign.objects.all().order_by('-start_date')
+    return render(request, 'campaign_management/manage_data_panel.html', {
+        'campaigns': campaigns,
+    })
 
 
 # ------------------------------------------------------------------------
