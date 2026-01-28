@@ -216,20 +216,24 @@ class CampaignUpdateView(UpdateView):
         return super().get_object(queryset)
 
     def _fetch_master_campaign(self):
-        """
-        Load master campaign using UUID = brand_campaign_id.
-        If brand_campaign_id is not a UUID, return None.
-        """
         campaign_id = self.object.brand_campaign_id
-        try:
-            campaign_uuid = uuid.UUID(str(campaign_id))
-        except Exception:
+
+        # Must be a UUID string
+        if not isinstance(campaign_id, str):
             return None
 
         try:
-            return MasterCampaign.objects.using("master").select_related("brand").get(pk=campaign_uuid)
-        except MasterCampaign.DoesNotExist:
+            campaign_uuid = uuid.UUID(campaign_id)
+        except (ValueError, TypeError):
             return None
+
+        return (
+            MasterCampaign.objects
+            .using("master")
+            .select_related("brand")
+            .filter(pk=campaign_uuid)
+            .first()
+        )
 
     def _fetch_master_company_name(self, master_campaign):
         """
