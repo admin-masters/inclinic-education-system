@@ -10,7 +10,7 @@
       {% for label, value in master_fields.items %}
         <tr>
           <th style="width: 35%;">{{ label }}</th>
-          <td>{{ value | default("—") }}</td>
+          <td>{{ value }}</td>
         </tr>
       {% endfor %}
     </tbody>
