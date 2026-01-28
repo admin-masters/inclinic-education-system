@@ -29,7 +29,7 @@ from .publisher_auth import (
     publisher_session_required,
     validate_publisher_jwt,
 )
-from .master_models import MasterCampaign
+from campaign_management.master_models import MasterCampaign
 
 import logging
 
@@ -221,27 +221,26 @@ class CampaignUpdateView(UpdateView):
         return super().get_object(queryset)
 
     def _fetch_master_campaign(self):
-        brand_id = self.object.brand_campaign_id
-
-        print("DEBUG:_fetch_master_campaign: raw brand_id =", brand_id, type(brand_id))
+        campaign_id = self.object.brand_campaign_id
+        print("DEBUG:_fetch_master_campaign: raw campaign_id =", campaign_id, type(campaign_id))
 
         # Normalize to UUID
-        if isinstance(brand_id, uuid.UUID):
-            brand_uuid = brand_id
+        if isinstance(campaign_id, uuid.UUID):
+            campaign_uuid = campaign_id
         else:
             try:
-                brand_uuid = uuid.UUID(str(brand_id))
+                campaign_uuid = uuid.UUID(str(campaign_id))
             except (ValueError, TypeError) as e:
                 print("DEBUG:_fetch_master_campaign: UUID normalization failed:", e)
                 return None
 
-        print("DEBUG:_fetch_master_campaign: normalized brand_uuid =", brand_uuid)
+        print("DEBUG:_fetch_master_campaign: normalized campaign_uuid =", campaign_uuid)
 
         qs = (
             MasterCampaign.objects
             .using("master")
             .select_related("brand")
-            .filter(brand_id=brand_uuid)
+            .filter(id=campaign_uuid)  # <-- filter on id, NOT brand_id
         )
 
         print("DEBUG:_fetch_master_campaign: SQL =", qs.query)
