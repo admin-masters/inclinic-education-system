@@ -264,7 +264,7 @@ PUBLISHER_JWT_LEEWAY_SECONDS = int(os.getenv("PUBLISHER_JWT_LEEWAY_SECONDS", "30
 
 # Master DB table names (configurable, since master system schema naming may differ)
 MASTER_CAMPAIGN_DB_TABLE = "campaign_campaign"
-MASTER_BRAND_DB_TABLE = os.getenv("MASTER_BRAND_DB_TABLE", "Brand")
+MASTER_BRAND_DB_TABLE = "campaign_brand"
 
 # Toggle: when False, SSO settings do NOT consult environment variables at all.
 PUBLISHER_SSO_USE_ENV = False

@@ -10,7 +10,7 @@ class MasterBrand(models.Model):
 
     class Meta:
         managed = False
-        db_table = getattr(settings, "MASTER_BRAND_DB_TABLE", "Brand")
+        db_table = getattr(settings, "MASTER_BRAND_DB_TABLE", "campaign_brand")
 
 
 class MasterCampaign(models.Model):
