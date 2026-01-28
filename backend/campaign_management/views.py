@@ -384,10 +384,12 @@ from campaign_management.models import Campaign
 from campaign_management.master_models import MasterCampaign
 from django.db import connections
 
+from django.db import connections
+
 @login_required
 def manage_data_panel(request):
-    # Fetch campaigns directly from default DB using raw SQL as strings
-    with connections['default'].cursor() as cursor:
+    # Fetch campaigns from master DB
+    with connections['master'].cursor() as cursor:
         cursor.execute("""
             SELECT CAST(id AS CHAR) AS id_str, brand_campaign_id, name, start_date, end_date
             FROM campaign_campaign
@@ -396,16 +398,16 @@ def manage_data_panel(request):
 
     campaigns = []
     for row in rows:
-        # row[0] is already a string (id_str)
         campaigns.append({
-            "id": row[0],  # keep as string
-            "brand_campaign_id": row[1],  # keep original, dash or no dash
+            "id": row[0],  # keep as string, no UUID conversion
+            "brand_campaign_id": row[1],  # dash or no dash, as-is
             "name": row[2],
             "start_date": row[3],
             "end_date": row[4],
         })
 
     return render(request, "campaign_management/manage_data_panel.html", {"campaigns": campaigns})
+
 
 
 
