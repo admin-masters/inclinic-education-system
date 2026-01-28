@@ -226,21 +226,25 @@ class CampaignUpdateView(UpdateView):
 
         # Normalize to UUID
         if isinstance(campaign_id, uuid.UUID):
-            campaign_uuid = campaign_id
+            campaign_uuid = str(campaign_id)  # convert to string with dashes
         else:
             try:
-                campaign_uuid = uuid.UUID(str(campaign_id))
+                campaign_uuid = str(uuid.UUID(str(campaign_id)))
             except (ValueError, TypeError) as e:
                 print("DEBUG:_fetch_master_campaign: UUID normalization failed:", e)
                 return None
 
         print("DEBUG:_fetch_master_campaign: normalized campaign_uuid =", campaign_uuid)
 
+        # Remove dashes for master DB query
+        campaign_id_nodash = campaign_uuid.replace("-", "")
+        print("DEBUG:_fetch_master_campaign: campaign_id_nodash =", campaign_id_nodash)
+
         qs = (
             MasterCampaign.objects
             .using("master")
             .select_related("brand")
-            .filter(id=campaign_uuid)  # <-- filter on id, NOT brand_id
+            .filter(id=campaign_id_nodash)  # query dashless ID
         )
 
         print("DEBUG:_fetch_master_campaign: SQL =", qs.query)
