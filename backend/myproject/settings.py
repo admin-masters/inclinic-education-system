@@ -28,7 +28,7 @@ PROJECT_DIR = BACKEND_DIR.parent                              # …/inclinic-edu
 # 2   Security
 # ──────────────────────────────────────────────────────────────
 SECRET_KEY = os.getenv("SECRET_KEY", "django-insecure-default-key-for-dev")
-DEBUG = False
+DEBUG = True
 ALLOWED_HOSTS = [
     ".cpdinclinic.co.in",
     "13.200.145.110",
