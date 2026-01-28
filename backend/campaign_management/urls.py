@@ -14,7 +14,7 @@ urlpatterns = [
     path("publisher/select-campaign/", views.publisher_campaign_select, name="publisher_campaign_select"),
     path("publisher/<str:campaign_id>/edit/", views.CampaignUpdateView.as_view(), name="publisher_campaign_update"),
 
-    path('<int:pk>/', CampaignDetailView.as_view(), name='campaign_detail'),
+    path('<str:pk>/', CampaignDetailView.as_view(), name='campaign_detail'),
     path('create/', CampaignCreateView.as_view(), name='campaign_create'),
     path('<int:pk>/edit/', CampaignUpdateView.as_view(), name='campaign_update'),
     path('<int:pk>/delete/', CampaignDeleteView.as_view(), name='campaign_delete'),
