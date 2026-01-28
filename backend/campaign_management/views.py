@@ -204,66 +204,99 @@ class CampaignUpdateView(UpdateView):
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
-        # Publisher route uses campaign-id, not pk
         campaign_id = self.kwargs.get("campaign_id")
+
+        print("DEBUG:get_object: campaign_id from URL =", campaign_id)
+        logger.debug("get_object campaign_id=%s", campaign_id)
+
         if campaign_id:
-            return get_object_or_404(
+            obj = get_object_or_404(
                 Campaign.objects.using("default"),
                 brand_campaign_id=campaign_id
             )
+            print("DEBUG:get_object: Campaign found in default DB:", obj.id, obj.brand_campaign_id)
+            logger.debug("Campaign found id=%s brand_campaign_id=%s", obj.id, obj.brand_campaign_id)
+            return obj
 
-        # Admin/internal route: existing pk behavior
         return super().get_object(queryset)
 
     def _fetch_master_campaign(self):
         brand_id = self.object.brand_campaign_id
 
+        print("DEBUG:_fetch_master_campaign: brand_campaign_id =", brand_id, type(brand_id))
+        logger.debug("brand_campaign_id=%s type=%s", brand_id, type(brand_id))
+
         if not isinstance(brand_id, str):
+            print("DEBUG:_fetch_master_campaign: NOT A STRING → abort")
             return None
 
         try:
             brand_uuid = uuid.UUID(brand_id)
-        except (ValueError, TypeError):
+            print("DEBUG:_fetch_master_campaign: Parsed UUID =", brand_uuid)
+            logger.debug("Parsed UUID=%s", brand_uuid)
+        except (ValueError, TypeError) as e:
+            print("DEBUG:_fetch_master_campaign: UUID parse FAILED:", e)
+            logger.exception("UUID parse failed")
             return None
 
-        return (
+        qs = (
             MasterCampaign.objects
             .using("master")
             .select_related("brand")
             .filter(brand_id=brand_uuid)
-            .order_by("-created_at")  # optional, if multiple campaigns per brand
-            .first()
         )
 
+        print("DEBUG:_fetch_master_campaign: SQL =", str(qs.query))
+        logger.debug("MasterCampaign SQL=%s", str(qs.query))
+
+        mc = qs.first()
+
+        if mc:
+            print("DEBUG:_fetch_master_campaign: FOUND MasterCampaign id =", mc.id)
+            logger.debug("Found MasterCampaign id=%s", mc.id)
+        else:
+            print("DEBUG:_fetch_master_campaign: NO MasterCampaign FOUND")
+            logger.warning("No MasterCampaign found for brand_id=%s", brand_uuid)
+
+        return mc
+
     def _fetch_master_company_name(self, master_campaign):
-        """
-        Company name isn't present in your provided master Campaign model snippet.
-        This attempts to fetch Brand.company_name from master DB if it exists.
-        If your schema differs, set MASTER_BRAND_DB_TABLE and/or adjust this query.
-        """
+        print("DEBUG:_fetch_master_company_name: master_campaign =", master_campaign)
+
         if not master_campaign or not getattr(master_campaign, "brand_id", None):
+            print("DEBUG:_fetch_master_company_name: Missing brand_id")
             return None
 
         brand_table = getattr(settings, "MASTER_BRAND_DB_TABLE", "Brand")
         conn = connections["master"]
-        quoted_table = conn.ops.quote_name(brand_table)
+
+        print("DEBUG:_fetch_master_company_name: brand_table =", brand_table)
+        logger.debug("brand_table=%s brand_id=%s", brand_table, master_campaign.brand_id)
 
         try:
             with conn.cursor() as cursor:
                 cursor.execute(
-                    f"SELECT company_name FROM {quoted_table} WHERE id = %s",
+                    f"SELECT company_name FROM {brand_table} WHERE id = %s",
                     [str(master_campaign.brand_id)],
                 )
                 row = cursor.fetchone()
+                print("DEBUG:_fetch_master_company_name: DB row =", row)
                 return row[0] if row else None
-        except Exception:
+        except Exception as e:
+            print("DEBUG:_fetch_master_company_name: ERROR", e)
+            logger.exception("Error fetching company_name")
             return None
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
 
+        print("\n========== DEBUG get_context_data ==========")
+
         master_campaign = self._fetch_master_campaign()
         company_name = self._fetch_master_company_name(master_campaign)
+
+        print("DEBUG:get_context_data: master_campaign =", master_campaign)
+        print("DEBUG:get_context_data: company_name =", company_name)
 
         context["master_fields"] = {
             "Brand–Campaign ID": self.object.brand_campaign_id,
@@ -277,6 +310,10 @@ class CampaignUpdateView(UpdateView):
             "Incharge contact": getattr(master_campaign, "contact_person_phone", None),
             "Num doctors": getattr(master_campaign, "num_doctors_supported", None),
         }
+
+        print("DEBUG:get_context_data: master_fields =", context["master_fields"])
+        print("===========================================\n")
+
         return context
 
     def form_valid(self, form):
