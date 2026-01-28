@@ -216,14 +216,13 @@ class CampaignUpdateView(UpdateView):
         return super().get_object(queryset)
 
     def _fetch_master_campaign(self):
-        campaign_id = self.object.brand_campaign_id
+        brand_id = self.object.brand_campaign_id
 
-        # Must be a UUID string
-        if not isinstance(campaign_id, str):
+        if not isinstance(brand_id, str):
             return None
 
         try:
-            campaign_uuid = uuid.UUID(campaign_id)
+            brand_uuid = uuid.UUID(brand_id)
         except (ValueError, TypeError):
             return None
 
@@ -231,7 +230,8 @@ class CampaignUpdateView(UpdateView):
             MasterCampaign.objects
             .using("master")
             .select_related("brand")
-            .filter(pk=campaign_uuid)
+            .filter(brand_id=brand_uuid)
+            .order_by("-created_at")  # optional, if multiple campaigns per brand
             .first()
         )
 
