@@ -31,6 +31,11 @@ from .publisher_auth import (
 )
 from .master_models import MasterCampaign
 
+import logging
+
+logger = logging.getLogger(__name__)
+
+
 # ------------------------------------------------------------------------
 # Campaign List (open to all roles to see a list, but optional restrict)
 # ------------------------------------------------------------------------
@@ -524,24 +529,40 @@ def quick_update_status(request, pk):
 
 
 def publisher_landing_page(request):
-    """
-    URL entry point from the master publishing system.
+    logger.info("publisher_landing_page: request started")
+    logger.info("Path=%s Method=%s", request.path, request.method)
+    logger.info("GET params=%s", dict(request.GET))
+    logger.info("Session key=%s", request.session.session_key)
+    logger.info("Session data BEFORE=%s", dict(request.session))
 
-    Expected inputs:
-      - JWT: Authorization: Bearer <token> OR ?jwt=<token>
-      - campaign-id: ?campaign-id=<uuid>
-    """
     token, source = extract_jwt_from_request(request)
+    logger.info("JWT extracted=%s source=%s", bool(token), source)
 
+    # ---- First hit: token-based bootstrap ----
     if token:
         try:
+            logger.info("Validating publisher JWT")
             payload = validate_publisher_jwt(token)
-        except Exception:
+            logger.info(
+                "JWT valid: sub=%s username=%s roles=%s exp=%s",
+                payload.get("sub"),
+                payload.get("username"),
+                payload.get("roles"),
+                payload.get("exp"),
+            )
+        except Exception as e:
+            logger.exception("JWT validation failed")
             return HttpResponse("unauthorised access", status=401)
 
         establish_publisher_session(request, payload)
+        logger.info(
+            "Session established: authenticated=%s username=%s",
+            request.session.get("publisher_authenticated"),
+            request.session.get("publisher_username"),
+        )
+        logger.info("Session data AFTER establish=%s", dict(request.session))
 
-        # If token came via query string, strip it from URL to reduce leakage.
+        # Strip token from URL
         if source == "query_string":
             params = request.GET.copy()
             for k in ("jwt", "token", "access_token"):
@@ -549,25 +570,46 @@ def publisher_landing_page(request):
             url = request.path
             if params:
                 url += "?" + params.urlencode()
+
+            logger.info("Redirecting to clean URL: %s", url)
             return redirect(url)
 
-    # No token -> require existing publisher session
+    # ---- No token: rely on session ----
+    logger.info(
+        "Checking publisher session: authenticated=%s",
+        request.session.get("publisher_authenticated"),
+    )
+
     if not request.session.get("publisher_authenticated"):
-        token, _ = extract_jwt_from_request(request)
+        logger.warning("No publisher session found, retrying token extraction")
+
+        token, source = extract_jwt_from_request(request)
+        logger.info("Retry extract JWT: found=%s source=%s", bool(token), source)
+
         if not token:
+            logger.error("Unauthorized: no token and no session")
             return HttpResponse("unauthorised access", status=401)
 
         try:
             payload = validate_publisher_jwt(token)
             establish_publisher_session(request, payload)
+            logger.info("Session established on retry")
         except Exception:
+            logger.exception("JWT validation failed on retry")
             return HttpResponse("unauthorised access", status=401)
 
     campaign_id = request.GET.get("campaign-id") or request.GET.get("campaign_id")
+    logger.info("campaign_id=%s", campaign_id)
+
     if not campaign_id:
+        logger.error("Missing campaign-id")
         return HttpResponseBadRequest("Missing campaign-id")
 
     request.session["publisher_campaign_id"] = campaign_id
+    request.session.modified = True
+
+    logger.info("Rendering landing page")
+    logger.info("FINAL session data=%s", dict(request.session))
 
     return render(
         request,
@@ -577,6 +619,7 @@ def publisher_landing_page(request):
             "publisher_username": request.session.get("publisher_username", ""),
         },
     )
+
 
 
 @publisher_session_required

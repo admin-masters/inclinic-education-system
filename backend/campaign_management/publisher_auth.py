@@ -9,6 +9,9 @@ from jwt import InvalidTokenError
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 UNAUTH_RESPONSE_TEXT = "unauthorised access"
@@ -19,63 +22,62 @@ def _unauthorised() -> HttpResponse:
 
 
 def extract_jwt_from_request(request: HttpRequest) -> Tuple[Optional[str], str]:
-    """
-    Returns: (token, source)
-      - source is one of: "authorization_header", "query_string", "post_body", "none"
-    """
+    logger.info("extract_jwt_from_request called")
+
     auth = request.headers.get("Authorization", "")
+    if auth:
+        logger.info("Authorization header present")
     if auth.lower().startswith("bearer "):
         token = auth.split(" ", 1)[1].strip()
         if token:
+            logger.info("JWT found in Authorization header")
             return token, "authorization_header"
 
     for key in ("jwt", "token", "access_token"):
-        token = request.GET.get(key)
-        if token:
-            return token, "query_string"
+        if key in request.GET:
+            logger.info("JWT found in query param: %s", key)
+            return request.GET.get(key), "query_string"
 
     for key in ("jwt", "token", "access_token"):
-        token = request.POST.get(key)
-        if token:
-            return token, "post_body"
+        if key in request.POST:
+            logger.info("JWT found in POST body: %s", key)
+            return request.POST.get(key), "post_body"
 
+    logger.warning("No JWT found in request")
     return None, "none"
 
 
 def validate_publisher_jwt(token: str) -> Dict[str, Any]:
-    secret = getattr(settings, "PUBLISHER_JWT_SECRET", "") or None
-    public_key = getattr(settings, "PUBLISHER_JWT_PUBLIC_KEY", "") or None
-    key = public_key or secret
-    if not key:
-        # Treat as unauthorized (don’t leak misconfig details)
-        raise InvalidTokenError("JWT verification key not configured")
+    logger.info("validate_publisher_jwt called")
 
-    algorithms = getattr(settings, "PUBLISHER_JWT_ALGORITHMS", None) or ["HS256"]
-    issuer = getattr(settings, "PUBLISHER_JWT_ISSUER", None) or "project1"
-    audience = getattr(settings, "PUBLISHER_JWT_AUDIENCE", None) or "project2"
-    leeway = int(getattr(settings, "PUBLISHER_JWT_LEEWAY_SECONDS", 0) or 0)
+    try:
+        payload = jwt.decode(
+            token,
+            key=(getattr(settings, "PUBLISHER_JWT_PUBLIC_KEY", None)
+                 or getattr(settings, "PUBLISHER_JWT_SECRET", None)),
+            algorithms=getattr(settings, "PUBLISHER_JWT_ALGORITHMS", ["HS256"]),
+            issuer=getattr(settings, "PUBLISHER_JWT_ISSUER", "project1"),
+            audience=getattr(settings, "PUBLISHER_JWT_AUDIENCE", "project2"),
+            options={
+                "require": ["exp", "iat", "iss", "aud", "sub"],
+            },
+            leeway=int(getattr(settings, "PUBLISHER_JWT_LEEWAY_SECONDS", 0) or 0),
+        )
+    except Exception:
+        logger.exception("JWT decode failed")
+        raise
 
-    options = {
-        "require": ["exp", "iat", "iss", "aud", "sub"],
-        "verify_signature": True,
-        "verify_exp": True,
-        "verify_iat": True,
-        "verify_iss": True,
-        "verify_aud": True,
-    }
-
-    payload = jwt.decode(
-        token,
-        key=key,
-        algorithms=algorithms,
-        issuer=issuer,
-        audience=audience,
-        options=options,
-        leeway=leeway,
+    logger.info(
+        "JWT decoded successfully: iss=%s aud=%s sub=%s roles=%s",
+        payload.get("iss"),
+        payload.get("aud"),
+        payload.get("sub"),
+        payload.get("roles"),
     )
 
     roles = payload.get("roles") or []
     if "publisher" not in roles:
+        logger.error("JWT missing publisher role")
         raise InvalidTokenError("publisher role required")
 
     return payload
