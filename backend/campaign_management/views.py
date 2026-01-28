@@ -553,7 +553,15 @@ def publisher_landing_page(request):
 
     # No token -> require existing publisher session
     if not request.session.get("publisher_authenticated"):
-        return HttpResponse("unauthorised access", status=401)
+        token, _ = extract_jwt_from_request(request)
+        if not token:
+            return HttpResponse("unauthorised access", status=401)
+
+        try:
+            payload = validate_publisher_jwt(token)
+            establish_publisher_session(request, payload)
+        except Exception:
+            return HttpResponse("unauthorised access", status=401)
 
     campaign_id = request.GET.get("campaign-id") or request.GET.get("campaign_id")
     if not campaign_id:
