@@ -384,51 +384,29 @@ from campaign_management.models import Campaign
 from campaign_management.master_models import MasterCampaign
 from django.db import connections
 
-
 @login_required
 def manage_data_panel(request):
-    # Step 1: fetch campaigns from default DB
-    default_campaigns = Campaign.objects.using('default').all()  # use default DB alias
+    # Fetch campaigns directly from default DB using raw SQL as strings
+    with connections['default'].cursor() as cursor:
+        cursor.execute("""
+            SELECT CAST(id AS CHAR) AS id_str, brand_campaign_id, name, start_date, end_date
+            FROM campaign_campaign
+        """)
+        rows = cursor.fetchall()
 
     campaigns = []
-
-    for c in default_campaigns:
-        # Step 2: normalize ID for master DB query (remove dashes)
-        campaign_id_nodash = str(c.id).replace("-", "")
-
-        # Step 3: fetch details from master DB safely using raw query
-        with connections['master'].cursor() as cursor:
-            cursor.execute("""
-                SELECT id, brand_id, name, contact_person_name, contact_person_phone, contact_person_email, num_doctors_supported
-                FROM campaign_campaign
-                WHERE id = %s
-            """, [campaign_id_nodash])
-            row = cursor.fetchone()
-
-        if row:
-            master_info = {
-                "id": row[0],
-                "brand_id": row[1],
-                "name": row[2],
-                "contact_person_name": row[3],
-                "contact_person_phone": row[4],
-                "contact_person_email": row[5],
-                "num_doctors_supported": row[6],
-            }
-        else:
-            master_info = {}
-
+    for row in rows:
+        # row[0] is already a string (id_str)
         campaigns.append({
-            "id": c.id,
-            "brand_campaign_id": c.brand_campaign_id,
-            "brand_name": c.brand.name if c.brand else "",
-            "company_name": c.company.name if hasattr(c, "company") and c.company else "",
-            "start_date": c.start_date,
-            "end_date": c.end_date,
-            "master": master_info,
+            "id": row[0],  # keep as string
+            "brand_campaign_id": row[1],  # keep original, dash or no dash
+            "name": row[2],
+            "start_date": row[3],
+            "end_date": row[4],
         })
 
     return render(request, "campaign_management/manage_data_panel.html", {"campaigns": campaigns})
+
 
 
 # ------------------------------------------------------------------------
