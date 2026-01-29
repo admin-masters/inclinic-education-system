@@ -7,10 +7,12 @@
   <div class="dashboard-card">
     <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
       <h5 class="mb-0">Manage Data Panel</h5>
+
       <div class="d-flex flex-column flex-sm-row gap-2">
         <a href="{% url 'admin-dashboard:fieldrep_list' %}" class="btn btn-sm btn-primary">
           <i class="bi bi-people me-1"></i>Admin Field Reps
         </a>
+
         <a href="{% url 'publisher_campaign_select' %}" class="btn btn-sm btn-info">
           <i class="bi bi-plus-circle me-1"></i>Add / Edit Campaign by ID
         </a>
@@ -30,37 +32,49 @@
             <th data-label="Actions" class="text-center">Actions</th>
           </tr>
         </thead>
+
         <tbody>
           {% for campaign in campaigns %}
           <tr>
             <td data-label="Campaign ID">
               <code class="text-primary">{{ campaign.brand_campaign_id }}</code>
             </td>
+
             <td data-label="Brand">
               <strong>{{ campaign.brand_name }}</strong>
             </td>
+
             <td data-label="Company" class="d-none d-md-table-cell">
               {{ campaign.company_name }}
             </td>
+
             <td data-label="Start Date">
               <small class="text-muted">{{ campaign.start_date }}</small>
             </td>
+
             <td data-label="End Date">
               <small class="text-muted">{{ campaign.end_date }}</small>
             </td>
+
             <td data-label="Portal">
               <div class="dropdown d-inline-block">
-                <button class="btn btn-outline-primary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+                <button class="btn btn-outline-primary btn-sm dropdown-toggle"
+                        type="button"
+                        data-bs-toggle="dropdown"
+                        aria-expanded="false">
                   <i class="bi bi-box-arrow-up-right me-1"></i>Open
                 </button>
+
                 <ul class="dropdown-menu">
                   <li>
-                    <a class="dropdown-item" href="{% url 'fieldrep_dashboard' %}?campaign={{ campaign.brand_campaign_id }}">
+                    <a class="dropdown-item"
+                       href="{% url 'fieldrep_dashboard' %}?campaign={{ campaign.brand_campaign_id }}">
                       <i class="bi bi-file-text me-2"></i>Collateral Portal
                     </a>
                   </li>
                   <li>
-                    <a class="dropdown-item" href="{% url 'admin_dashboard:fieldrep_list' %}?campaign={{ campaign.brand_campaign_id }}">
+                    <a class="dropdown-item"
+                       href="{% url 'admin_dashboard:fieldrep_list' %}?campaign={{ campaign.brand_campaign_id }}">
                       <i class="bi bi-people me-2"></i>Field Rep Portal
                     </a>
                   </li>
@@ -68,7 +82,11 @@
               </div>
             </td>
 
-              <div class="btn-group-sm d-flex flex-column flex-sm-row gap-1" role="group">
+            {# ✅ FIX: actions must be inside a <td> #}
+            <td data-label="Actions" class="text-center">
+              <div class="btn-group-sm d-flex flex-column flex-sm-row gap-1 justify-content-center"
+                   role="group"
+                   aria-label="Campaign actions">
 
                 <a href="{% url 'campaign_by_id_detail' campaign.brand_campaign_id %}"
                    class="btn btn-sm btn-outline-secondary flex-fill">
@@ -83,6 +101,7 @@
               </div>
             </td>
           </tr>
+
           {% empty %}
           <tr>
             <td colspan="7" class="text-center text-muted py-5">
@@ -103,26 +122,26 @@
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
   }
-  
+
   .table {
     font-size: var(--font-size-sm);
   }
-  
+
   .table th,
   .table td {
     padding: var(--spacing-2) var(--spacing-3);
   }
-  
+
   /* Stack buttons vertically on mobile */
   .btn-group-sm {
     flex-direction: column;
     width: 100%;
   }
-  
+
   .btn-group-sm .btn {
     margin-bottom: var(--spacing-1);
   }
-  
+
   .btn-group-sm .btn:last-child {
     margin-bottom: 0;
   }
