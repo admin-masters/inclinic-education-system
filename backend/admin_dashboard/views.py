@@ -19,6 +19,83 @@ from admin_dashboard.models import FieldRepCampaign
 from utils.recaptcha import recaptcha_required
 from sharing_management.models import VideoTrackingLog
 
+from django.db import connection
+from campaign_management.models import CampaignAssignment
+
+
+def _get_campaign_param(request):
+    """
+    Single canonical way to read the campaign context across admin_dashboard.
+    Treat it as a STRING identifier (brand_campaign_id) like the campaign module.
+    """
+    return (
+        request.POST.get("campaign")
+        or request.GET.get("campaign_id")
+        or request.GET.get("campaign")
+        or request.GET.get("brand_campaign_id")
+    )
+
+
+def _campaign_dropdown_rows():
+    """
+    Returns a list of dicts: [{"brand_campaign_id": "...", "name": "..."}, ...]
+    Uses ORM values() first; falls back to raw SQL if there are UUID coercion issues.
+    """
+    try:
+        return list(
+            Campaign.objects.values("brand_campaign_id", "name").order_by("name")
+        )
+    except Exception:
+        table = connection.ops.quote_name(Campaign._meta.db_table)
+        bcid = connection.ops.quote_name("brand_campaign_id")
+        name = connection.ops.quote_name("name")
+        with connection.cursor() as cursor:
+            cursor.execute(f"SELECT {bcid}, {name} FROM {table} ORDER BY {name} ASC")
+            return [
+                {"brand_campaign_id": str(brand_campaign_id), "name": campaign_name}
+                for (brand_campaign_id, campaign_name) in cursor.fetchall()
+            ]
+
+
+def _campaign_pk_from_param(campaign_param):
+    """
+    Resolve the DB PK for a campaign_param.
+    - If numeric => treat as pk
+    - Else => treat as brand_campaign_id
+    """
+    if not campaign_param:
+        return None
+    campaign_param = str(campaign_param).strip()
+    if not campaign_param:
+        return None
+
+    if campaign_param.isdigit():
+        try:
+            return int(campaign_param)
+        except ValueError:
+            return None
+
+    # brand_campaign_id lookup
+    try:
+        return (
+            Campaign.objects.filter(brand_campaign_id=campaign_param)
+            .values_list("pk", flat=True)
+            .first()
+        )
+    except Exception:
+        # fallback raw SQL
+        table = connection.ops.quote_name(Campaign._meta.db_table)
+        pk_col = connection.ops.quote_name(Campaign._meta.pk.column)
+        bcid = connection.ops.quote_name("brand_campaign_id")
+        with connection.cursor() as cursor:
+            cursor.execute(
+                f"SELECT {pk_col} FROM {table} WHERE {bcid}=%s LIMIT 1",
+                [campaign_param],
+            )
+            row = cursor.fetchone()
+        return row[0] if row else None
+
+
 # ─────────────────────────────────────────────────────────
 # MIXIN
 # ─────────────────────────────────────────────────────────
@@ -36,8 +113,7 @@ class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
     login_url = reverse_lazy("admin:login")
     
     def get_success_url(self):
-        # After successful login, redirect to field reps page
-        return reverse_lazy("admin-dashboard:fieldrep_list")
+        return reverse_lazy("admin_dashboard:fieldrep_list")
 
 # ─────────────────────────────────────────────────────────
 # DASHBOARD (unchanged)
@@ -91,12 +167,19 @@ def bulk_upload_fieldreps(request):
     else:
         form = FieldRepBulkUploadForm()
         # Pre-select campaign if provided in URL
-        campaign_id = request.GET.get('campaign_id') or request.GET.get('campaign')
-        if campaign_id:
+        campaign_param = (
+                request.GET.get("brand_campaign_id")
+                or request.GET.get("campaign_id")
+                or request.GET.get("campaign")
+        )
+        if campaign_param:
             try:
-                campaign = Campaign.objects.get(pk=campaign_id)
-                form.fields['campaign'].initial = campaign
-            except Campaign.DoesNotExist:
+                if str(campaign_param).isdigit():
+                    campaign_obj = Campaign.objects.get(pk=int(campaign_param))
+                else:
+                    campaign_obj = Campaign.objects.get(brand_campaign_id=campaign_param)
+                form.fields["campaign"].initial = campaign_obj
+            except (Campaign.DoesNotExist, ValueError, TypeError):
                 pass
     return render(request, "admin_dashboard/bulk_upload.html", {"form": form})
 
@@ -233,49 +316,44 @@ class FieldRepListView(StaffRequiredMixin, ListView):
         return ctx
 
 class FieldRepCreateView(StaffRequiredMixin, CreateView):
-    model         = User
-    form_class    = FieldRepForm
+    model = User
+    form_class = FieldRepForm
     template_name = "admin_dashboard/fieldrep_form.html"
-    success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
-    
+    success_url = reverse_lazy("admin_dashboard:fieldrep_list")
+
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-        # Allow preselection via GET or POST
-        campaign_param = (
-            self.request.POST.get("campaign")
-            or self.request.GET.get("campaign_id")
-            or self.request.GET.get("campaign")
-            or self.request.GET.get("brand_campaign_id")
-        )
+
+        campaign_param = _get_campaign_param(self.request)
         if campaign_param:
             ctx["campaign_param"] = campaign_param
-        # Supply all campaigns for dropdown
-        ctx["campaigns"] = Campaign.objects.all().order_by("name")
+
+        # IMPORTANT: don't instantiate Campaign objects here
+        ctx["campaigns"] = _campaign_dropdown_rows()
         return ctx
 
     def form_valid(self, form):
-        # Save the new field rep
         response = super().form_valid(form)
 
-        # If a campaign context is present, create the assignment
-        campaign_param = (
-            self.request.POST.get("campaign")
-            or self.request.GET.get("campaign_id")
-            or self.request.GET.get("campaign")
-            or self.request.GET.get("brand_campaign_id")
-        )
+        campaign_param = _get_campaign_param(self.request)
         if campaign_param:
-            campaign = None
-            try:
-                # Try to get campaign by numeric PK
-                campaign_pk = int(campaign_param)
-                campaign = get_object_or_404(Campaign, pk=campaign_pk)
-            except (ValueError, TypeError):
-                # If not a numeric PK, treat as brand_campaign_id
-                campaign = get_object_or_404(Campaign, brand_campaign_id=campaign_param)
-            
-            if campaign:
-                FieldRepCampaign.objects.get_or_create(field_rep=self.object, campaign=campaign)
+            campaign_pk = _campaign_pk_from_param(campaign_param)
+
+            if campaign_pk:
+                # Create BOTH mappings (same behavior as bulk upload):contentReference[oaicite:9]{index=9}
+                CampaignAssignment.objects.get_or_create(
+                    field_rep=self.object,
+                    campaign_id=campaign_pk,
+                )
+                FieldRepCampaign.objects.get_or_create(
+                    field_rep=self.object,
+                    campaign_id=campaign_pk,
+                )
+            else:
+                messages.warning(
+                    self.request,
+                    f"Campaign '{campaign_param}' not found in portal DB. Create/import the campaign first."
+                )
 
         return response
 
@@ -298,20 +376,35 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
             return f"{base}?brand_campaign_id={campaign_param}"
 
 class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
-    model         = User
-    form_class    = FieldRepForm
+    model = User
+    form_class = FieldRepForm
     template_name = "admin_dashboard/fieldrep_form.html"
-    success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
-    
+    success_url = reverse_lazy("admin_dashboard:fieldrep_list")
+
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        campaign_param = _get_campaign_param(self.request)
         if campaign_param:
             ctx["campaign_param"] = campaign_param
+        ctx["campaigns"] = _campaign_dropdown_rows()
         return ctx
-    
+
     def form_valid(self, form):
-        return super().form_valid(form)
+        response = super().form_valid(form)
+
+        campaign_param = _get_campaign_param(self.request)
+        if campaign_param:
+            campaign_pk = _campaign_pk_from_param(campaign_param)
+            if campaign_pk:
+                CampaignAssignment.objects.get_or_create(
+                    field_rep=self.object,
+                    campaign_id=campaign_pk,
+                )
+                FieldRepCampaign.objects.get_or_create(
+                    field_rep=self.object,
+                    campaign_id=campaign_pk,
+                )
+        return response
 
     def get_success_url(self):
         base = reverse("admin_dashboard:fieldrep_list")
