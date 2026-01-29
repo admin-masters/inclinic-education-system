@@ -471,6 +471,16 @@ class CampaignCreateView(CreateView):
 
         return super().form_valid(form)
 
+    def get_success_url(self):
+        """
+        After creating the default-db Campaign row, redirect to canonical edit-by-campaign-id page.
+        This prevents Django from trying to call model.get_absolute_url().
+        """
+        campaign_id = getattr(self.object, "brand_campaign_id", None)
+        if campaign_id:
+            return reverse("campaign_by_id_update", kwargs={"campaign_id": str(campaign_id)})
+        return reverse("manage_data_panel")
+
 
 # ------------------------------------------------------------------------
 # Update Campaign (any authenticated user)
