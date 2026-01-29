@@ -35,7 +35,7 @@ urlpatterns = [
     path('share/', include('sharing_management.urls')),
     path('view/', include('doctor_viewer.urls')),
     path('api/', include('api.api_urls')),   
-    path('admin-dashboard/', include(('admin_dashboard.urls', 'admin_dashboard'), namespace='admin-dashboard')),
+    path('admin_dashboard/', include(('admin_dashboard.urls', 'admin_dashboard'), namespace='admin-dashboard')),
     path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('shortlinks/', include('shortlink_management.urls')),
     path("reports/collateral-transactions/<str:brand_campaign_id>/", collateral_transactions_dashboard, name="collateral_transactions_dashboard"),
