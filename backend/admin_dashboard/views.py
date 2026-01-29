@@ -167,20 +167,22 @@ def bulk_upload_fieldreps(request):
     else:
         form = FieldRepBulkUploadForm()
         # Pre-select campaign if provided in URL
-        campaign_param = (
-                request.GET.get("brand_campaign_id")
-                or request.GET.get("campaign_id")
+        campaign_ref = (
+                request.GET.get("campaign_id")
                 or request.GET.get("campaign")
+                or request.GET.get("brand_campaign_id")
         )
-        if campaign_param:
+
+        if campaign_ref:
+            campaign_obj = None
             try:
-                if str(campaign_param).isdigit():
-                    campaign_obj = Campaign.objects.get(pk=int(campaign_param))
-                else:
-                    campaign_obj = Campaign.objects.get(brand_campaign_id=campaign_param)
+                campaign_obj = Campaign.objects.get(pk=int(campaign_ref))
+            except (TypeError, ValueError, Campaign.DoesNotExist):
+                campaign_obj = Campaign.objects.filter(brand_campaign_id=str(campaign_ref)).first()
+
+            if campaign_obj:
                 form.fields["campaign"].initial = campaign_obj
-            except (Campaign.DoesNotExist, ValueError, TypeError):
-                pass
+
     return render(request, "admin_dashboard/bulk_upload.html", {"form": form})
 
 # ─────────────────────────────────────────────────────────
@@ -255,65 +257,76 @@ class FieldRepListView(StaffRequiredMixin, ListView):
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
         rep_ids = [r.id for r in ctx["reps"]]
-        
-        # Get the current campaign filter
+
+        # Current filter (could be numeric PK, UUID, etc.)
         campaign_id = self.request.GET.get("campaign_id")
         campaign = self.request.GET.get("campaign")
         brand_campaign_id = self.request.GET.get("brand_campaign_id")
         campaign_filter = campaign_id or campaign or brand_campaign_id
-        
-        # Get campaign data - if filtered by campaign, only show that campaign
+
+        # Persist filter in session (optional but useful if you use redirect_to_fieldreps)
+        if campaign_filter and hasattr(self.request, "session"):
+            self.request.session["brand_campaign_id"] = str(campaign_filter)
+
+        # Build campaign_data depending on filter
         if campaign_filter:
-            # If we have a campaign filter, only show campaigns that match the filter
             if campaign_id:
-                # Filter by numeric campaign ID
                 campaign_data = FieldRepCampaign.objects.filter(
                     field_rep_id__in=rep_ids,
                     campaign_id=campaign_id
                 ).values("field_rep_id", "campaign__brand_campaign_id")
+
             elif brand_campaign_id:
-                # Filter by brand campaign ID
                 campaign_data = FieldRepCampaign.objects.filter(
                     field_rep_id__in=rep_ids,
                     campaign__brand_campaign_id=brand_campaign_id
                 ).values("field_rep_id", "campaign__brand_campaign_id")
+
             else:
-                # Filter by campaign parameter (could be either)
+                # campaign param could be numeric PK or brand_campaign_id/UUID
                 try:
-                    # Try as numeric ID first
                     campaign_pk = int(campaign)
                     campaign_data = FieldRepCampaign.objects.filter(
                         field_rep_id__in=rep_ids,
                         campaign_id=campaign_pk
                     ).values("field_rep_id", "campaign__brand_campaign_id")
                 except (ValueError, TypeError):
-                    # Try as brand campaign ID
                     campaign_data = FieldRepCampaign.objects.filter(
                         field_rep_id__in=rep_ids,
                         campaign__brand_campaign_id=campaign
                     ).values("field_rep_id", "campaign__brand_campaign_id")
         else:
-            # No filter - show all campaigns for each rep
-            campaign_data = FieldRepCampaign.objects.filter(field_rep_id__in=rep_ids).values(
-                "field_rep_id", "campaign__brand_campaign_id"
-            )
-        
-        # Create a dictionary to map rep_id to a list of brand_campaign_ids
+            campaign_data = FieldRepCampaign.objects.filter(
+                field_rep_id__in=rep_ids
+            ).values("field_rep_id", "campaign__brand_campaign_id")
+
+        # Map rep_id -> list of campaign ids (as STRINGS)
         rep_campaigns = {}
         for item in campaign_data:
-            rep_id = item["field_rep_id"]
-            brand_campaign_id = item["campaign__brand_campaign_id"]
-            if rep_id not in rep_campaigns:
-                rep_campaigns[rep_id] = []
-            rep_campaigns[rep_id].append(brand_campaign_id)
-            
-        # Add the brand_campaigns to each rep object
+            rep_id = item.get("field_rep_id")
+            bc_id = item.get("campaign__brand_campaign_id")
+
+            if not rep_id or not bc_id:
+                continue
+
+            # ✅ CRITICAL FIX: always stringify (handles uuid.UUID and normal strings)
+            rep_campaigns.setdefault(rep_id, []).append(str(bc_id))
+
+        # Attach comma-separated campaigns to each rep (dedupe, preserve order)
         for rep in ctx["reps"]:
-            rep.brand_campaigns = ", ".join(rep_campaigns.get(rep.id, []))
-            
+            vals = rep_campaigns.get(rep.id, [])
+            seen = set()
+            uniq = []
+            for v in vals:
+                if v and v not in seen:
+                    seen.add(v)
+                    uniq.append(v)
+            rep.brand_campaigns = ", ".join(uniq)
+
         ctx["q"] = self.request.GET.get("q", "")
-        ctx["campaign_filter"] = campaign_filter
+        ctx["campaign_filter"] = str(campaign_filter) if campaign_filter else ""
         return ctx
+
 
 class FieldRepCreateView(StaffRequiredMixin, CreateView):
     model = User

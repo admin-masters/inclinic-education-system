@@ -10,19 +10,17 @@
 
 <form method="post" class="needs-validation" novalidate>
   {% csrf_token %}
-  {% if campaign_param %}
-    <input type="hidden" name="campaign" value="{{ campaign_param }}">
-  {% endif %}
   <div class="mb-3">
       <label class="form-label" for="campaignSelect">Assign to Campaign (optional)</label>
       <select class="form-select" id="campaignSelect" name="campaign">
         <option value="" {% if not campaign_param %}selected{% endif %}>Select campaign</option>
 
         {% for c in campaigns %}
-          <option value="{{ c.brand_campaign_id }}"
-            {% if campaign_param == c.brand_campaign_id %}selected{% endif %}>
-            {{ c.name }} ({{ c.brand_campaign_id }})
-          </option>
+            <option value="{{ c.brand_campaign_id|stringformat:'s' }}"
+                    {% if campaign_param|stringformat:"s" == c.brand_campaign_id|stringformat:"s" %}selected{% endif %}>
+              {{ c.name }} ({{ c.brand_campaign_id }})
+            </option>
+
         {% endfor %}
       </select>
     </div>
