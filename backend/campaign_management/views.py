@@ -37,6 +37,38 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import uuid
+from django.shortcuts import get_object_or_404
+from django.views.generic import DetailView
+from .models import Campaign
+
+def normalize_campaign_id(value: str) -> str:
+    """
+    Returns a dashed UUID string if value looks like a UUID (dashed or dashless).
+    Otherwise returns the original string.
+    """
+    if value is None:
+        return ""
+    s = str(value).strip()
+    if not s:
+        return ""
+    try:
+        return str(uuid.UUID(s))  # works for dashed + dashless
+    except Exception:
+        return s
+
+class CampaignDetailByCampaignIdView(DetailView):
+    model = Campaign
+    template_name = "campaign_management/campaign_detail.html"
+    context_object_name = "campaign"
+
+    def get_object(self, queryset=None):
+        campaign_id = normalize_campaign_id(self.kwargs.get("campaign_id"))
+        return get_object_or_404(
+            Campaign.objects.using("default"),
+            brand_campaign_id=campaign_id
+        )
+
 
 # ------------------------------------------------------------------------
 # Master DB helpers (read-only fields always come from "master")
@@ -557,12 +589,82 @@ def campaign_reports(request):
     return render(request, 'campaign_management/campaign_reports.html', context)
 
 
+from django.contrib.auth.decorators import login_required
+from django.db import connections
+from django.conf import settings
+
+from .master_models import MasterCampaign
+from .models import Campaign
+
+def _fetch_company_names_for_brand_ids(brand_ids):
+    """
+    Batch fetch company_name for brand_ids from master DB.
+    """
+    if not brand_ids:
+        return {}
+
+    brand_table = getattr(settings, "MASTER_BRAND_DB_TABLE", "campaign_brand")
+    placeholders = ",".join(["%s"] * len(brand_ids))
+
+    sql = f"SELECT id, company_name FROM {brand_table} WHERE id IN ({placeholders})"
+
+    conn = connections["master"]
+    with conn.cursor() as cursor:
+        cursor.execute(sql, brand_ids)
+        rows = cursor.fetchall()
+
+    return {str(r[0]): r[1] for r in rows}
+
 @login_required
 def manage_data_panel(request):
-    campaigns = Campaign.objects.all().order_by('-start_date')
-    return render(request, 'campaign_management/manage_data_panel.html', {
-        'campaigns': campaigns,
-    })
+    master_campaigns = (
+        MasterCampaign.objects.using("master")
+        .select_related("brand")
+        .all()
+    )
+
+    # Normalize master campaign IDs into dashed UUIDs for default DB lookup + URLs
+    normalized_campaign_ids = []
+    brand_ids = []
+
+    master_rows = []
+    for mc in master_campaigns:
+        cid = normalize_campaign_id(mc.id)  # dashed if uuid-like
+        normalized_campaign_ids.append(cid)
+        master_rows.append((cid, mc))
+        if getattr(mc, "brand_id", None):
+            brand_ids.append(str(mc.brand_id))
+
+    company_by_brand_id = _fetch_company_names_for_brand_ids(list(set(brand_ids)))
+
+    default_qs = Campaign.objects.using("default").filter(
+        brand_campaign_id__in=normalized_campaign_ids
+    )
+    default_by_campaign_id = {c.brand_campaign_id: c for c in default_qs}
+
+    campaigns = []
+    for cid, mc in master_rows:
+        dc = default_by_campaign_id.get(cid)
+
+        campaigns.append({
+            "brand_campaign_id": cid,
+
+            # ✅ MASTER DB fields
+            "brand_name": getattr(getattr(mc, "brand", None), "name", "") or "",
+            "company_name": company_by_brand_id.get(str(getattr(mc, "brand_id", "")), "") or "",
+            "incharge_name": getattr(mc, "contact_person_name", "") or "",
+            "incharge_contact": getattr(mc, "contact_person_phone", "") or "",
+            "num_doctors": getattr(mc, "num_doctors_supported", 0) or 0,
+
+            # ✅ DEFAULT DB fields (editable ones)
+            "name": getattr(dc, "name", "") if dc else "",
+            "start_date": getattr(dc, "start_date", None) if dc else None,
+            "end_date": getattr(dc, "end_date", None) if dc else None,
+            "status": getattr(dc, "status", "") if dc else "",
+            "has_default": bool(dc),
+        })
+
+    return render(request, "campaign_management/manage_data_panel.html", {"campaigns": campaigns})
 
 
 # ------------------------------------------------------------------------

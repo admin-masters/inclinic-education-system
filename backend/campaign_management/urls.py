@@ -1,27 +1,31 @@
 # campaign_management/urls.py
-
 from django.urls import path
-from .views import *
-#  (
-#     CampaignListView, CampaignDetailView, CampaignCreateView,
-#     CampaignUpdateView, CampaignDeleteView, assign_field_reps, remove_field_rep
-# )
 from . import views
-urlpatterns = [
-    path('', CampaignListView.as_view(), name='campaign_list'),
+from .views import (
+    CampaignListView, CampaignDetailView, CampaignCreateView,
+    CampaignUpdateView, CampaignDeleteView
+)
 
+urlpatterns = [
+    path("", CampaignListView.as_view(), name="campaign_list"),
+
+    # Publisher entry
     path("publisher-landing-page/", views.publisher_landing_page, name="publisher_landing_page"),
     path("publisher/select-campaign/", views.publisher_campaign_select, name="publisher_campaign_select"),
-    path("publisher/<str:campaign_id>/edit/", views.CampaignUpdateView.as_view(), name="publisher_campaign_update"),
 
-    path('<int:pk>/', CampaignDetailView.as_view(), name='campaign_detail'),
-    path('create/', CampaignCreateView.as_view(), name='campaign_create'),
-    path('<int:pk>/edit/', CampaignUpdateView.as_view(), name='campaign_update'),
-    path('<int:pk>/delete/', CampaignDeleteView.as_view(), name='campaign_delete'),
+    # ✅ Canonical edit/view using CAMPAIGN-ID (brand_campaign_id)
+    # Use <str:...> so template reversing never tries uuid.UUID(...)
+    path("campaign/<str:campaign_id>/edit/", CampaignUpdateView.as_view(), name="campaign_by_id_update"),
+    path("campaign/<str:campaign_id>/", views.CampaignDetailByCampaignIdView.as_view(), name="campaign_by_id_detail"),
 
-    # Field Rep assignment
-    path('<int:pk>/assign/', assign_field_reps, name='assign_field_reps'),
-    path('<int:pk>/unassign/<int:assignment_id>/', remove_field_rep, name='remove_field_rep'),
-    path('collaterals/edit/<int:pk>/', views.edit_collateral_dates, name='edit_collateral_dates'),
-    path('manage-data/', views.manage_data_panel, name='manage_data_panel'),
+    # Optional alias (keep existing publisher naming)
+    path("publisher/<str:campaign_id>/edit/", CampaignUpdateView.as_view(), name="publisher_campaign_update"),
+
+    # Legacy PK routes (keep if still used internally)
+    path("<int:pk>/", CampaignDetailView.as_view(), name="campaign_detail"),
+    path("create/", CampaignCreateView.as_view(), name="campaign_create"),
+    path("<int:pk>/edit/", CampaignUpdateView.as_view(), name="campaign_update"),
+    path("<int:pk>/delete/", CampaignDeleteView.as_view(), name="campaign_delete"),
+
+    path("manage-data/", views.manage_data_panel, name="manage_data_panel"),
 ]
