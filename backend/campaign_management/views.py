@@ -57,17 +57,47 @@ def normalize_campaign_id(value: str) -> str:
     except Exception:
         return s
 
+from django.http import HttpResponseBadRequest
+from django.shortcuts import get_object_or_404, redirect
+from django.utils.decorators import method_decorator
+from django.contrib.auth.decorators import login_required
+from django.views.generic import DetailView
+
+from .models import Campaign
+
+
+@method_decorator(login_required, name="dispatch")
 class CampaignDetailByCampaignIdView(DetailView):
+    """
+    Canonical detail view using brand_campaign_id from the URL.
+    If campaign row does not exist yet in DEFAULT DB, redirect to edit/create flow.
+    """
     model = Campaign
     template_name = "campaign_management/campaign_detail.html"
     context_object_name = "campaign"
 
+    def get_queryset(self):
+        # Always read from PE DB
+        return Campaign.objects.using("default")
+
+    def dispatch(self, request, *args, **kwargs):
+        campaign_id = kwargs.get("campaign_id")
+        if not campaign_id:
+            return HttpResponseBadRequest("Missing campaign-id")
+
+        # If not yet created in default DB, send user to edit route
+        if not Campaign.objects.using("default").filter(brand_campaign_id=campaign_id).exists():
+            return redirect("campaign_by_id_update", campaign_id=campaign_id)
+
+        return super().dispatch(request, *args, **kwargs)
+
     def get_object(self, queryset=None):
-        campaign_id = normalize_campaign_id(self.kwargs.get("campaign_id"))
+        campaign_id = self.kwargs.get("campaign_id")
         return get_object_or_404(
             Campaign.objects.using("default"),
-            brand_campaign_id=campaign_id
+            brand_campaign_id=campaign_id,
         )
+
 
 
 # ------------------------------------------------------------------------

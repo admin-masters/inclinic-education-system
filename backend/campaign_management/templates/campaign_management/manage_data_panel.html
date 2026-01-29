@@ -9,7 +9,8 @@
       <h5 class="mb-0">Manage Data Panel</h5>
 
       <div class="d-flex flex-column flex-sm-row gap-2">
-        <a href="{% url 'admin-dashboard:fieldrep_list' %}" class="btn btn-sm btn-primary">
+        {# NOTE: change namespace here ONLY if your project uses admin-dashboard instead of admin_dashboard #}
+        <a href="{% url 'admin_dashboard:fieldrep_list' %}" class="btn btn-sm btn-primary">
           <i class="bi bi-people me-1"></i>Admin Field Reps
         </a>
 
@@ -49,11 +50,19 @@
             </td>
 
             <td data-label="Start Date">
-              <small class="text-muted">{{ campaign.start_date }}</small>
+              {% if campaign.start_date %}
+                <small class="text-muted">{{ campaign.start_date }}</small>
+              {% else %}
+                <small class="text-muted">—</small>
+              {% endif %}
             </td>
 
             <td data-label="End Date">
-              <small class="text-muted">{{ campaign.end_date }}</small>
+              {% if campaign.end_date %}
+                <small class="text-muted">{{ campaign.end_date }}</small>
+              {% else %}
+                <small class="text-muted">—</small>
+              {% endif %}
             </td>
 
             <td data-label="Portal">
@@ -82,12 +91,9 @@
               </div>
             </td>
 
-            {# ✅ FIX: actions must be inside a <td> #}
+            {# ✅ FIX: actions MUST be inside a <td> #}
             <td data-label="Actions" class="text-center">
-              <div class="btn-group-sm d-flex flex-column flex-sm-row gap-1 justify-content-center"
-                   role="group"
-                   aria-label="Campaign actions">
-
+              <div class="btn-group-sm d-flex flex-column flex-sm-row gap-1 justify-content-center" role="group">
                 <a href="{% url 'campaign_by_id_detail' campaign.brand_campaign_id %}"
                    class="btn btn-sm btn-outline-secondary flex-fill">
                   <i class="bi bi-eye me-1"></i>View
@@ -97,11 +103,9 @@
                    class="btn btn-sm btn-primary flex-fill">
                   <i class="bi bi-pencil me-1"></i>Edit
                 </a>
-
               </div>
             </td>
           </tr>
-
           {% empty %}
           <tr>
             <td colspan="7" class="text-center text-muted py-5">
@@ -110,21 +114,17 @@
           </tr>
           {% endfor %}
         </tbody>
+
       </table>
     </div>
   </div>
 </div>
 
 <style>
-/* Mobile-specific adjustments for this page */
 @media (max-width: 767.98px) {
   .table-wrapper {
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
-  }
-
-  .table {
-    font-size: var(--font-size-sm);
   }
 
   .table th,
@@ -132,7 +132,6 @@
     padding: var(--spacing-2) var(--spacing-3);
   }
 
-  /* Stack buttons vertically on mobile */
   .btn-group-sm {
     flex-direction: column;
     width: 100%;
@@ -147,7 +146,6 @@
   }
 }
 
-/* Tablet adjustments */
 @media (min-width: 768px) and (max-width: 991.98px) {
   .table th,
   .table td {
@@ -156,7 +154,6 @@
   }
 }
 
-/* Ensure dropdown menus work well on mobile */
 .dropdown-menu {
   min-width: 200px;
   font-size: var(--font-size-sm);
@@ -171,13 +168,11 @@
   text-align: center;
 }
 
-/* Better spacing for action buttons */
 .btn-group-sm .btn {
   white-space: nowrap;
   font-size: var(--font-size-xs);
 }
 
-/* Code styling */
 code {
   background-color: var(--background-light);
   padding: var(--spacing-1) var(--spacing-2);
