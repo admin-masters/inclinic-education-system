@@ -1,5 +1,5 @@
 # campaign_management/views.py
-from django.http import HttpResponseBadRequest, HttpResponse
+from django.http import HttpResponseBadRequest, HttpResponse, Http404
 from django.shortcuts import render, redirect, get_object_or_404
 from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
 from django.urls import reverse_lazy, reverse
@@ -11,6 +11,8 @@ from django.db.models import Q
 from django.core.paginator import Paginator
 import uuid
 import re
+
+from .master_models import MasterCampaign, MasterBrand
 
 from django.conf import settings
 from django.db import connections
@@ -37,39 +39,220 @@ logger = logging.getLogger(__name__)
 
 
 # ------------------------------------------------------------------------
+# Master DB helpers (read-only fields always come from "master")
+# ------------------------------------------------------------------------
+
+_UUID_HEX_32_RE = re.compile(r"^[0-9a-fA-F]{32}$")
+
+MASTER_READONLY_FORM_FIELDS = [
+    "brand_name",
+    "company_name",
+    "incharge_name",
+    "incharge_contact",
+    "num_doctors",
+]
+
+
+def normalize_master_campaign_id(value):
+    """
+    Returns dashless 32-hex string if value is UUID-like.
+    Otherwise returns None (for legacy/non-UUID campaign IDs).
+    """
+    if not value:
+        return None
+
+    if isinstance(value, uuid.UUID):
+        return value.hex
+
+    s = str(value).strip()
+    # Already dashless?
+    if _UUID_HEX_32_RE.match(s):
+        return s.lower()
+
+    # Try dashed UUID -> dashless
+    try:
+        return uuid.UUID(s).hex
+    except (ValueError, TypeError):
+        # Try stripping dashes/braces
+        s2 = s.replace("-", "").replace("{", "").replace("}", "")
+        if _UUID_HEX_32_RE.match(s2):
+            return s2.lower()
+
+    return None
+
+
+def uuid_dashed_from_dashless(dashless_32):
+    """32-hex -> dashed UUID string."""
+    return str(uuid.UUID(hex=dashless_32))
+
+
+def campaign_id_variants(value):
+    """
+    Used to match existing default rows regardless of dashed/dashless input.
+    Returns a de-duplicated list: [raw, dashless, dashed] when UUID-like.
+    """
+    raw = "" if value is None else str(value).strip()
+    dashless = normalize_master_campaign_id(raw)
+    if not dashless:
+        return [raw]
+
+    dashed = uuid_dashed_from_dashless(dashless)
+    return list({raw, dashless, dashed})
+
+
+def fetch_company_names_for_brand_ids(brand_ids):
+    """
+    Bulk fetch {brand_id: company_name} from master Brand table.
+    Uses raw SQL because MasterBrand model may not include company_name field.
+    """
+    brand_ids = [b for b in set(brand_ids) if b]
+    if not brand_ids:
+        return {}
+
+    conn = connections["master"]
+    table = MasterBrand._meta.db_table
+    quoted_table = conn.ops.quote_name(table)
+
+    placeholders = ",".join(["%s"] * len(brand_ids))
+    sql = f"SELECT id, company_name FROM {quoted_table} WHERE id IN ({placeholders})"
+
+    out = {}
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(sql, brand_ids)
+            for brand_id, company_name in cursor.fetchall():
+                out[str(brand_id)] = company_name
+    except Exception:
+        logger.exception("Error fetching company_name from master brand table")
+    return out
+
+
+def bulk_master_snapshots(brand_campaign_ids):
+    """
+    Returns a dict:
+      {dashless_campaign_id: snapshot_dict}
+    snapshot_dict keys:
+      brand_name, company_name, incharge_name, incharge_contact, num_doctors
+    """
+    dashless_ids = []
+    for bc_id in brand_campaign_ids:
+        d = normalize_master_campaign_id(bc_id)
+        if d:
+            dashless_ids.append(d)
+
+    dashless_ids = list(set(dashless_ids))
+    if not dashless_ids:
+        return {}
+
+    master_qs = (
+        MasterCampaign.objects.using("master")
+        .select_related("brand")
+        .filter(id__in=dashless_ids)
+    )
+    master_list = list(master_qs)
+
+    brand_ids = [mc.brand_id for mc in master_list if getattr(mc, "brand_id", None)]
+    company_map = fetch_company_names_for_brand_ids(brand_ids)
+
+    snapshots = {}
+    for mc in master_list:
+        brand_obj = getattr(mc, "brand", None)
+        snapshots[mc.id] = {
+            "brand_name": getattr(brand_obj, "name", None),
+            "company_name": company_map.get(str(getattr(mc, "brand_id", ""))),
+            "incharge_name": getattr(mc, "contact_person_name", None),
+            "incharge_contact": getattr(mc, "contact_person_phone", None),
+            "num_doctors": getattr(mc, "num_doctors_supported", None),
+        }
+    return snapshots
+
+
+def get_default_campaign_by_campaign_id(campaign_id):
+    """
+    Fetch Campaign from DEFAULT DB by matching brand_campaign_id against
+    raw/dashless/dashed variants. Returns Campaign or None.
+    """
+    variants = campaign_id_variants(campaign_id)
+    return (
+        Campaign.objects.using("default")
+        .filter(brand_campaign_id__in=variants)
+        .order_by("-created_at")
+        .first()
+    )
+
+
+# ------------------------------------------------------------------------
 # Campaign List (open to all roles to see a list, but optional restrict)
 # ------------------------------------------------------------------------
 class CampaignListView(ListView):
     model = Campaign
     template_name = 'campaign_management/campaign_list.html'
     context_object_name = 'campaigns'
-    ordering = ['-created_at']  # most recent first
+    ordering = ['-created_at']
     paginate_by = 20
 
     def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # Handle search functionality
+        queryset = Campaign.objects.using("default").all().order_by(*self.ordering)
+
         search_form = CampaignSearchForm(self.request.GET)
         if search_form.is_valid():
             brand_campaign_id = search_form.cleaned_data.get('brand_campaign_id')
             name = search_form.cleaned_data.get('name')
             brand_name = search_form.cleaned_data.get('brand_name')
             status = search_form.cleaned_data.get('status')
-            
+
             if brand_campaign_id:
-                queryset = queryset.filter(brand_campaign_id__icontains=brand_campaign_id)
+                # Match dashed/dashless variants when UUID-like
+                variants = campaign_id_variants(brand_campaign_id)
+                queryset = queryset.filter(
+                    Q(brand_campaign_id__in=variants) |
+                    Q(brand_campaign_id__icontains=brand_campaign_id)
+                )
+
             if name:
                 queryset = queryset.filter(name__icontains=name)
-            if brand_name:
-                queryset = queryset.filter(brand_name__icontains=brand_name)
+
             if status:
                 queryset = queryset.filter(status=status)
-        
+
+            # ✅ brand_name comes from MASTER DB
+            if brand_name:
+                master_ids = list(
+                    MasterCampaign.objects.using("master")
+                    .select_related("brand")
+                    .filter(brand__name__icontains=brand_name)
+                    .values_list("id", flat=True)
+                )
+
+                # default may store dashed or dashless depending on history → match both
+                default_variants = set()
+                for mid in master_ids:
+                    default_variants.add(mid)
+                    try:
+                        default_variants.add(uuid_dashed_from_dashless(mid))
+                    except Exception:
+                        pass
+
+                queryset = queryset.filter(brand_campaign_id__in=list(default_variants))
+
         return queryset
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
+
+        campaigns = context.get("campaigns", [])
+        snapshots = bulk_master_snapshots([c.brand_campaign_id for c in campaigns])
+
+        # attach convenience attributes (no DB writes)
+        for c in campaigns:
+            dashless = normalize_master_campaign_id(c.brand_campaign_id)
+            snap = snapshots.get(dashless, {}) if dashless else {}
+            c.master_brand_name = snap.get("brand_name")
+            c.master_company_name = snap.get("company_name")
+            c.master_incharge_name = snap.get("incharge_name")
+            c.master_incharge_contact = snap.get("incharge_contact")
+            c.master_num_doctors = snap.get("num_doctors")
+
         context['search_form'] = CampaignSearchForm(self.request.GET)
         context['total_campaigns'] = self.get_queryset().count()
         return context
@@ -83,14 +266,46 @@ class CampaignDetailView(DetailView):
     template_name = 'campaign_management/campaign_detail.html'
     context_object_name = 'campaign'
 
+    def get_queryset(self):
+        return Campaign.objects.using("default")
+
+    def get_object(self, queryset=None):
+        # If you add the campaign_id URL (below), this supports it.
+        campaign_id = self.kwargs.get("campaign_id")
+        if campaign_id:
+            obj = get_default_campaign_by_campaign_id(campaign_id)
+            if not obj:
+                raise Http404("Campaign not found in default DB")
+            return obj
+        return super().get_object(queryset)
+
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         campaign = self.get_object()
 
-        # Add related data to context
-        context['assignments'] = CampaignAssignment.objects.filter(campaign=campaign).select_related('field_rep')
-        context['collaterals'] = CampaignCollateral.objects.filter(campaign=campaign).select_related('collateral')
+        context['assignments'] = (
+            CampaignAssignment.objects.using("default")
+            .filter(campaign=campaign)
+            .select_related('field_rep')
+        )
+        context['collaterals'] = (
+            CampaignCollateral.objects.using("default")
+            .filter(campaign=campaign)
+            .select_related('collateral')
+        )
 
+        snapshots = bulk_master_snapshots([campaign.brand_campaign_id])
+        dashless = normalize_master_campaign_id(campaign.brand_campaign_id)
+        snap = snapshots.get(dashless, {}) if dashless else {}
+
+        context["master_fields"] = {
+            "Brand–Campaign ID": campaign.brand_campaign_id,
+            "Brand name": snap.get("brand_name"),
+            "Company name": snap.get("company_name"),
+            "Incharge name": snap.get("incharge_name"),
+            "Incharge contact": snap.get("incharge_contact"),
+            "Num doctors": snap.get("num_doctors"),
+        }
         return context
 
 
@@ -113,13 +328,17 @@ class CampaignCreateView(CreateView):
         )
 
     def dispatch(self, request, *args, **kwargs):
-        self.passed_campaign_id = self._get_campaign_id()
+        raw_id = self._get_campaign_id()
+        # Canonicalize UUID-like IDs to dashless for storage/lookup consistency
+        canon = normalize_master_campaign_id(raw_id) or raw_id
+        self.passed_campaign_id = canon
 
-        # If campaign already exists in default DB, go to update instead of crashing on unique constraint
-        if self.passed_campaign_id:
-            request.session["publisher_campaign_id"] = self.passed_campaign_id
-            if Campaign.objects.filter(brand_campaign_id=self.passed_campaign_id).exists():
-                return redirect("publisher_campaign_update", campaign_id=self.passed_campaign_id)
+        if canon:
+            request.session["publisher_campaign_id"] = canon
+
+            existing = get_default_campaign_by_campaign_id(canon)
+            if existing:
+                return redirect("publisher_campaign_update", campaign_id=existing.brand_campaign_id)
 
         return super().dispatch(request, *args, **kwargs)
 
@@ -127,23 +346,58 @@ class CampaignCreateView(CreateView):
         kwargs = super().get_form_kwargs()
         kwargs.setdefault("initial", {})
         kwargs["initial"].setdefault("status", "Draft")
+
+        # If CampaignForm includes master fields, show them read-only with master values
+        if self.passed_campaign_id:
+            dashless = normalize_master_campaign_id(self.passed_campaign_id)
+            snap = bulk_master_snapshots([dashless]).get(dashless, {}) if dashless else {}
+            kwargs["initial"].update({
+                "brand_name": snap.get("brand_name") or "",
+                "company_name": snap.get("company_name") or "",
+                "incharge_name": snap.get("incharge_name") or "",
+                "incharge_contact": snap.get("incharge_contact") or "",
+                "num_doctors": snap.get("num_doctors") or 0,
+            })
+
         return kwargs
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         context["campaign_id"] = self.passed_campaign_id
+
+        dashless = normalize_master_campaign_id(self.passed_campaign_id)
+        snap = bulk_master_snapshots([dashless]).get(dashless, {}) if dashless else {}
+
+        context["master_fields"] = {
+            "Brand–Campaign ID": self.passed_campaign_id,
+            "Brand name": snap.get("brand_name"),
+            "Company name": snap.get("company_name"),
+            "Incharge name": snap.get("incharge_name"),
+            "Incharge contact": snap.get("incharge_contact"),
+            "Num doctors": snap.get("num_doctors"),
+        }
         return context
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        # Make master fields read-only IF they exist in the form
+        for f in MASTER_READONLY_FORM_FIELDS:
+            if f in form.fields:
+                form.fields[f].disabled = True
+                form.fields[f].required = False
+        return form
 
     def form_valid(self, form):
         campaign_id = self._get_campaign_id()
         if not campaign_id:
             return HttpResponseBadRequest("Missing campaign-id")
 
-        # Use campaign-id from master system, do NOT generate
-        form.instance.brand_campaign_id = campaign_id
+        canon = normalize_master_campaign_id(campaign_id) or campaign_id
 
-        # Insert NULL for master-owned fields (per requirement)
-        # Insert empty values for master-owned fields (DB-safe)
+        # ✅ Use canonical ID for default DB row
+        form.instance.brand_campaign_id = canon
+
+        # ✅ Master-owned fields must NOT be persisted in default (keep empty/0)
         form.instance.company_name = ""
         form.instance.incharge_name = ""
         form.instance.incharge_contact = ""
@@ -154,13 +408,6 @@ class CampaignCreateView(CreateView):
             form.instance.created_by = self.request.user
 
         return super().form_valid(form)
-
-    def get_success_url(self):
-        # For publisher flow, go directly to edit screen
-        if self.passed_campaign_id or self.request.session.get("publisher_authenticated"):
-            return reverse("publisher_campaign_update", kwargs={"campaign_id": self.object.brand_campaign_id})
-        return reverse("manage_data_panel")
-
 
 
 # ------------------------------------------------------------------------
@@ -173,11 +420,6 @@ class CampaignUpdateView(UpdateView):
     template_name = "campaign_management/campaign_update.html"
     context_object_name = "campaign"
 
-    def get_queryset(self):
-        # FORCE default DB
-        return Campaign.objects.using("default")
-
-    # Only these are editable in PE system
     EDITABLE_FIELDS = [
         "name",
         "incharge_designation",
@@ -192,141 +434,80 @@ class CampaignUpdateView(UpdateView):
         "status",
     ]
 
+    def get_queryset(self):
+        return Campaign.objects.using("default")
+
     def dispatch(self, request, *args, **kwargs):
-        self.publisher_campaign_id = kwargs.get("campaign_id")
-
-        # If publisher tries to edit a campaign that doesn't exist in default DB yet, route to create.
-        if self.publisher_campaign_id and not Campaign.objects.using("default").filter(
-                brand_campaign_id=self.publisher_campaign_id
-        ).exists():
-            return redirect(f"{reverse('campaign_create')}?campaign-id={self.publisher_campaign_id}")
-
+        campaign_id = kwargs.get("campaign_id")
+        if campaign_id:
+            existing = get_default_campaign_by_campaign_id(campaign_id)
+            if not existing:
+                canon = normalize_master_campaign_id(campaign_id) or campaign_id
+                return redirect(f"{reverse('campaign_create')}?campaign-id={canon}")
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
         campaign_id = self.kwargs.get("campaign_id")
-
-        print("DEBUG:get_object: campaign_id from URL =", campaign_id)
-        logger.debug("get_object campaign_id=%s", campaign_id)
-
         if campaign_id:
-            obj = get_object_or_404(
-                Campaign.objects.using("default"),
-                brand_campaign_id=campaign_id
-            )
-            print("DEBUG:get_object: Campaign found in default DB:", obj.id, obj.brand_campaign_id)
-            logger.debug("Campaign found id=%s brand_campaign_id=%s", obj.id, obj.brand_campaign_id)
+            obj = get_default_campaign_by_campaign_id(campaign_id)
+            if not obj:
+                raise Http404("Campaign not found in default DB")
             return obj
-
         return super().get_object(queryset)
 
-    def _fetch_master_campaign(self):
-        campaign_id = self.object.brand_campaign_id
-        print("DEBUG:_fetch_master_campaign: raw campaign_id =", campaign_id, type(campaign_id))
+    def _get_master_snapshot(self):
+        if hasattr(self, "_master_snapshot_cache"):
+            return self._master_snapshot_cache
 
-        # Normalize to UUID
-        if isinstance(campaign_id, uuid.UUID):
-            campaign_uuid = str(campaign_id)  # convert to string with dashes
-        else:
-            try:
-                campaign_uuid = str(uuid.UUID(str(campaign_id)))
-            except (ValueError, TypeError) as e:
-                print("DEBUG:_fetch_master_campaign: UUID normalization failed:", e)
-                return None
+        dashless = normalize_master_campaign_id(self.object.brand_campaign_id)
+        snap = bulk_master_snapshots([dashless]).get(dashless, {}) if dashless else {}
+        self._master_snapshot_cache = snap
+        return snap
 
-        print("DEBUG:_fetch_master_campaign: normalized campaign_uuid =", campaign_uuid)
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        snap = self._get_master_snapshot()
 
-        # Remove dashes for master DB query
-        campaign_id_nodash = campaign_uuid.replace("-", "")
-        print("DEBUG:_fetch_master_campaign: campaign_id_nodash =", campaign_id_nodash)
-
-        qs = (
-            MasterCampaign.objects
-            .using("master")
-            .select_related("brand")
-            .filter(id=campaign_id_nodash)  # query dashless ID
-        )
-
-        print("DEBUG:_fetch_master_campaign: SQL =", qs.query)
-
-        mc = qs.first()
-
-        if mc:
-            print("DEBUG:_fetch_master_campaign: FOUND MasterCampaign id =", mc.id)
-        else:
-            print("DEBUG:_fetch_master_campaign: NO MasterCampaign FOUND")
-
-        return mc
-
-    def _fetch_master_company_name(self, master_campaign):
-        print("DEBUG:_fetch_master_company_name: master_campaign =", master_campaign)
-
-        if not master_campaign or not getattr(master_campaign, "brand_id", None):
-            print("DEBUG:_fetch_master_company_name: Missing brand_id")
-            return None
-
-        brand_table = getattr(settings, "MASTER_BRAND_DB_TABLE", "Brand")
-        conn = connections["master"]
-
-        print("DEBUG:_fetch_master_company_name: brand_table =", brand_table)
-        logger.debug("brand_table=%s brand_id=%s", brand_table, master_campaign.brand_id)
-
-        try:
-            with conn.cursor() as cursor:
-                cursor.execute(
-                    f"SELECT company_name FROM {brand_table} WHERE id = %s",
-                    [str(master_campaign.brand_id)],
-                )
-                row = cursor.fetchone()
-                print("DEBUG:_fetch_master_company_name: DB row =", row)
-                return row[0] if row else None
-        except Exception as e:
-            print("DEBUG:_fetch_master_company_name: ERROR", e)
-            logger.exception("Error fetching company_name")
-            return None
+        # Make master fields read-only IF they exist in the form
+        initial_map = {
+            "brand_name": snap.get("brand_name") or "",
+            "company_name": snap.get("company_name") or "",
+            "incharge_name": snap.get("incharge_name") or "",
+            "incharge_contact": snap.get("incharge_contact") or "",
+            "num_doctors": snap.get("num_doctors") or 0,
+        }
+        for f in MASTER_READONLY_FORM_FIELDS:
+            if f in form.fields:
+                form.fields[f].disabled = True
+                form.fields[f].required = False
+                form.initial[f] = initial_map.get(f, form.initial.get(f))
+        return form
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        print("\n========== DEBUG get_context_data ==========")
-
-        master_campaign = self._fetch_master_campaign()
-        company_name = self._fetch_master_company_name(master_campaign)
-
-        print("DEBUG:get_context_data: master_campaign =", master_campaign)
-        print("DEBUG:get_context_data: company_name =", company_name)
+        snap = self._get_master_snapshot()
 
         context["master_fields"] = {
             "Brand–Campaign ID": self.object.brand_campaign_id,
-            "Brand name": getattr(
-                getattr(master_campaign, "brand", None),
-                "name",
-                None
-            ),
-            "Company name": company_name,
-            "Incharge name": getattr(master_campaign, "contact_person_name", None),
-            "Incharge contact": getattr(master_campaign, "contact_person_phone", None),
-            "Num doctors": getattr(master_campaign, "num_doctors_supported", None),
+            "Brand name": snap.get("brand_name"),
+            "Company name": snap.get("company_name"),
+            "Incharge name": snap.get("incharge_name"),
+            "Incharge contact": snap.get("incharge_contact"),
+            "Num doctors": snap.get("num_doctors"),
         }
-
-        print("DEBUG:get_context_data: master_fields =", context["master_fields"])
-        print("===========================================\n")
-
         return context
 
     def form_valid(self, form):
         # Save only editable fields to DEFAULT DB row
         self.object = form.save(commit=False)
-        self.object.save(
-            using="default",
-            update_fields=self.EDITABLE_FIELDS
-        )
+        self.object.save(using="default", update_fields=self.EDITABLE_FIELDS)
         return redirect(self.get_success_url())
 
     def get_success_url(self):
         if self.kwargs.get("campaign_id") or self.request.session.get("publisher_authenticated"):
             return reverse("publisher_campaign_update", kwargs={"campaign_id": self.object.brand_campaign_id})
         return reverse("manage_data_panel")
+
 
 # ------------------------------------------------------------------------
 # Delete Campaign (any authenticated user)
