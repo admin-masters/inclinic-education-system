@@ -10,35 +10,80 @@
 
 <form method="post" class="needs-validation" novalidate>
   {% csrf_token %}
+
   <div class="mb-3">
-      <label class="form-label" for="campaignSelect">Assign to Campaign (optional)</label>
-      <select class="form-select" id="campaignSelect" name="campaign">
-        <option value="" {% if not campaign_param %}selected{% endif %}>Select campaign</option>
+    <label class="form-label" for="campaignSelect">Assign to Campaign (optional)</label>
+    <select class="form-select" id="campaignSelect" name="campaign">
+      <option value="" {% if not campaign_param %}selected{% endif %}>Select campaign</option>
 
-        {% for c in campaigns %}
-            <option value="{{ c.brand_campaign_id|stringformat:'s' }}"
-                    {% if campaign_param|stringformat:"s" == c.brand_campaign_id|stringformat:"s" %}selected{% endif %}>
-              {{ c.name }} ({{ c.brand_campaign_id }})
-            </option>
-        {% endfor %}
-      </select>
+      {% for c in campaigns %}
+        <option value="{{ c.brand_campaign_id|stringformat:'s' }}"
+                {% if campaign_param|stringformat:'s' == c.brand_campaign_id|stringformat:'s' %}selected{% endif %}>
+          {{ c.name }} ({{ c.brand_campaign_id }})
+        </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger">
+      {{ form.non_field_errors }}
+    </div>
+  {% endif %}
+
+  <div class="row">
+    <div class="col-md-6">
+      <div class="mb-3">
+        <label class="form-label" for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>
+        {{ form.first_name }}
+        {% if form.first_name.errors %}
+          <div class="text-danger">{{ form.first_name.errors }}</div>
+        {% endif %}
+      </div>
     </div>
 
-  {{ form.non_field_errors }}
-
-  {% for field in form %}
-    <div class="mb-3">
-      <label class="form-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
-      {{ field }}
-      {% if field.errors %}
-        <div class="text-danger">{{ field.errors }}</div>
-      {% endif %}
+    <div class="col-md-6">
+      <div class="mb-3">
+        <label class="form-label" for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>
+        {{ form.last_name }}
+        {% if form.last_name.errors %}
+          <div class="text-danger">{{ form.last_name.errors }}</div>
+        {% endif %}
+      </div>
     </div>
-  {% endfor %}
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label" for="{{ form.email.id_for_label }}">{{ form.email.label }}</label>
+    {{ form.email }}
+    {% if form.email.errors %}
+      <div class="text-danger">{{ form.email.errors }}</div>
+    {% endif %}
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label" for="{{ form.phone_number.id_for_label }}">{{ form.phone_number.label }}</label>
+    {{ form.phone_number }}
+    {% if form.phone_number.errors %}
+      <div class="text-danger">{{ form.phone_number.errors }}</div>
+    {% endif %}
+  </div>
+
+  <div class="mb-3">
+    <label class="form-label" for="{{ form.field_id.id_for_label }}">{{ form.field_id.label }}</label>
+    {{ form.field_id }}
+    {% if form.field_id.errors %}
+      <div class="text-danger">{{ form.field_id.errors }}</div>
+    {% endif %}
+  </div>
 
   <button class="btn btn-success">
     {% if view.object %}Update{% else %}Add{% endif %}
   </button>
-  <a href="{% url 'admin_dashboard:fieldrep_list' %}{% if campaign_param %}?campaign={{ campaign_param }}{% endif %}" class="btn btn-secondary ms-2">Back</a>
+
+  <a href="{% url 'admin_dashboard:fieldrep_list' %}{% if campaign_param %}?campaign={{ campaign_param }}{% endif %}"
+     class="btn btn-secondary ms-2">
+    Back
+  </a>
 </form>
 {% endblock %}
