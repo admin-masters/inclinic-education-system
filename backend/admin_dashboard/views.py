@@ -687,50 +687,51 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
     template_name = "admin_dashboard/fieldrep_form.html"
     success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
 
-    def _campaign_param(self) -> str | None:
-        return _get_campaign_param_any(self.request)
-
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs["campaign_param"] = self._campaign_param()
+        # ✅ use canonical helper (GET/POST/session) and force string
+        kwargs["campaign_param"] = _get_campaign_param_any(self.request)
         return kwargs
 
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        campaign_param = self._campaign_param()
-        if campaign_param:
-            ctx["campaign_param"] = campaign_param
-        ctx["campaigns"] = Campaign.objects.all().order_by("name")
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+
+        # ✅ use canonical helper and force string for template compare
+        campaign_param = _get_campaign_param_any(self.request)
+        ctx["campaign_param"] = campaign_param or ""
+
+        # ✅ CRITICAL FIX: do NOT pass Campaign queryset directly to template
+        # This prevents UUID parsing errors during {% for c in campaigns %}
+        ctx["campaigns"] = _campaign_dropdown_rows()
+
         return ctx
 
     def form_valid(self, form):
         response = super().form_valid(form)
 
-        campaign_param = self._campaign_param()
+        campaign_param = _get_campaign_param_any(self.request)
         if campaign_param:
-            # Preserve original behavior:
-            # - numeric => pk lookup
-            # - else => brand_campaign_id lookup
-            try:
-                campaign_pk = int(str(campaign_param))
-                campaign = get_object_or_404(Campaign, pk=campaign_pk)
-            except (ValueError, TypeError):
-                campaign = get_object_or_404(Campaign, brand_campaign_id=str(campaign_param))
+            campaign_pk = _resolve_campaign_pk(campaign_param)
+            if campaign_pk:
+                FieldRepCampaign.objects.get_or_create(
+                    field_rep=self.object,
+                    campaign_id=campaign_pk,
+                )
 
-            FieldRepCampaign.objects.get_or_create(field_rep=self.object, campaign=campaign)
+                # ✅ optional master sync (you already have the helper)
+                _sync_fieldrep_to_master(self.request, self.object, campaign_param)
 
         return response
 
     def get_success_url(self):
         base = reverse("admin_dashboard:fieldrep_list")
-        campaign_param = self._campaign_param()
+        campaign_param = _get_campaign_param_any(self.request)
         if not campaign_param:
             return base
-
-        s = str(campaign_param).strip()
-        if s.isdigit():
-            return f"{base}?campaign_id={s}"
-        return f"{base}?brand_campaign_id={s}"
+        # keep the list filtered the same way user came in
+        if str(campaign_param).isdigit():
+            return f"{base}?campaign_id={campaign_param}"
+        return f"{base}?brand_campaign_id={campaign_param}"
 
 
 class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
@@ -739,51 +740,48 @@ class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
     template_name = "admin_dashboard/fieldrep_form.html"
     success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
 
-    def _campaign_param(self) -> str | None:
-        return _get_campaign_param_any(self.request)
-
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs["campaign_param"] = self._campaign_param()
+        kwargs["campaign_param"] = _get_campaign_param_any(self.request)
         return kwargs
 
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        campaign_param = self._campaign_param()
-        if campaign_param:
-            ctx["campaign_param"] = campaign_param
-        ctx["campaigns"] = Campaign.objects.all().order_by("name")
+    def get_context_data(self, **kw):
+        ctx = super().get_context_data(**kw)
+
+        campaign_param = _get_campaign_param_any(self.request)
+        ctx["campaign_param"] = campaign_param or ""
+
+        # ✅ CRITICAL FIX: safe dropdown rows
+        ctx["campaigns"] = _campaign_dropdown_rows()
+
         return ctx
 
     def form_valid(self, form):
-        # email uniqueness per brand is validated inside FieldRepForm.clean_email()
         response = super().form_valid(form)
 
-        campaign_param = self._campaign_param()
+        campaign_param = _get_campaign_param_any(self.request)
         if campaign_param:
-            # Preserve original behavior:
-            # - numeric => pk lookup
-            # - else => brand_campaign_id lookup
-            try:
-                campaign_pk = int(str(campaign_param))
-                campaign = get_object_or_404(Campaign, pk=campaign_pk)
-            except (ValueError, TypeError):
-                campaign = get_object_or_404(Campaign, brand_campaign_id=str(campaign_param))
+            campaign_pk = _resolve_campaign_pk(campaign_param)
+            if campaign_pk:
+                FieldRepCampaign.objects.get_or_create(
+                    field_rep=self.object,
+                    campaign_id=campaign_pk,
+                )
 
-            FieldRepCampaign.objects.get_or_create(field_rep=self.object, campaign=campaign)
+                # ✅ optional master sync
+                _sync_fieldrep_to_master(self.request, self.object, campaign_param)
 
         return response
 
     def get_success_url(self):
         base = reverse("admin_dashboard:fieldrep_list")
-        campaign_param = self._campaign_param()
+        campaign_param = _get_campaign_param_any(self.request)
         if not campaign_param:
             return base
+        if str(campaign_param).isdigit():
+            return f"{base}?campaign_id={campaign_param}"
+        return f"{base}?brand_campaign_id={campaign_param}"
 
-        s = str(campaign_param).strip()
-        if s.isdigit():
-            return f"{base}?campaign_id={s}"
-        return f"{base}?brand_campaign_id={s}"
 
 
 class FieldRepDeleteView(StaffRequiredMixin, DeleteView):
