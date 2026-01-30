@@ -1,32 +1,48 @@
-from django.contrib.admin.views.decorators import staff_member_required
-from django.contrib.auth.mixins import UserPassesTestMixin, LoginRequiredMixin
+# admin_dashboard/views.py
+
+import uuid
+import string
+
+from django.conf import settings
 from django.contrib import messages
+from django.contrib.admin.views.decorators import staff_member_required
+from django.contrib.auth.hashers import make_password
+from django.contrib.auth.mixins import LoginRequiredMixin, UserPassesTestMixin
+from django.db import connection, connections, transaction
 from django.db.models import Count, Q
-from django.http import HttpResponseRedirect
-from django.shortcuts import render, redirect, get_object_or_404
+from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
-from django.views.generic import (
-    ListView, CreateView, UpdateView, DeleteView, View
+from django.utils import timezone
+from django.views.generic import CreateView, DeleteView, ListView, UpdateView
+
+from campaign_management.models import Campaign, CampaignAssignment
+from campaign_management.master_models import (
+    MasterAuthUser,
+    MasterCampaign,
+    MasterCampaignFieldRep,
+    MasterFieldRep,
 )
-
-from campaign_management.models import Campaign
 from collateral_management.models import CampaignCollateral
-from sharing_management.models import ShareLog
-from doctor_viewer.models import DoctorEngagement, Doctor
-from .forms import FieldRepBulkUploadForm, FieldRepForm, DoctorForm
+from doctor_viewer.models import Doctor, DoctorEngagement
+from sharing_management.models import ShareLog, VideoTrackingLog
 from user_management.models import User
-from admin_dashboard.models import FieldRepCampaign
+
+from .forms import DoctorForm, FieldRepBulkUploadForm, FieldRepForm
+from .models import FieldRepCampaign
 from utils.recaptcha import recaptcha_required
-from sharing_management.models import VideoTrackingLog
 
-from django.db import connection
-from campaign_management.models import CampaignAssignment
 
+MASTER_DB_ALIAS = getattr(settings, "MASTER_DB_ALIAS", "master")
+
+
+# ─────────────────────────────────────────────────────────
+# Campaign param helpers (canonicalize campaign context)
+# ─────────────────────────────────────────────────────────
 
 def _get_campaign_param(request):
     """
     Single canonical way to read the campaign context across admin_dashboard.
-    Treat it as a STRING identifier (brand_campaign_id) like the campaign module.
+    Treat as STRING identifier (brand_campaign_id).
     """
     return (
         request.POST.get("campaign")
@@ -36,32 +52,82 @@ def _get_campaign_param(request):
     )
 
 
-def _campaign_dropdown_rows():
+def _brand_campaign_id_from_param(campaign_param: str | None) -> str | None:
     """
-    Returns a list of dicts: [{"brand_campaign_id": "...", "name": "..."}, ...]
-    Uses ORM values() first; falls back to raw SQL if there are UUID coercion issues.
+    If campaign_param is numeric => treat as local Campaign.pk and return its brand_campaign_id.
+    Else => return as string.
+    """
+    if not campaign_param:
+        return None
+    s = str(campaign_param).strip()
+    if not s:
+        return None
+
+    if s.isdigit():
+        try:
+            pk = int(s)
+        except ValueError:
+            return None
+        bcid = Campaign.objects.filter(pk=pk).values_list("brand_campaign_id", flat=True).first()
+        return str(bcid) if bcid else None
+
+    return s
+
+
+def _normalize_master_campaign_id(brand_campaign_id: str | None) -> str | None:
+    """
+    Master DB stores campaign_id in join table without hyphens (32 hex).
+    Return 32-hex lowercase string when possible.
+    """
+    if not brand_campaign_id:
+        return None
+    raw = str(brand_campaign_id).strip()
+    if not raw:
+        return None
+
+    # Remove hyphens
+    hex32 = raw.replace("-", "").lower()
+
+    # Validate length & hex-ness
+    if len(hex32) == 32 and all(ch in string.hexdigits for ch in hex32):
+        return hex32.lower()
+
+    return None
+
+
+def _uuid_dashed_from_hex32(hex32: str) -> str:
+    """
+    Convert 'f44996be19374f5e95ae5f1bb333b66c' => 'f44996be-1937-4f5e-95ae-5f1bb333b66c'
+    Best-effort; returns input if conversion fails.
     """
     try:
-        return list(
-            Campaign.objects.values("brand_campaign_id", "name").order_by("name")
-        )
+        return str(uuid.UUID(hex=str(hex32)))
     except Exception:
+        return str(hex32)
+
+
+def _campaign_dropdown_rows():
+    """
+    Returns list of dicts: [{"brand_campaign_id": "...", "name": "..."}, ...]
+    Always strings for brand_campaign_id (prevents UUID join / template issues).
+    """
+    try:
+        return list(Campaign.objects.values("brand_campaign_id", "name").order_by("name"))
+    except Exception:
+        # Fallback raw SQL
         table = connection.ops.quote_name(Campaign._meta.db_table)
         bcid = connection.ops.quote_name("brand_campaign_id")
         name = connection.ops.quote_name("name")
         with connection.cursor() as cursor:
             cursor.execute(f"SELECT {bcid}, {name} FROM {table} ORDER BY {name} ASC")
-            return [
-                {"brand_campaign_id": str(brand_campaign_id), "name": campaign_name}
-                for (brand_campaign_id, campaign_name) in cursor.fetchall()
-            ]
+            return [{"brand_campaign_id": str(x), "name": y} for (x, y) in cursor.fetchall()]
 
 
 def _campaign_pk_from_param(campaign_param):
     """
-    Resolve the DB PK for a campaign_param.
-    - If numeric => treat as pk
-    - Else => treat as brand_campaign_id
+    Resolve local DB PK for a campaign_param.
+    - If numeric => pk
+    - Else => brand_campaign_id lookup
     """
     if not campaign_param:
         return None
@@ -75,7 +141,6 @@ def _campaign_pk_from_param(campaign_param):
         except ValueError:
             return None
 
-    # brand_campaign_id lookup
     try:
         return (
             Campaign.objects.filter(brand_campaign_id=campaign_param)
@@ -83,7 +148,6 @@ def _campaign_pk_from_param(campaign_param):
             .first()
         )
     except Exception:
-        # fallback raw SQL
         table = connection.ops.quote_name(Campaign._meta.db_table)
         pk_col = connection.ops.quote_name(Campaign._meta.pk.column)
         bcid = connection.ops.quote_name("brand_campaign_id")
@@ -97,63 +161,293 @@ def _campaign_pk_from_param(campaign_param):
 
 
 # ─────────────────────────────────────────────────────────
+# Master DB sync helpers (FieldRep + mapping)
+# ─────────────────────────────────────────────────────────
+
+def _master_available() -> bool:
+    try:
+        _ = connections[MASTER_DB_ALIAS]
+        return True
+    except Exception:
+        return False
+
+
+def _master_get_campaign(master_campaign_id: str) -> MasterCampaign | None:
+    try:
+        return MasterCampaign.objects.using(MASTER_DB_ALIAS).filter(id=master_campaign_id).first()
+    except Exception:
+        return None
+
+
+def _master_upsert_auth_user_from_portal_user(portal_user: User) -> MasterAuthUser | None:
+    """
+    Create/update auth_user on master using portal user's email as username.
+    """
+    email = (portal_user.email or "").strip()
+    if not email:
+        return None
+
+    username = email
+    if len(username) > 150:
+        # Keep it deterministic-ish but within length.
+        username = (email[:140] + "-" + uuid.uuid4().hex[:9])
+
+    try:
+        qs = MasterAuthUser.objects.using(MASTER_DB_ALIAS).filter(username=username)
+        master_user = qs.first()
+
+        if master_user:
+            dirty_fields = []
+            if (master_user.email or "") != email:
+                master_user.email = email
+                dirty_fields.append("email")
+
+            # Optional: keep names in sync if you ever store them in portal User
+            fn = (portal_user.first_name or "").strip()
+            ln = (portal_user.last_name or "").strip()
+            if fn and master_user.first_name != fn:
+                master_user.first_name = fn
+                dirty_fields.append("first_name")
+            if ln and master_user.last_name != ln:
+                master_user.last_name = ln
+                dirty_fields.append("last_name")
+
+            # Keep active in sync
+            is_active = bool(getattr(portal_user, "active", True))
+            if master_user.is_active != is_active:
+                master_user.is_active = is_active
+                dirty_fields.append("is_active")
+
+            if dirty_fields:
+                master_user.save(using=MASTER_DB_ALIAS, update_fields=dirty_fields)
+
+            return master_user
+
+        # Create
+        master_user = MasterAuthUser(
+            username=username,
+            email=email,
+            first_name=(portal_user.first_name or "").strip(),
+            last_name=(portal_user.last_name or "").strip(),
+            is_staff=False,
+            is_superuser=False,
+            is_active=bool(getattr(portal_user, "active", True)),
+            date_joined=timezone.now(),
+            password=make_password(None),  # unusable password unless you set one later
+        )
+        master_user.save(using=MASTER_DB_ALIAS)
+        return master_user
+
+    except Exception:
+        return None
+
+
+def _master_upsert_fieldrep(
+    *,
+    portal_user: User,
+    master_user: MasterAuthUser,
+    master_campaign: MasterCampaign | None,
+) -> MasterFieldRep | None:
+    """
+    Create/update campaign_fieldrep row in master DB.
+    Brand is derived from master_campaign.brand_id (preferred).
+    """
+    if not master_user:
+        return None
+
+    # Determine brand_id
+    brand_id = getattr(master_campaign, "brand_id", None) if master_campaign else None
+    if not brand_id:
+        # If no campaign context, try to find an existing rep by email/field_id and reuse its brand
+        try:
+            existing = (
+                MasterFieldRep.objects.using(MASTER_DB_ALIAS)
+                .select_related("user")
+                .filter(user_id=master_user.id)
+                .first()
+            )
+            if existing and getattr(existing, "brand_id", None):
+                brand_id = existing.brand_id
+        except Exception:
+            brand_id = None
+
+    if not brand_id:
+        # Cannot create a master fieldrep row without brand (in your schema this FK is required).
+        return None
+
+    full_name = (portal_user.get_full_name() or "").strip()
+    if not full_name:
+        full_name = (portal_user.first_name or "").strip()
+    if not full_name:
+        # last fallback: use email local-part
+        full_name = (portal_user.email or "Field Rep").split("@", 1)[0]
+
+    phone = (getattr(portal_user, "phone_number", "") or "").strip()
+    field_id = (getattr(portal_user, "field_id", "") or "").strip()
+
+    try:
+        rep = MasterFieldRep.objects.using(MASTER_DB_ALIAS).filter(user_id=master_user.id).first()
+        if rep:
+            dirty = []
+            if rep.brand_id != brand_id:
+                rep.brand_id = brand_id
+                dirty.append("brand")
+            if rep.full_name != full_name:
+                rep.full_name = full_name
+                dirty.append("full_name")
+            if (rep.phone_number or "") != phone:
+                rep.phone_number = phone
+                dirty.append("phone_number")
+            if (rep.brand_supplied_field_rep_id or "") != field_id:
+                rep.brand_supplied_field_rep_id = field_id
+                dirty.append("brand_supplied_field_rep_id")
+
+            is_active = bool(getattr(portal_user, "active", True))
+            if rep.is_active != is_active:
+                rep.is_active = is_active
+                dirty.append("is_active")
+
+            if dirty:
+                rep.save(using=MASTER_DB_ALIAS, update_fields=dirty)
+            return rep
+
+        # Create
+        rep = MasterFieldRep(
+            user_id=master_user.id,
+            brand_id=brand_id,
+            full_name=full_name,
+            phone_number=phone,
+            brand_supplied_field_rep_id=field_id,
+            is_active=bool(getattr(portal_user, "active", True)),
+        )
+        rep.save(using=MASTER_DB_ALIAS)
+        return rep
+
+    except Exception:
+        return None
+
+
+def _master_link_rep_to_campaign(master_campaign_id: str, master_fieldrep: MasterFieldRep) -> None:
+    """
+    Ensure campaign_campaignfieldrep row exists in master.
+    """
+    if not master_campaign_id or not master_fieldrep:
+        return
+    try:
+        MasterCampaignFieldRep.objects.using(MASTER_DB_ALIAS).get_or_create(
+            campaign_id=master_campaign_id,
+            field_rep_id=master_fieldrep.id,
+        )
+    except Exception:
+        return
+
+
+def _sync_fieldrep_to_master(request, portal_user: User, campaign_param: str | None) -> None:
+    """
+    Best-effort sync to master DB.
+    Does NOT break portal flow if master DB is unavailable.
+    """
+    if not _master_available():
+        return
+
+    bcid = _brand_campaign_id_from_param(campaign_param)
+    master_campaign_id = _normalize_master_campaign_id(bcid) if bcid else None
+    master_campaign = _master_get_campaign(master_campaign_id) if master_campaign_id else None
+
+    try:
+        with transaction.atomic(using=MASTER_DB_ALIAS):
+            master_user = _master_upsert_auth_user_from_portal_user(portal_user)
+            if not master_user:
+                messages.warning(request, "Master sync: could not create/update master auth_user (missing email).")
+                return
+
+            master_rep = _master_upsert_fieldrep(
+                portal_user=portal_user,
+                master_user=master_user,
+                master_campaign=master_campaign,
+            )
+            if not master_rep:
+                messages.warning(
+                    request,
+                    "Master sync: could not create/update master FieldRep (brand missing; add via a campaign context).",
+                )
+                return
+
+            if master_campaign_id:
+                _master_link_rep_to_campaign(master_campaign_id, master_rep)
+
+    except Exception:
+        # Do not block portal operations
+        messages.warning(request, "Master sync: failed due to a master DB error.")
+
+
+# ─────────────────────────────────────────────────────────
 # MIXIN
 # ─────────────────────────────────────────────────────────
+
 class StaffRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
+    login_url = reverse_lazy("admin:login")
+
     def test_func(self):
-        return self.request.user.is_staff
+        return bool(self.request.user.is_staff)
 
     def handle_no_permission(self):
-        if not self.request.user.is_authenticated:
-            return redirect('admin:login')
-        else:
-            # If user is authenticated but not staff, redirect to login
-            return redirect('admin:login')
-
-    login_url = reverse_lazy("admin:login")
+        return redirect("admin:login")
 
     def get_success_url(self):
         return reverse_lazy("admin_dashboard:fieldrep_list")
 
+
 # ─────────────────────────────────────────────────────────
 # DASHBOARD (unchanged)
 # ─────────────────────────────────────────────────────────
+
 @staff_member_required
 def dashboard(request):
-    shares = ShareLog.objects.values('short_link__resource_id').annotate(share_cnt=Count('id'))
-    pdfs   = DoctorEngagement.objects.filter(pdf_completed=True)\
-              .values('short_link__resource_id').annotate(pdf_impr=Count('id'))
-    vids   = DoctorEngagement.objects.filter(video_watch_percentage__gte=90)\
-              .values('short_link__resource_id').annotate(vid_comp=Count('id'))
+    shares = ShareLog.objects.values("short_link__resource_id").annotate(share_cnt=Count("id"))
+    pdfs = (
+        DoctorEngagement.objects.filter(pdf_completed=True)
+        .values("short_link__resource_id")
+        .annotate(pdf_impr=Count("id"))
+    )
+    vids = (
+        DoctorEngagement.objects.filter(video_watch_percentage__gte=90)
+        .values("short_link__resource_id")
+        .annotate(vid_comp=Count("id"))
+    )
 
-    # New: VideoTrackingLog-based stats
-    video_logs = VideoTrackingLog.objects.filter(video_percentage='3')\
-        .values('share_log__collateral_id').annotate(vid_comp=Count('id'))
-    video_log_map = {v['share_log__collateral_id']: v['vid_comp'] for v in video_logs}
+    video_logs = (
+        VideoTrackingLog.objects.filter(video_percentage="3")
+        .values("share_log__collateral_id")
+        .annotate(vid_comp=Count("id"))
+    )
+    video_log_map = {v["share_log__collateral_id"]: v["vid_comp"] for v in video_logs}
 
-    share_map = {s['short_link__resource_id']: s['share_cnt'] for s in shares}
-    pdf_map   = {p['short_link__resource_id']: p['pdf_impr'] for p in pdfs}
-    vid_map   = {v['short_link__resource_id']: v['vid_comp'] for v in vids}
+    share_map = {s["short_link__resource_id"]: s["share_cnt"] for s in shares}
+    pdf_map = {p["short_link__resource_id"]: p["pdf_impr"] for p in pdfs}
+    vid_map = {v["short_link__resource_id"]: v["vid_comp"] for v in vids}
 
     stats = []
     for c in Campaign.objects.all():
-        coll_ids = list(
-            CampaignCollateral.objects.filter(campaign=c).values_list('collateral_id', flat=True)
-        )
+        coll_ids = list(CampaignCollateral.objects.filter(campaign=c).values_list("collateral_id", flat=True))
         for coll_id in coll_ids:
-            stats.append({
-                'campaign': c,
-                'collateral_id': coll_id,
-                'shares': share_map.get(coll_id, 0),
-                'pdf_completions': pdf_map.get(coll_id, 0),
-                'video_completions_old': vid_map.get(coll_id, 0),
-                'video_completions_new': video_log_map.get(coll_id, 0),
-            })
-    return render(request, 'admin_dashboard/dashboard.html', {'stats': stats})
+            stats.append(
+                {
+                    "campaign": c,
+                    "collateral_id": coll_id,
+                    "shares": share_map.get(coll_id, 0),
+                    "pdf_completions": pdf_map.get(coll_id, 0),
+                    "video_completions_old": vid_map.get(coll_id, 0),
+                    "video_completions_new": video_log_map.get(coll_id, 0),
+                }
+            )
+    return render(request, "admin_dashboard/dashboard.html", {"stats": stats})
+
 
 # ─────────────────────────────────────────────────────────
-# BULK‑UPLOAD (unchanged)
+# BULK‑UPLOAD (unchanged except campaign param normalization)
 # ─────────────────────────────────────────────────────────
+
 @staff_member_required
 @recaptcha_required
 def bulk_upload_fieldreps(request):
@@ -166,18 +460,17 @@ def bulk_upload_fieldreps(request):
             return redirect("admin_dashboard:bulk_upload")
     else:
         form = FieldRepBulkUploadForm()
-        # Pre-select campaign if provided in URL
-        campaign_ref = (
-                request.GET.get("campaign_id")
-                or request.GET.get("campaign")
-                or request.GET.get("brand_campaign_id")
-        )
 
+        campaign_ref = _get_campaign_param(request)
         if campaign_ref:
             campaign_obj = None
-            try:
-                campaign_obj = Campaign.objects.get(pk=int(campaign_ref))
-            except (TypeError, ValueError, Campaign.DoesNotExist):
+            # Try as local pk first
+            if str(campaign_ref).isdigit():
+                try:
+                    campaign_obj = Campaign.objects.get(pk=int(campaign_ref))
+                except Exception:
+                    campaign_obj = None
+            if not campaign_obj:
                 campaign_obj = Campaign.objects.filter(brand_campaign_id=str(campaign_ref)).first()
 
             if campaign_obj:
@@ -185,139 +478,202 @@ def bulk_upload_fieldreps(request):
 
     return render(request, "admin_dashboard/bulk_upload.html", {"form": form})
 
+
 # ─────────────────────────────────────────────────────────
-# FIELD‑REP CRUD (unchanged)
+# FIELD‑REP CRUD
 # ─────────────────────────────────────────────────────────
+
 class FieldRepListView(StaffRequiredMixin, ListView):
     template_name = "admin_dashboard/fieldrep_list.html"
     context_object_name = "reps"
     paginate_by = 25
 
+    def _filter_rep_ids_from_master(self, campaign_filter: str) -> set[int]:
+        """
+        Best-effort: use master join table to determine which portal users belong to campaign.
+        Maps master reps -> portal users by (field_id or email).
+        """
+        if not _master_available():
+            return set()
+
+        bcid = _brand_campaign_id_from_param(campaign_filter)
+        master_campaign_id = _normalize_master_campaign_id(bcid) if bcid else None
+        if not master_campaign_id:
+            return set()
+
+        try:
+            master_rep_ids = list(
+                MasterCampaignFieldRep.objects.using(MASTER_DB_ALIAS)
+                .filter(campaign_id=master_campaign_id)
+                .values_list("field_rep_id", flat=True)
+            )
+            if not master_rep_ids:
+                return set()
+
+            master_reps = (
+                MasterFieldRep.objects.using(MASTER_DB_ALIAS)
+                .select_related("user")
+                .filter(id__in=master_rep_ids, is_active=True)
+            )
+
+            field_ids = [r.brand_supplied_field_rep_id for r in master_reps if (r.brand_supplied_field_rep_id or "").strip()]
+            emails = [r.user.email for r in master_reps if r.user and (r.user.email or "").strip()]
+
+            filt = Q()
+            if field_ids:
+                filt |= Q(field_id__in=field_ids)
+            if emails:
+                filt |= Q(email__in=emails)
+
+            if not filt:
+                return set()
+
+            return set(
+                User.objects.filter(filt, role="field_rep", active=True).values_list("id", flat=True)
+            )
+
+        except Exception:
+            return set()
+
     def get_queryset(self):
-        # Base queryset - only active field reps
         qs = User.objects.filter(role="field_rep", active=True).order_by("-id")
+        q = (self.request.GET.get("q") or "").strip()
 
-        # Get search query if any
-        q = self.request.GET.get("q", "")
+        # campaign filter from URL/session
+        campaign_filter = (
+            self.request.GET.get("brand_campaign_id")
+            or self.request.GET.get("campaign")
+            or self.request.GET.get("campaign_id")
+        )
+        if not campaign_filter and hasattr(self.request, "session"):
+            campaign_filter = self.request.session.get("brand_campaign_id")
 
-        # Get campaign filter from URL parameters
-        campaign_param = self.request.GET.get("campaign") or self.request.GET.get("campaign_id")
-        brand_campaign_id = self.request.GET.get("brand_campaign_id")
-
-        # If no campaign parameter in URL, check session
-        if not campaign_param and not brand_campaign_id and hasattr(self.request, 'session'):
-            brand_campaign_id = self.request.session.get('brand_campaign_id')
-
-        # If we have a campaign filter
-        if campaign_param or brand_campaign_id:
-            # If we have a brand_campaign_id, use it directly
-            if brand_campaign_id:
-                print(f"DEBUG: Admin dashboard filtering by brand_campaign_id: {brand_campaign_id}")
-                rep_ids = list(FieldRepCampaign.objects.filter(
-                    campaign__brand_campaign_id=brand_campaign_id,
-                    field_rep__active=True
-                ).values_list("field_rep_id", flat=True))
-                print(f"DEBUG: Found rep_ids: {rep_ids}")
+        if campaign_filter:
+            # 1) Prefer master join table
+            rep_ids_master = self._filter_rep_ids_from_master(str(campaign_filter))
+            if rep_ids_master:
+                qs = qs.filter(id__in=rep_ids_master)
             else:
-                # Try to interpret as campaign ID or brand_campaign_id
-                try:
-                    campaign_pk = int(campaign_param)
-                    rep_ids = list(FieldRepCampaign.objects.filter(
-                        campaign_id=campaign_pk,
-                        field_rep__active=True
-                    ).values_list("field_rep_id", flat=True))
-                except (TypeError, ValueError):
-                    # If not a number, try as brand_campaign_id
-                    rep_ids = list(FieldRepCampaign.objects.filter(
-                        campaign__brand_campaign_id=campaign_param,
-                        field_rep__active=True
-                    ).values_list("field_rep_id", flat=True))
+                # 2) Fallback to portal join table
+                rep_ids = list(
+                    FieldRepCampaign.objects.filter(
+                        campaign__brand_campaign_id=str(_brand_campaign_id_from_param(campaign_filter)),
+                        field_rep__active=True,
+                    ).values_list("field_rep_id", flat=True)
+                )
+                if rep_ids:
+                    qs = qs.filter(id__in=rep_ids)
+                else:
+                    return User.objects.none()
 
-            # If we found matching field reps, filter the queryset
-            if rep_ids:
-                qs = qs.filter(id__in=rep_ids)
-                print(f"DEBUG: Filtered queryset to {qs.count()} field reps")
-            else:
-                # If no field reps found for the campaign, return empty queryset
-                print("DEBUG: No rep_ids found, returning empty queryset")
-                return User.objects.none()
-
-        # Apply search filter if any
         if q:
             qs = qs.filter(
-                Q(field_id__icontains=q) |
-                Q(email__icontains=q) |
-                Q(phone_number__icontains=q) |
-                Q(first_name__icontains=q) |
-                Q(last_name__icontains=q)
+                Q(field_id__icontains=q)
+                | Q(email__icontains=q)
+                | Q(phone_number__icontains=q)
+                | Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
             )
 
         return qs.distinct()
 
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-        rep_ids = [r.id for r in ctx["reps"]]
+        reps = list(ctx.get("reps", []))
+        rep_ids = [r.id for r in reps]
 
-        # Current filter (could be numeric PK, UUID, etc.)
         campaign_id = self.request.GET.get("campaign_id")
         campaign = self.request.GET.get("campaign")
         brand_campaign_id = self.request.GET.get("brand_campaign_id")
         campaign_filter = campaign_id or campaign or brand_campaign_id
 
-        # Persist filter in session (optional but useful if you use redirect_to_fieldreps)
+        # Persist filter in session
         if campaign_filter and hasattr(self.request, "session"):
             self.request.session["brand_campaign_id"] = str(campaign_filter)
 
-        # Build campaign_data depending on filter
-        if campaign_filter:
-            if campaign_id:
-                campaign_data = FieldRepCampaign.objects.filter(
-                    field_rep_id__in=rep_ids,
-                    campaign_id=campaign_id
-                ).values("field_rep_id", "campaign__brand_campaign_id")
+        # ------------------------
+        # Build rep -> campaigns from portal DB
+        # ------------------------
+        campaign_data = FieldRepCampaign.objects.filter(field_rep_id__in=rep_ids).values(
+            "field_rep_id", "campaign__brand_campaign_id"
+        )
 
-            elif brand_campaign_id:
-                campaign_data = FieldRepCampaign.objects.filter(
-                    field_rep_id__in=rep_ids,
-                    campaign__brand_campaign_id=brand_campaign_id
-                ).values("field_rep_id", "campaign__brand_campaign_id")
-
-            else:
-                # campaign param could be numeric PK or brand_campaign_id/UUID
-                try:
-                    campaign_pk = int(campaign)
-                    campaign_data = FieldRepCampaign.objects.filter(
-                        field_rep_id__in=rep_ids,
-                        campaign_id=campaign_pk
-                    ).values("field_rep_id", "campaign__brand_campaign_id")
-                except (ValueError, TypeError):
-                    campaign_data = FieldRepCampaign.objects.filter(
-                        field_rep_id__in=rep_ids,
-                        campaign__brand_campaign_id=campaign
-                    ).values("field_rep_id", "campaign__brand_campaign_id")
-        else:
-            campaign_data = FieldRepCampaign.objects.filter(
-                field_rep_id__in=rep_ids
-            ).values("field_rep_id", "campaign__brand_campaign_id")
-
-        # Map rep_id -> list of campaign ids (as STRINGS)
         rep_campaigns = {}
         for item in campaign_data:
             rep_id = item.get("field_rep_id")
             bc_id = item.get("campaign__brand_campaign_id")
-
             if not rep_id or not bc_id:
                 continue
+            rep_campaigns.setdefault(rep_id, []).append(str(bc_id))  # ✅ always str
 
-            # ✅ CRITICAL FIX: always stringify (handles uuid.UUID and normal strings)
-            rep_campaigns.setdefault(rep_id, []).append(str(bc_id))
+        # ------------------------
+        # OPTIONAL: enrich rep -> campaigns from master DB (does not break if unavailable)
+        # ------------------------
+        if reps and _master_available():
+            try:
+                local_field_ids = [r.field_id for r in reps if (r.field_id or "").strip()]
+                local_emails = [r.email for r in reps if (r.email or "").strip()]
+
+                master_q = Q()
+                if local_field_ids:
+                    master_q |= Q(brand_supplied_field_rep_id__in=local_field_ids)
+                if local_emails:
+                    master_q |= Q(user__email__in=local_emails)
+
+                if master_q:
+                    master_reps = (
+                        MasterFieldRep.objects.using(MASTER_DB_ALIAS)
+                        .select_related("user")
+                        .filter(master_q)
+                    )
+
+                    by_field_id = {
+                        (mr.brand_supplied_field_rep_id or "").strip(): mr.id
+                        for mr in master_reps
+                        if (mr.brand_supplied_field_rep_id or "").strip()
+                    }
+                    by_email = {
+                        (mr.user.email or "").strip(): mr.id
+                        for mr in master_reps
+                        if mr.user and (mr.user.email or "").strip()
+                    }
+
+                    local_to_master = {}
+                    for r in reps:
+                        key_f = (r.field_id or "").strip()
+                        key_e = (r.email or "").strip()
+                        mid = by_field_id.get(key_f) or by_email.get(key_e)
+                        if mid:
+                            local_to_master[r.id] = mid
+
+                    if local_to_master:
+                        master_links = (
+                            MasterCampaignFieldRep.objects.using(MASTER_DB_ALIAS)
+                            .filter(field_rep_id__in=list(local_to_master.values()))
+                            .values("field_rep_id", "campaign_id")
+                        )
+
+                        master_campaigns_by_master_rep = {}
+                        for row in master_links:
+                            fr_id = row["field_rep_id"]
+                            c_id = row["campaign_id"]
+                            master_campaigns_by_master_rep.setdefault(fr_id, []).append(_uuid_dashed_from_hex32(str(c_id)))
+
+                        # Merge into rep_campaigns (strings only)
+                        for local_rep_id, master_rep_id in local_to_master.items():
+                            for mc in master_campaigns_by_master_rep.get(master_rep_id, []):
+                                rep_campaigns.setdefault(local_rep_id, []).append(str(mc))
+
+            except Exception:
+                pass
 
         # Attach comma-separated campaigns to each rep (dedupe, preserve order)
-        for rep in ctx["reps"]:
+        for rep in reps:
             vals = rep_campaigns.get(rep.id, [])
             seen = set()
             uniq = []
             for v in vals:
+                v = str(v)
                 if v and v not in seen:
                     seen.add(v)
                     uniq.append(v)
@@ -336,12 +692,9 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
 
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-
         campaign_param = _get_campaign_param(self.request)
         if campaign_param:
-            ctx["campaign_param"] = campaign_param
-
-        # IMPORTANT: don't instantiate Campaign objects here
+            ctx["campaign_param"] = str(campaign_param)
         ctx["campaigns"] = _campaign_dropdown_rows()
         return ctx
 
@@ -351,42 +704,32 @@ class FieldRepCreateView(StaffRequiredMixin, CreateView):
         campaign_param = _get_campaign_param(self.request)
         if campaign_param:
             campaign_pk = _campaign_pk_from_param(campaign_param)
-
             if campaign_pk:
-                # Create BOTH mappings (same behavior as bulk upload):contentReference[oaicite:9]{index=9}
-                CampaignAssignment.objects.get_or_create(
-                    field_rep=self.object,
-                    campaign_id=campaign_pk,
-                )
-                FieldRepCampaign.objects.get_or_create(
-                    field_rep=self.object,
-                    campaign_id=campaign_pk,
-                )
+                CampaignAssignment.objects.get_or_create(field_rep=self.object, campaign_id=campaign_pk)
+                FieldRepCampaign.objects.get_or_create(field_rep=self.object, campaign_id=campaign_pk)
             else:
                 messages.warning(
                     self.request,
-                    f"Campaign '{campaign_param}' not found in portal DB. Create/import the campaign first."
+                    f"Campaign '{campaign_param}' not found in portal DB. Create/import the campaign first.",
                 )
+
+        # ✅ NEW: master DB sync (best-effort)
+        _sync_fieldrep_to_master(self.request, self.object, campaign_param)
 
         return response
 
     def get_success_url(self):
-        # preserve campaign filter from the incoming querystring so the list stays filtered
         base = reverse("admin_dashboard:fieldrep_list")
-        campaign_param = (
-            self.request.POST.get("campaign")
-            or self.request.GET.get("campaign_id")
-            or self.request.GET.get("campaign")
-            or self.request.GET.get("brand_campaign_id")
-        )
+        campaign_param = _get_campaign_param(self.request)
         if not campaign_param:
             return base
-        # if numeric, use campaign_id, otherwise use brand_campaign_id
+        # preserve filter as brand_campaign_id if non-numeric
         try:
-            int(campaign_param)
+            int(str(campaign_param))
             return f"{base}?campaign_id={campaign_param}"
-        except (TypeError, ValueError):
+        except Exception:
             return f"{base}?brand_campaign_id={campaign_param}"
+
 
 class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
     model = User
@@ -398,7 +741,7 @@ class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
         ctx = super().get_context_data(**kw)
         campaign_param = _get_campaign_param(self.request)
         if campaign_param:
-            ctx["campaign_param"] = campaign_param
+            ctx["campaign_param"] = str(campaign_param)
         ctx["campaigns"] = _campaign_dropdown_rows()
         return ctx
 
@@ -409,60 +752,79 @@ class FieldRepUpdateView(StaffRequiredMixin, UpdateView):
         if campaign_param:
             campaign_pk = _campaign_pk_from_param(campaign_param)
             if campaign_pk:
-                CampaignAssignment.objects.get_or_create(
-                    field_rep=self.object,
-                    campaign_id=campaign_pk,
-                )
-                FieldRepCampaign.objects.get_or_create(
-                    field_rep=self.object,
-                    campaign_id=campaign_pk,
-                )
+                CampaignAssignment.objects.get_or_create(field_rep=self.object, campaign_id=campaign_pk)
+                FieldRepCampaign.objects.get_or_create(field_rep=self.object, campaign_id=campaign_pk)
+
+        # ✅ NEW: master DB sync (best-effort)
+        _sync_fieldrep_to_master(self.request, self.object, campaign_param)
+
         return response
 
     def get_success_url(self):
         base = reverse("admin_dashboard:fieldrep_list")
-        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        campaign_param = _get_campaign_param(self.request)
         if not campaign_param:
             return base
         try:
-            int(campaign_param)
+            int(str(campaign_param))
             return f"{base}?campaign_id={campaign_param}"
-        except (TypeError, ValueError):
+        except Exception:
             return f"{base}?brand_campaign_id={campaign_param}"
 
+
 class FieldRepDeleteView(StaffRequiredMixin, DeleteView):
-    model         = User
+    model = User
     template_name = "admin_dashboard/fieldrep_confirm_delete.html"
-    success_url   = reverse_lazy("admin_dashboard:fieldrep_list")
+    success_url = reverse_lazy("admin_dashboard:fieldrep_list")
 
     def delete(self, request, *args, **kw):
         self.object = self.get_object()
         DoctorEngagement.objects.filter(short_link__created_by=self.object).delete()
+
+        # Best-effort: deactivate master FieldRep + master auth_user
+        if _master_available():
+            try:
+                email = (self.object.email or "").strip()
+                if email:
+                    # our master upsert uses username=email; deactivate both
+                    mu = MasterAuthUser.objects.using(MASTER_DB_ALIAS).filter(username=email).first()
+                    if mu and mu.is_active:
+                        mu.is_active = False
+                        mu.save(using=MASTER_DB_ALIAS, update_fields=["is_active"])
+
+                    if mu:
+                        mr = MasterFieldRep.objects.using(MASTER_DB_ALIAS).filter(user_id=mu.id).first()
+                        if mr and mr.is_active:
+                            mr.is_active = False
+                            mr.save(using=MASTER_DB_ALIAS, update_fields=["is_active"])
+            except Exception:
+                pass
+
         return super().delete(request, *args, **kw)
 
     def get_success_url(self):
-        # preserve campaign filter on delete as well
         base = reverse("admin_dashboard:fieldrep_list")
-        campaign_param = self.request.GET.get("campaign_id") or self.request.GET.get("campaign") or self.request.GET.get("brand_campaign_id")
+        campaign_param = _get_campaign_param(self.request)
         if not campaign_param:
             return base
         try:
-            int(campaign_param)
+            int(str(campaign_param))
             return f"{base}?campaign_id={campaign_param}"
-        except (TypeError, ValueError):
+        except Exception:
             return f"{base}?brand_campaign_id={campaign_param}"
 
-# ─────────────────────────────────────────────────────────
-# DOCTOR CRUD (list/create, edit, delete) – now using pk
-# ─────────────────────────────────────────────────────────
-class FieldRepDoctorView(StaffRequiredMixin, CreateView):
-    """List + Create on one page."""
-    template_name = "admin_dashboard/fieldrep_doctors.html"
-    form_class    = DoctorForm
 
-    # Grab the rep by primary key (pk) from URL
+# ─────────────────────────────────────────────────────────
+# DOCTOR CRUD (list/create/edit/delete) — unchanged, but dispatch supports pk or rep_id
+# ─────────────────────────────────────────────────────────
+
+class FieldRepDoctorView(StaffRequiredMixin, CreateView):
+    template_name = "admin_dashboard/fieldrep_doctors.html"
+    form_class = DoctorForm
+
     def dispatch(self, request, *args, **kwargs):
-        self.rep = get_object_or_404(User, pk=kwargs["pk"], role="field_rep")
+        rep_pk = kwargs.get("pk") or kwargs.get("rep_id")
+        self.rep = get_object_or_404(User, pk=rep_pk, role="field_rep")
         return super().dispatch(request, *args, **kwargs)
 
     def form_valid(self, form):
@@ -474,20 +836,22 @@ class FieldRepDoctorView(StaffRequiredMixin, CreateView):
 
     def get_context_data(self, **kw):
         ctx = super().get_context_data(**kw)
-        ctx["rep"]     = self.rep
+        ctx["rep"] = self.rep
         ctx["doctors"] = self.rep.doctors.all()
         return ctx
 
+
 class DoctorUpdateView(StaffRequiredMixin, UpdateView):
-    model         = Doctor
-    form_class    = DoctorForm
+    model = Doctor
+    form_class = DoctorForm
     template_name = "admin_dashboard/doctor_form.html"
 
     def get_success_url(self):
         return reverse("admin_dashboard:fieldrep_doctors", args=[self.kwargs["pk_rep"]])
 
+
 class DoctorDeleteView(StaffRequiredMixin, DeleteView):
-    model         = Doctor
+    model = Doctor
     template_name = "admin_dashboard/doctor_confirm_delete.html"
 
     def get_success_url(self):
