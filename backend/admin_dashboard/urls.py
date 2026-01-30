@@ -8,13 +8,18 @@ app_name = "admin_dashboard"
 
 
 def redirect_to_fieldreps(request):
-    """
-    Keep campaign context via session if present.
-    """
-    brand_campaign_id = request.session.get("brand_campaign_id")
-    if brand_campaign_id:
-        return redirect(f'{reverse("admin_dashboard:fieldrep_list")}?brand_campaign_id={brand_campaign_id}')
+    campaign_ref = request.session.get("brand_campaign_id")
+    if campaign_ref:
+        campaign_ref = str(campaign_ref).strip()
+
+        # If session holds numeric pk, preserve it as campaign_id (not brand_campaign_id)
+        if campaign_ref.isdigit():
+            return redirect(f'{reverse("admin_dashboard:fieldrep_list")}?campaign_id={campaign_ref}')
+
+        return redirect(f'{reverse("admin_dashboard:fieldrep_list")}?brand_campaign_id={campaign_ref}')
+
     return redirect("admin_dashboard:fieldrep_list")
+
 
 
 urlpatterns = [
