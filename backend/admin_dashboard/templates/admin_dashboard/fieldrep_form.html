@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+
 {% block title %}
   {% if view.object %}Edit{% else %}Add{% endif %} Field Rep · Inditech
 {% endblock %}
@@ -17,8 +18,9 @@
       <option value="" {% if not campaign_param %}selected{% endif %}>Select campaign</option>
 
       {% for c in campaigns %}
-        <option value="{{ c.brand_campaign_id|stringformat:'s' }}"
-                {% if campaign_param|stringformat:'s' == c.brand_campaign_id|stringformat:'s' %}selected{% endif %}>
+        {# campaigns is a list of dicts: {brand_campaign_id: "...", name: "..."} #}
+        <option value="{{ c.brand_campaign_id }}"
+                {% if campaign_param and campaign_param == c.brand_campaign_id %}selected{% endif %}>
           {{ c.name }} ({{ c.brand_campaign_id }})
         </option>
       {% endfor %}
@@ -31,25 +33,22 @@
     </div>
   {% endif %}
 
+  {# Render fields explicitly to control order/layout #}
   <div class="row">
-    <div class="col-md-6">
-      <div class="mb-3">
-        <label class="form-label" for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>
-        {{ form.first_name }}
-        {% if form.first_name.errors %}
-          <div class="text-danger">{{ form.first_name.errors }}</div>
-        {% endif %}
-      </div>
+    <div class="col-md-6 mb-3">
+      <label class="form-label" for="{{ form.first_name.id_for_label }}">{{ form.first_name.label }}</label>
+      {{ form.first_name }}
+      {% if form.first_name.errors %}
+        <div class="text-danger">{{ form.first_name.errors }}</div>
+      {% endif %}
     </div>
 
-    <div class="col-md-6">
-      <div class="mb-3">
-        <label class="form-label" for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>
-        {{ form.last_name }}
-        {% if form.last_name.errors %}
-          <div class="text-danger">{{ form.last_name.errors }}</div>
-        {% endif %}
-      </div>
+    <div class="col-md-6 mb-3">
+      <label class="form-label" for="{{ form.last_name.id_for_label }}">{{ form.last_name.label }}</label>
+      {{ form.last_name }}
+      {% if form.last_name.errors %}
+        <div class="text-danger">{{ form.last_name.errors }}</div>
+      {% endif %}
     </div>
   </div>
 
@@ -81,7 +80,7 @@
     {% if view.object %}Update{% else %}Add{% endif %}
   </button>
 
-  <a href="{% url 'admin_dashboard:fieldrep_list' %}{% if campaign_param %}?campaign={{ campaign_param }}{% endif %}"
+  <a href="{% url 'admin_dashboard:fieldrep_list' %}{% if campaign_param %}?brand_campaign_id={{ campaign_param }}{% endif %}"
      class="btn btn-secondary ms-2">
     Back
   </a>
