@@ -646,7 +646,6 @@ def share_content(request):
 
 
 @field_rep_required
-@never_cache
 def share_form(request):
     if request.method == "POST":
         collateral_id = request.POST.get("collateral")
@@ -677,7 +676,6 @@ def share_form(request):
 
 
 @field_rep_required
-@never_cache
 def share_success(request, share_log_id):
     share_log = get_object_or_404(
         ShareLog.objects.using(LOCAL_DB),
@@ -764,7 +762,6 @@ def fieldrep_dashboard(request):
 
 
 @field_rep_required
-@never_cache
 def fieldrep_campaign_detail(request, campaign_id):
     rep_id = request.user.pk
 
