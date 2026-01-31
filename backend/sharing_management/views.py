@@ -63,6 +63,12 @@ import re
 from django.utils import timezone
 from django.conf import settings
 
+from django.db import connections
+from django.db.utils import OperationalError
+from django.contrib.auth.hashers import make_password
+import os
+import uuid
+
 logger = logging.getLogger(__name__)
 
 # Toggle if you want to disable later
