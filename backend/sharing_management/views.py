@@ -24,7 +24,7 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.models import User  # Add this line
 
-from .models import ShareLog, VideoTrackingLog, FieldRepresentative, CollateralTransaction
+from .models import ShareLog, VideoTrackingLog, CollateralTransaction
 from campaign_management.models import CampaignCollateral
 from doctor_viewer.models import Doctor
 from django.db.models import Max, Q, F, ExpressionWrapper, DateTimeField
