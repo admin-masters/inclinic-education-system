@@ -5,7 +5,7 @@ urlpatterns = [
     path("", views.share_content, name="share_content"),
     path("success/", views.share_success, name="share_success"),
     path("logs/", views.list_share_logs, name="list_share_logs"),
-    path("logs/<int:log_id>/", views.share_log_detail, name="share_log_detail"),
+    path("logs/<int:log_id>/", views.list_share_logs, name="share_log_detail"),
 
     path("dashboard/", views.fieldrep_dashboard, name="fieldrep_dashboard"),
     path("campaign/<str:campaign_id>/", views.fieldrep_campaign_detail, name="fieldrep_campaign_detail"),
