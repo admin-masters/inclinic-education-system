@@ -1,6 +1,5 @@
 {% extends "base.html" %}
 {% load static %}
-
 {% block extrastyle %}
 <style>
   .btn-group-wrap {
@@ -11,11 +10,7 @@
     align-items: center;
   }
 
-  .dropdown {
-    position: relative;
-    display: inline-block;
-  }
-
+  .dropdown { position: relative; display: inline-block; }
   .dropdown-toggle {
     background-color: #28a745;
     color: white;
@@ -28,26 +23,19 @@
     align-items: center;
     gap: 0.5rem;
   }
-
-  .dropdown-toggle:hover {
-    background-color: #218838;
-    color: white;
-  }
+  .dropdown-toggle:hover { background-color: #218838; color: white; }
 
   .dropdown-menu {
     display: none;
     position: absolute;
     background-color: #f9f9f9;
     min-width: 280px;
-    box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
+    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
     z-index: 1000;
     border-radius: 0.375rem;
     border: 1px solid #dee2e6;
   }
-
-  .dropdown:hover .dropdown-menu {
-    display: block;
-  }
+  .dropdown:hover .dropdown-menu { display: block; }
 
   .dropdown-item {
     color: #333;
@@ -57,63 +45,26 @@
     border-bottom: 1px solid #eee;
     transition: background-color 0.2s;
   }
-
-  .dropdown-item:last-child {
-    border-bottom: none;
-  }
-
-  .dropdown-item:hover {
-    background-color: #007bff;
-    color: white;
-    text-decoration: none;
-  }
-
-  .dropdown-header {
-    background-color: #e9ecef;
-    color: #495057;
-    padding: 0.75rem 1rem;
-    font-weight: 600;
-    border-bottom: 1px solid #dee2e6;
-  }
-
-  .dropdown-divider {
-    height: 1px;
-    background-color: #dee2e6;
-    margin: 0.5rem 0;
-  }
+  .dropdown-item:last-child { border-bottom: none; }
+  .dropdown-item:hover { background-color: #007bff; color: white; text-decoration: none; }
 
   .campaigns-table {
     width: 100%;
     background: white;
     border-radius: 0.5rem;
     overflow: hidden;
-    box-shadow: 0 0.125rem 0.25rem rgba(0, 0, 0, 0.075);
+    box-shadow: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
   }
-
-  .campaigns-table thead {
-    background-color: #f8f9fa;
-  }
-
-  .campaigns-table th,
-  .campaigns-table td {
+  .campaigns-table thead { background-color: #f8f9fa; }
+  .campaigns-table th, .campaigns-table td {
     padding: 1rem;
     vertical-align: middle;
     border-bottom: 1px solid #dee2e6;
     text-align: center;
   }
-
-  .campaigns-table th {
-    font-weight: 600;
-    color: #495057;
-  }
-
-  .campaigns-table tr:last-child td {
-    border-bottom: none;
-  }
-
-  .campaigns-table tr:hover {
-    background-color: #f8f9fa;
-  }
+  .campaigns-table th { font-weight: 600; color: #495057; }
+  .campaigns-table tr:last-child td { border-bottom: none; }
+  .campaigns-table tr:hover { background-color: #f8f9fa; }
 
   .dashboard-title {
     text-align: center;
@@ -123,11 +74,10 @@
     margin-top: 2rem;
   }
 
-  .search-container {
-    margin: 2rem 0;
-    text-align: center;
-  }
+  .btn-info { color: white; background-color: #00bcd4; border: none; }
+  .btn-info:hover { background-color: #00acc1; color: white; }
 
+  .search-container { margin: 2rem 0; text-align: center; }
   .search-box {
     display: inline-flex;
     align-items: center;
@@ -135,11 +85,10 @@
     border: 2px solid #e9ecef;
     border-radius: 25px;
     padding: 0.5rem 1rem;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     max-width: 400px;
     width: 100%;
   }
-
   .search-box input {
     border: none;
     outline: none;
@@ -147,7 +96,6 @@
     padding: 0.5rem;
     font-size: 1rem;
   }
-
   .search-box button {
     background: #007bff;
     color: white;
@@ -158,47 +106,20 @@
     cursor: pointer;
     font-size: 0.9rem;
   }
-
-  .search-box button:hover {
-    background: #0056b3;
-  }
-
-  .search-label {
-    font-weight: 600;
-    color: #333;
-    margin-bottom: 0.5rem;
-    display: block;
-  }
-
-  .preview-link {
-    color: #007bff;
-    text-decoration: none;
-    font-weight: 600;
-  }
-
-  .preview-link:hover {
-    text-decoration: underline;
-  }
+  .search-box button:hover { background: #0056b3; }
+  .search-label { font-weight: 600; color: #333; margin-bottom: 0.5rem; display: block; }
 </style>
 {% endblock %}
 
 {% block content %}
 <script>
-  // Force refresh when returning via back/forward cache
   window.addEventListener("pageshow", function (event) {
-    if (event.persisted) {
-      window.location.reload();
-    }
+    if (event.persisted) window.location.reload();
   });
-  // As a fallback, refresh if page becomes visible after being hidden
   document.addEventListener("visibilitychange", function () {
-    if (
-      document.visibilityState === "visible" &&
-      performance &&
-      performance.navigation &&
-      performance.navigation.type === 2
-    ) {
-      // type 2 = back_forward
+    if (document.visibilityState === "visible" &&
+        performance && performance.navigation &&
+        performance.navigation.type === 2) {
       window.location.reload();
     }
   });
@@ -207,68 +128,42 @@
 <h2 class="dashboard-title">Manage Collateral Panel</h2>
 
 <div class="btn-group-wrap">
-  {# Keep: Add Collaterals #}
   {% if campaign_filter %}
-    <a
-      href="{% url 'collaterals_add_branded' campaign_filter %}"
-      class="btn btn-primary"
-    >
-      Add Collaterals
-    </a>
+    <a href="{% url 'collaterals_add_branded' campaign_filter %}" class="btn btn-primary">Add Collaterals</a>
   {% else %}
-    <a href="{% url 'collaterals_add' %}" class="btn btn-primary">
-      Add Collaterals
-    </a>
+    <a href="{% url 'collaterals_add' %}" class="btn btn-primary">Add Collaterals</a>
   {% endif %}
 
-  {# Keep: Edit Calendar #}
   {% if campaign_filter %}
-    <a
-      href="{% url 'edit_campaign_calendar' %}?brand={{ campaign_filter }}"
-      class="btn btn-primary"
-    >
-      Edit Calendar
-    </a>
+    <a href="{% url 'edit_campaign_calendar' %}?brand={{ campaign_filter }}" class="btn btn-primary">Edit Calendar</a>
   {% else %}
-    <a href="{% url 'edit_campaign_calendar' %}" class="btn btn-primary">
-      Edit Calendar
-    </a>
+    <a href="{% url 'edit_campaign_calendar' %}" class="btn btn-primary">Edit Calendar</a>
   {% endif %}
 
-  {# Keep ONLY the routes that still exist in sharing_management/urls.py #}
+  <!-- Field Rep Management Dropdown -->
   <div class="dropdown">
-    <button class="dropdown-toggle" type="button">
-      Field Rep Management ▼
-    </button>
-
+    <button class="dropdown-toggle">Field Rep Management ▼</button>
     <div class="dropdown-menu">
       <a
         href="{% url 'fieldrep_email_registration' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
         class="dropdown-item"
-      >
-        Field Rep Register
-      </a>
+      >Field Rep Register</a>
 
       <a
         href="{% url 'fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
         class="dropdown-item"
-      >
-        Field Rep Gmail Login
-      </a>
+      >Field Rep Gmail Login</a>
     </div>
   </div>
 
-  {# Keep if your home url still exists in your project #}
   <a href="{% url 'home' %}" class="btn btn-info">Back to Home</a>
 </div>
-
 
 <div class="search-container">
   <form method="GET" action="{% url 'fieldrep_dashboard' %}">
     {% if campaign_filter %}
       <input type="hidden" name="campaign" value="{{ campaign_filter }}" />
     {% endif %}
-
     <label class="search-label">Search by Brand Campaign ID:</label>
     <div class="search-box">
       <input
@@ -293,36 +188,57 @@
         <th>Item Name</th>
         <th>Description for display</th>
         <th>URL of the Page</th>
+        <th>Edit</th>
+        <th>Replace Collateral</th>
+        <th>Delete</th>
       </tr>
     </thead>
     <tbody>
       {% for collateral in collaterals %}
-        <tr>
-          <td>{{ collateral.brand_id }}</td>
-          <td>{{ collateral.item_name }}</td>
-          <td>{{ collateral.description }}</td>
-          <td>
-            {% if collateral.id %}
-              <a
-                class="preview-link"
-                href="{% url 'collateral_preview' collateral.id %}"
-                target="_blank"
-                rel="noopener"
-              >
-                Open
-              </a>
-            {% else %}
-              <span class="text-muted">N/A</span>
-            {% endif %}
-          </td>
-        </tr>
+      <tr>
+        <td>{{ collateral.brand_id }}</td>
+        <td>{{ collateral.item_name }}</td>
+        <td>{{ collateral.description }}</td>
+        <td>
+          <a class="btn btn-warning" href="{% url 'collateral_preview' collateral.id %}">Link</a>
+        </td>
+        <td>
+          {% if collateral.campaign_collateral_id %}
+            <a class="btn btn-primary" href="{% url 'edit_campaign_calendar' %}?id={{ collateral.campaign_collateral_id }}">Edit Dates</a>
+          {% else %}
+            <a class="btn btn-primary" href="{% url 'edit_campaign_calendar' %}?collateral_id={{ collateral.id }}&brand={{ collateral.brand_id }}">Edit Dates</a>
+          {% endif %}
+        </td>
+        <td>
+          {% if collateral.id %}
+            <a class="btn btn-success" href="{% url 'replace_collateral' collateral.id %}">Replace Collateral</a>
+          {% else %}
+            <span class="text-muted">N/A</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if collateral.id %}
+            <form method="post" action="{% url 'dashboard_delete_collateral' collateral.id %}" style="display:inline">
+              {% csrf_token %}
+              {% if request.GET.campaign %}
+                <input type="hidden" name="campaign" value="{{ request.GET.campaign }}" />
+              {% endif %}
+              <button type="submit" class="btn btn-danger btn-sm"
+                onclick="return confirm('Are you sure you want to delete this collateral?')">
+                Delete
+              </button>
+            </form>
+          {% else %}
+            <span class="text-muted">N/A</span>
+          {% endif %}
+        </td>
+      </tr>
       {% empty %}
-        <tr>
-          <td colspan="4">No collaterals available.</td>
-        </tr>
+      <tr>
+        <td colspan="7">No collaterals available.</td>
+      </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
-
 {% endblock %}

@@ -1,155 +1,211 @@
+# sharing_management/models.py
+from __future__ import annotations
+
+from django.conf import settings
+from django.contrib.auth.hashers import check_password as django_check_password
 from django.db import models
 from django.utils import timezone
-from django.conf import settings
-from shortlink_management.models import ShortLink
-from collateral_management.models import Collateral
 
-# 🔐 New model
+
+def _master_db_alias() -> str:
+    return getattr(settings, "MASTER_DB_ALIAS", "master")
+
+
 class SecurityQuestion(models.Model):
+    """
+    Stored in DEFAULT DB.
+
+    Your views expect:
+      SecurityQuestion.objects.all().values_list("id", "question_txt")
+    """
     question_txt = models.CharField(max_length=255, unique=True)
-
-    def __str__(self):
-        return self.question_txt
-
-    class Meta:
-        db_table = 'security_question'
-
-class FieldRepresentative(models.Model):
-    field_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
-    email = models.EmailField(blank=True, null=True)
-    gmail = models.EmailField(blank=True, null=True)
-    whatsapp_number = models.CharField(blank=True, max_length=15, null=True)
-    password = models.CharField(blank=True, max_length=255, null=True)
-    auth_method = models.CharField(
-        choices=[
-            ('email', 'Email ID'),
-            ('gmail', 'Gmail ID'),
-            ('whatsapp', 'WhatsApp Number')
-        ],
-        default='email',
-        max_length=20
-    )
     is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(default=timezone.now)
+
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # 🔐 Security question and answer fields
+    class Meta:
+        db_table = "sharing_management_securityquestion"
+        ordering = ["id"]
+
+    def __str__(self) -> str:
+        return self.question_txt
+
+
+class FieldRepSecurityProfile(models.Model):
+    """
+    Stored in DEFAULT DB.
+    Maps a MASTER field rep (by integer id) to a security question + hashed answer.
+
+    This keeps your forgot/reset-password flow working even though FieldReps live in MASTER DB.
+    """
+    master_field_rep_id = models.BigIntegerField(unique=True, db_index=True)
+    email = models.EmailField(blank=True, default="")
+
     security_question = models.ForeignKey(
         SecurityQuestion,
-        on_delete=models.SET_NULL,
+        on_delete=models.PROTECT,
+        related_name="fieldrep_profiles",
         null=True,
-        blank=True
+        blank=True,
     )
-    security_answer_hash = models.CharField(max_length=128, blank=True)
+    security_answer_hash = models.CharField(max_length=128, blank=True, default="")
 
-    def __str__(self):
-        return self.email or self.field_id
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "sharing_management_fieldrepsecurityprofile"
+
+    def __str__(self) -> str:
+        return f"FieldRepSecurityProfile(master_field_rep_id={self.master_field_rep_id})"
+
+    def check_answer(self, raw_answer: str) -> bool:
+        if not self.security_answer_hash:
+            return False
+        return django_check_password(raw_answer or "", self.security_answer_hash)
 
 
 class ShareLog(models.Model):
     """
-    Logs an event where a field rep shares a short link with a doctor.
+    Stored in DEFAULT DB.
+
+    IMPORTANT CHANGE:
+      - field_rep_id is now a plain integer (MASTER field rep id),
+        NOT a ForeignKey to a local FieldRepresentative/User table.
+
+    We also store field_rep_email for convenience/debug/UI.
     """
-    CHANNEL_CHOICES = (
-        ('WhatsApp', 'WhatsApp'),
-        ('SMS', 'SMS'),
-        ('Email', 'Email'),
+    short_link = models.ForeignKey(
+        "shortlink_management.ShortLink",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="share_logs",
+    )
+    collateral = models.ForeignKey(
+        "collateral_management.Collateral",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="share_logs",
     )
 
-    short_link = models.ForeignKey(ShortLink, on_delete=models.CASCADE, related_name='share_logs')
-    collateral = models.ForeignKey(Collateral, on_delete=models.CASCADE, related_name='share_logs')
-    field_rep = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='share_logs')
-    doctor_identifier = models.CharField(max_length=255)
-    share_channel = models.CharField(max_length=50, choices=CHANNEL_CHOICES, default='WhatsApp')
-    share_timestamp = models.DateTimeField(default=timezone.now)
-    message_text = models.TextField(blank=True, null=True)
+    # MASTER DB field rep id (campaign_fieldrep.id)
+    field_rep_id = models.BigIntegerField(null=True, blank=True, db_index=True)
+    field_rep_email = models.EmailField(blank=True, default="")
 
-    created_at = models.DateTimeField(default=timezone.now)
+    # phone/email identifier for doctor
+    doctor_identifier = models.CharField(max_length=255, db_index=True)
+
+    share_channel = models.CharField(max_length=32, blank=True, default="")
+    share_timestamp = models.DateTimeField(default=timezone.now, db_index=True)
+
+    message_text = models.TextField(blank=True, default="")
+    brand_campaign_id = models.CharField(max_length=32, blank=True, default="", db_index=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    def __str__(self):
-        return f"{self.field_rep.username} shared {self.short_link.short_code} to {self.doctor_identifier}"
+    class Meta:
+        db_table = "sharing_management_sharelog"
+        indexes = [
+            models.Index(fields=["field_rep_id", "share_timestamp"]),
+            models.Index(fields=["doctor_identifier", "share_timestamp"]),
+            models.Index(fields=["collateral", "share_timestamp"]),
+            models.Index(fields=["brand_campaign_id", "share_timestamp"]),
+        ]
+        ordering = ["-share_timestamp"]
+
+    def __str__(self) -> str:
+        return f"ShareLog(id={self.id}, field_rep_id={self.field_rep_id}, doctor={self.doctor_identifier})"
+
+    @property
+    def master_field_rep(self):
+        """
+        Convenience accessor (non-queryable in ORM filters).
+        """
+        if not self.field_rep_id:
+            return None
+        try:
+            from campaign_management.master_models import MasterFieldRep
+
+            return (
+                MasterFieldRep.objects.using(_master_db_alias())
+                .select_related("user", "brand")
+                .filter(id=self.field_rep_id)
+                .first()
+            )
+        except Exception:
+            return None
 
 
 class VideoTrackingLog(models.Model):
     """
-    Logs video engagement for a doctor/collateral share event.
+    Stored in DEFAULT DB.
     """
-    share_log = models.ForeignKey(ShareLog, on_delete=models.CASCADE, related_name='video_logs')
-    user_id = models.CharField(max_length=255)  # Can be doctor identifier or user id
-    video_status = models.PositiveSmallIntegerField()  # 1: 0-50%, 2: 50-99%, 3: 100%
-    video_percentage = models.CharField(max_length=10)  # '1', '2', '3' for compatibility
-    comment = models.CharField(max_length=255, default='Video Viewed')
+    share_log = models.ForeignKey(ShareLog, on_delete=models.CASCADE, related_name="video_logs")
+    user_id = models.CharField(max_length=64, db_index=True)
+    video_status = models.CharField(max_length=16)
+    video_percentage = models.CharField(max_length=16, blank=True, default="")
+    comment = models.CharField(max_length=255, blank=True, default="")
+
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("share_log", "user_id", "video_percentage")
+        db_table = "sharing_management_videotrackinglog"
+        indexes = [models.Index(fields=["share_log", "user_id"])]
 
-    def __str__(self):
-        return f"{self.user_id} - {self.share_log_id} - {self.video_percentage}"
+    def __str__(self) -> str:
+        return f"VideoTrackingLog(share_log_id={self.share_log_id}, user_id={self.user_id})"
 
 
-# ---- NEW MODEL ----
 class CollateralTransaction(models.Model):
     """
-    One row per (field_rep_id, doctor_number, collateral_id, transaction_date).
-    'transaction_id' is a business key (rep*phone*collateral) for easy lookups.
-    All *_at fields are optional timestamps for auditing each event.
+    Stored in DEFAULT DB.
+
+    IMPORTANT CHANGE:
+      - field_rep_id is MASTER field rep id (integer), not a FK.
+
+    Your views/services already treat it as an id in several places.
     """
-    # identity
-    transaction_id = models.CharField(max_length=128, db_index=True)  # "field_rep_id*doctor_number*collateral_id"
-    brand_campaign_id = models.CharField(max_length=64, db_index=True)  # can be int-like or string
-    field_rep_id = models.CharField(max_length=64, db_index=True)      # from FIELD_REP_CAMPAIGN
-    field_rep_unique_id = models.CharField(max_length=64, blank=True, null=True)
+    field_rep_id = models.BigIntegerField(db_index=True)
+    field_rep_email = models.EmailField(blank=True, default="")
 
-    doctor_name = models.CharField(max_length=255, blank=True, null=True)
-    doctor_number = models.CharField(max_length=15, db_index=True)
-    doctor_unique_id = models.CharField(max_length=64, blank=True, null=True)
+    doctor_number = models.CharField(max_length=64, db_index=True)
+    doctor_name = models.CharField(max_length=255, blank=True, default="")
 
-    collateral_id = models.BigIntegerField(db_index=True)
-    transaction_date = models.DateField(db_index=True)  # “day-bucket” that decides row uniqueness
+    collateral_id = models.PositiveIntegerField(db_index=True)
+    brand_campaign_id = models.CharField(max_length=32, blank=True, default="", db_index=True)
 
-    # derived booleans
-    has_viewed = models.BooleanField(default=False)             # from link open / verification
-    has_downloaded_pdf = models.BooleanField(default=False)     # from download_timestamp
-    has_viewed_last_page = models.BooleanField(default=False)   # from last_page_scrolled
+    share_channel = models.CharField(max_length=32, blank=True, default="")
+    sent_at = models.DateTimeField(null=True, blank=True)
 
-    video_view_lt_50 = models.BooleanField(default=False)
-    video_view_gt_50 = models.BooleanField(default=False)
-    video_view_100 = models.BooleanField(default=False)
+    # engagement flags
+    has_viewed = models.BooleanField(default=False)
+    first_viewed_at = models.DateTimeField(null=True, blank=True)
+    last_viewed_at = models.DateTimeField(null=True, blank=True)
 
-    total_video_events = models.PositiveIntegerField(default=0)
-    last_video_percentage = models.PositiveSmallIntegerField(default=0)
-    last_page_scrolled = models.PositiveIntegerField(default=0)
+    pdf_last_page = models.PositiveIntegerField(default=0)
+    pdf_total_pages = models.PositiveIntegerField(default=0)
+    pdf_completed = models.BooleanField(default=False)
+    downloaded_pdf = models.BooleanField(default=False)
 
-    # references to last/representative engagement rows (optional, for drill-down)
-    doctor_viewer_engagement_id = models.BigIntegerField(blank=True, null=True)
-    share_management_engagement_id = models.BigIntegerField(blank=True, null=True)
-    video_tracking_last_event_id = models.BigIntegerField(blank=True, null=True)
+    video_watch_percentage = models.PositiveIntegerField(default=0)
+    video_completed = models.BooleanField(default=False)
 
-    # timestamps (mirror existing)
-    created_at = models.DateTimeField(default=timezone.now)
+    dv_engagement_id = models.IntegerField(null=True, blank=True)
+    sm_engagement_id = models.CharField(max_length=64, blank=True, default="")
+
+    created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
-    # event timestamps (requested: “Every single activity must have a timestamp stored”)
-    sent_at = models.DateTimeField(blank=True, null=True)
-    viewed_at = models.DateTimeField(blank=True, null=True)
-    downloaded_pdf_at = models.DateTimeField(blank=True, null=True)
-    viewed_last_page_at = models.DateTimeField(blank=True, null=True)
-    video_lt_50_at = models.DateTimeField(blank=True, null=True)
-    video_gt_50_at = models.DateTimeField(blank=True, null=True)
-    video_100_at = models.DateTimeField(blank=True, null=True)
-    last_video_event_at = models.DateTimeField(blank=True, null=True)
-
     class Meta:
+        db_table = "sharing_management_collateraltransaction"
         indexes = [
-            models.Index(fields=["brand_campaign_id", "transaction_date"]),
-            models.Index(fields=["doctor_number", "collateral_id"]),
+            models.Index(fields=["field_rep_id", "doctor_number", "collateral_id"]),
+            models.Index(fields=["brand_campaign_id", "collateral_id"]),
         ]
-        unique_together = (
-            # guarantees SCENARIO rules: same rep+doctor+collateral+same day → single row
-            ("field_rep_id", "doctor_number", "collateral_id", "transaction_date"),
-        )
 
-    def __str__(self):
-        return f"{self.transaction_id} @ {self.transaction_date}"
+    def __str__(self) -> str:
+        return f"CollateralTransaction(field_rep_id={self.field_rep_id}, doctor={self.doctor_number}, collateral_id={self.collateral_id})"
