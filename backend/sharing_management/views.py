@@ -1,5 +1,4 @@
-# sharing_management/views.py
-
+# sharing_management/urls.py
 from __future__ import annotations
 
 import csv
@@ -24,7 +23,7 @@ from django.http import JsonResponse, HttpResponseBadRequest
 from django.contrib.auth import get_user_model, login
 from django.contrib.auth.models import User  # Add this line
 
-from .models import ShareLog, VideoTrackingLog, CollateralTransaction
+from .models import ShareLog, VideoTrackingLog, FieldRepresentative, CollateralTransaction
 from campaign_management.models import CampaignCollateral
 from doctor_viewer.models import Doctor
 from django.db.models import Max, Q, F, ExpressionWrapper, DateTimeField
@@ -81,69 +80,6 @@ import json
 from sharing_management.models import CollateralTransaction
 from shortlink_management.models import ShortLink
 from campaign_management.models import CampaignCollateral
-
-from django.db import connections
-
-
-from django.conf import settings
-from django.shortcuts import redirect
-from functools import wraps
-
-from campaign_management.master_models import (
-    MasterCampaign,
-    MasterFieldRep,
-    MasterCampaignFieldRep,
-)
-
-MASTER_DB_ALIAS = getattr(settings, "MASTER_DB_ALIAS", "master")
-
-
-def _normalize_campaign_id(raw: str) -> str:
-    if not raw:
-        return ""
-    raw = str(raw).strip()
-    # Convert UUID-with-hyphens -> 32-char string used in master
-    if len(raw) == 36 and raw.count("-") == 4:
-        raw = raw.replace("-", "")
-    return raw
-
-
-def get_master_field_rep_from_session(request):
-    rep_id = request.session.get("master_field_rep_id")
-    if not rep_id:
-        return None
-    return (
-        MasterFieldRep.objects.using(MASTER_DB_ALIAS)
-        .select_related("user", "brand")
-        .filter(id=rep_id, is_active=True)
-        .first()
-    )
-
-
-def master_fieldrep_required(view_func):
-    @wraps(view_func)
-    def _wrapped(request, *args, **kwargs):
-        rep = get_master_field_rep_from_session(request)
-        if not rep:
-            return redirect("fieldrep_login")
-        request.master_field_rep = rep
-        return view_func(request, *args, **kwargs)
-    return _wrapped
-
-
-# MASTER DB alias (fallback to 'default' for local/dev where only one DB exists)
-MASTER_DB_ALIAS = getattr(settings, "MASTER_DB_ALIAS", "master")
-if MASTER_DB_ALIAS not in settings.DATABASES:
-    MASTER_DB_ALIAS = "default"
-
-def m(model_cls):
-    """Return model manager pinned to MASTER DB."""
-    return model_cls.objects.using(MASTER_DB_ALIAS)
-
-def master_conn():
-    """Return MASTER DB connection (for raw SQL)."""
-    return connections[MASTER_DB_ALIAS]
-
 
 @csrf_exempt
 def doctor_view_log(request):
@@ -285,12 +221,12 @@ def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, fie
         from admin_dashboard.models import FieldRepCampaign
         from user_management.models import User
 
-        campaign_obj = m(Campaign).filter(brand_campaign_id=brand_campaign_id).first()
+        campaign_obj = Campaign.objects.filter(brand_campaign_id=brand_campaign_id).first()
         if not campaign_obj:
             return
 
         # Find existing portal user case-insensitively
-        user = m(User).filter(email__iexact=email).first()
+        user = User.objects.filter(email__iexact=email).first()
 
         if user:
             # Do not assign non-field-rep accounts to campaigns
@@ -301,11 +237,11 @@ def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, fie
             base_username = (email.split('@')[0] or email).strip()[:140]
             username_candidate = base_username or email[:140]
             suffix = 0
-            while m(User).filter(username=username_candidate).exists():
+            while User.objects.filter(username=username_candidate).exists():
                 suffix += 1
                 username_candidate = f"{base_username}_{suffix}"[:150]
 
-            user = m(User).create_user(
+            user = User.objects.create_user(
                 username=username_candidate,
                 email=email.lower(),
                 password=raw_password or User.objects.make_random_password(),
@@ -315,7 +251,7 @@ def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, fie
             user.field_id = field_id or user.field_id
             user.first_name = first_name or user.first_name
             user.last_name = last_name or user.last_name
-            user.save(using=MASTER_DB_ALIAS)
+            user.save()
 
         # Light updates only if missing
         changed = False
@@ -329,14 +265,14 @@ def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, fie
             user.last_name = last_name
             changed = True
         if changed:
-            user.save(using=MASTER_DB_ALIAS)
+            user.save()
 
-        m(CampaignAssignment).get_or_create(
+        CampaignAssignment.objects.get_or_create(
             campaign=campaign_obj,
             field_rep=user,
             defaults={'assigned_by': None},
         )
-        m(FieldRepCampaign).get_or_create(
+        FieldRepCampaign.objects.get_or_create(
             campaign=campaign_obj,
             field_rep=user,
         )
@@ -417,20 +353,20 @@ def get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_i
     user = None
     if field_rep_field_id:
         try:
-            user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+            user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
         except User.DoesNotExist:
             pass
 
     # Try to find by email as fallback
     if not user and field_rep_email:
         try:
-            user = m(User).filter(email=field_rep_email, role='field_rep').first()
+            user = User.objects.filter(email=field_rep_email, role='field_rep').first()
         except:
             pass
 
     # Create new user if not found
     if not user and field_rep_field_id and field_rep_email:
-        user = m(User).create(
+        user = User.objects.create(
             username=f'fieldrep_{field_rep_field_id}',
             email=field_rep_email,
             field_id=field_rep_field_id,
@@ -644,199 +580,247 @@ def share_content(request):
     return render(request, 'sharing_management/share_form.html', {'form': form})
 
 
-
-@field_rep_required
-def share_form(request):
-    if request.method == "POST":
-        collateral_id = request.POST.get("collateral")
-        doctor_id = request.POST.get("doctor_identifier")
-        channel = request.POST.get("share_channel")
-
-        collateral = get_object_or_404(
-            Collateral.objects.using(LOCAL_DB), id=collateral_id
-        )
-
-        short_link = ShortLink.objects.using(LOCAL_DB).create(
-            resource_type="collateral",
-            resource_id=collateral.id,
-        )
-
-        share_log = ShareLog.objects.using(LOCAL_DB).create(
-            short_link=short_link,
-            collateral=collateral,
-            field_rep_id=request.user.pk,   # ✅ important
-            doctor_identifier=doctor_id,
-            share_channel=channel,
-        )
-
-        return redirect("share_success", share_log_id=share_log.id)
-
-    collaterals = Collateral.objects.using(LOCAL_DB).filter(is_active=True)
-    return render(request, "sharing_management/share_form.html", {"collaterals": collaterals})
-
-
 @field_rep_required
 def share_success(request, share_log_id):
     share_log = get_object_or_404(
-        ShareLog.objects.using(LOCAL_DB),
-        id=share_log_id,
-        field_rep_id=request.user.pk,   # ✅ important
+        ShareLog, id=share_log_id, field_rep=request.user
     )
     wa_link = build_wa_link(share_log, request)
-    return render(request, "sharing_management/share_success.html", {"share_log": share_log})
+    return render(
+        request,
+        "sharing_management/share_success.html",
+        {"share_log": share_log, "wa_link": wa_link},
+    )
 
 
-from .models import ShareLog
-
-@master_fieldrep_required
+@field_rep_required
 def list_share_logs(request):
-    rep = request.master_field_rep
-    logs = ShareLog.objects.using("default").filter(field_rep_id=rep.id).order_by("-share_timestamp")
-    return render(request, "sharing_management/share_logs.html", {"logs": logs})
+    logs_list = ShareLog.objects.filter(field_rep=request.user).order_by('-share_timestamp')
+    paginator = Paginator(logs_list, 10)
+    page_number = request.GET.get("page")
+    logs = paginator.get_page(page_number)
+
+    return render(request, 'sharing_management/share_logs.html', {'logs': logs})
 
 
 from django.views.decorators.cache import never_cache
 
-from django.shortcuts import render
-from sharing_management.utils.campaign_collaterals import active_window_q
-
-@master_fieldrep_required
+@field_rep_required
+@never_cache
 def fieldrep_dashboard(request):
-    rep = request.master_field_rep
+    rep = request.user
+    assigned = CampaignAssignment.objects.filter(field_rep=rep).select_related('campaign')
+    campaign_ids = [a.campaign_id for a in assigned]
 
-    # campaigns assigned in MASTER
-    assigned = (
-        MasterCampaignFieldRep.objects.using(MASTER_DB_ALIAS)
-        .select_related("campaign")
-        .filter(field_rep_id=rep.id)
-    )
-    assigned_campaigns = [x.campaign for x in assigned if x.campaign_id]
+    # Use collateral_management CampaignCollateral for mapping IDs
+    share_cnts = ShareLog.objects.filter(
+        field_rep=rep,
+        short_link__resource_type='collateral',
+        short_link__resource_id__in=CMCampaignCollateral.objects.filter(
+            campaign_id__in=campaign_ids
+        ).values_list('collateral_id', flat=True)
+    ).values('short_link__resource_id').annotate(cnt=Count('id'))
+    share_map = {r['short_link__resource_id']: r['cnt'] for r in share_cnts}
 
-    campaign_filter = _normalize_campaign_id(request.GET.get("campaign") or "") or ""
-    search_query = (request.GET.get("search") or "").strip()
+    pdf_cnts = DoctorEngagement.objects.filter(
+        short_link__resource_type='collateral',
+        last_page_scrolled__gt=0,
+        short_link__resource_id__in=CMCampaignCollateral.objects.filter(
+            campaign_id__in=campaign_ids
+        ).values_list('collateral_id', flat=True)
+    ).values('short_link__resource_id').annotate(cnt=Count('id'))
+    pdf_map = {r['short_link__resource_id']: r['cnt'] for r in pdf_cnts}
 
-    # pull collaterals from DEFAULT based on selected campaign_id
-    collaterals = []
+    vid_cnts = DoctorEngagement.objects.filter(
+        video_watch_percentage__gte=90,
+        short_link__resource_type='collateral',
+        short_link__resource_id__in=CMCampaignCollateral.objects.filter(
+            campaign_id__in=campaign_ids
+        ).values_list('collateral_id', flat=True)
+    ).values('short_link__resource_id').annotate(cnt=Count('id'))
+    vid_map = {r['short_link__resource_id']: r['cnt'] for r in vid_cnts}
+
+    stats = []
+    for a in assigned:
+        campaign = a.campaign
+        campaign_collaterals = CMCampaignCollateral.objects.filter(campaign=campaign)
+        collateral_ids = [cc.collateral_id for cc in campaign_collaterals]
+
+        shares = sum(share_map.get(cid, 0) for cid in collateral_ids)
+        pdfs = sum(pdf_map.get(cid, 0) for cid in collateral_ids)
+        videos = sum(vid_map.get(cid, 0) for cid in collateral_ids)
+
+        stats.append({
+            'campaign': campaign,
+            'shares': shares,
+            'pdfs': pdfs,
+            'videos': videos,
+        })
+
+    # Handle campaign filtering from campaign portal
+    campaign_filter = request.GET.get('campaign', '').strip()
+
+    # Build list of collaterals via collateral_management CampaignCollateral
     if campaign_filter:
-        from campaign_management.models import CampaignCollateral as CMCampaignCollateral
-
-        qs = (
-            CMCampaignCollateral.objects.using("default")
-            .filter(campaign_id=campaign_filter, collateral__is_active=True)
-            .filter(active_window_q())
-            .select_related("collateral")  # DO NOT select_related("campaign")
-        )
-
-        for link in qs:
-            c = link.collateral
-            collaterals.append(
-                {
-                    "id": c.id,
-                    "item_name": c.title,
-                    "description": c.description,
-                    "brand_id": link.campaign_id,  # master campaign id (acts as “brand campaign id”)
-                    "campaign_collateral_id": link.id,
-                }
-            )
+        # If a specific brand campaign ID is provided, show active collaterals for that campaign
+        all_ccs = CMCampaignCollateral.objects.filter(
+            campaign__brand_campaign_id=campaign_filter,
+            collateral__is_active=True  # Only include active collaterals
+        ).select_related('collateral', 'campaign')
     else:
-        # optionally show nothing until campaign selected
-        collaterals = []
+        # Otherwise, default to active collaterals for campaigns assigned to this field rep
+        all_ccs = CMCampaignCollateral.objects.filter(
+            campaign_id__in=campaign_ids,
+            collateral__is_active=True  # Only include active collaterals
+        ).select_related('collateral', 'campaign')
 
-    # optional: search by campaign id
-    if search_query and not campaign_filter:
-        # If user searches campaign id directly, treat it as a campaign filter
-        campaign_filter = _normalize_campaign_id(search_query)
+    all_collaterals = [cc.collateral for cc in all_ccs]
 
-    return render(
-        request,
-        "sharing_management/fieldrep_dashboard.html",
-        {
-            "collaterals": collaterals,
-            "available_campaigns": assigned_campaigns,
-            "campaign_filter": campaign_filter,
-            "search_query": search_query,
-            "rep_name": rep.full_name,
-        },
-    )
+    # Add search functionality
+    search_query = request.GET.get('search', '').strip()
+    if search_query:
+        # Filter collaterals by brand campaign ID search
+        filtered = []
+        for c in all_collaterals:
+            cc = CMCampaignCollateral.objects.filter(collateral=c).select_related('campaign').first()
+            campaign = cc.campaign if cc else None
+            brand_id = campaign.brand_campaign_id if campaign else ''
+            if search_query and search_query.lower() not in brand_id.lower():
+                continue
+            filtered.append(c)
+        all_collaterals = filtered
 
+    collaterals = []
+    # Map Edit Dates to collateral_management CampaignCollateral to align with edit_calendar view
+    for c in all_collaterals:
+        cc = CMCampaignCollateral.objects.filter(collateral=c).select_related('campaign').first()
+        # Get campaign through collateral_management CampaignCollateral relationship
+        campaign = cc.campaign if cc else None
 
+        # Build best viewer URL: if both assets present, route to combined viewer
+        has_pdf = bool(getattr(c, 'file', None))
+        has_vid = bool(getattr(c, 'vimeo_url', ''))
+
+        # Print fetching path debug info
+        if has_pdf:
+            print(f"[sharing_management] Fetching collateral file for ID: {getattr(c, 'id', None)}, Title: '{getattr(c, 'title', '')}'")
+            print(f"[sharing_management] File URL: {c.file.url}")
+            print(f"[sharing_management] File name: {c.file.name}")
+            if hasattr(c.file, 'path'):
+                print(f"[sharing_management] File path: {c.file.path}")
+
+        viewer_url = None
+        if has_pdf and has_vid:
+            try:
+                from django.urls import reverse
+                # Prefer shortlink if exists so tracking remains unchanged
+                from shortlink_management.models import ShortLink
+                sl = ShortLink.objects.filter(
+                    resource_type='collateral',
+                    resource_id=getattr(c, 'id', None),
+                    is_active=True
+                ).order_by('-date_created').first()
+                if sl:
+                    viewer_url = reverse('resolve_shortlink', args=[sl.short_code])
+                else:
+                    viewer_url = reverse('collateral_preview', args=[getattr(c, 'id', None)])
+            except Exception:
+                viewer_url = None
+
+        # Print final URL being used
+        final_url = viewer_url or (c.file.url if has_pdf else (getattr(c, 'vimeo_url', '') or ''))
+        print(f"[sharing_management] Final URL for collateral ID {getattr(c, 'id', None)}: {final_url}")
+
+        collaterals.append({
+            'brand_id': campaign.brand_campaign_id if campaign else '',
+            'item_name': getattr(c, 'title', ''),
+            'description': getattr(c, 'description', ''),
+            'url': final_url,
+            'has_both': has_pdf and has_vid,
+            # Use collateral_management.Collateral id for Replace/Delete actions
+            'id': getattr(c, 'id', None),
+            # Use collateral_management CampaignCollateral id for Edit Dates button
+            'campaign_collateral_id': cc.pk if cc else None,
+        })
+
+    # Get campaign_id from URL parameter or use campaign_filter
+    campaign_id = request.GET.get('campaign', campaign_filter)
+
+    response = render(request, 'sharing_management/fieldrep_dashboard.html', {
+        'stats': stats,
+        'collaterals': collaterals,
+        'search_query': search_query,
+        'campaign_filter': campaign_filter,
+        'brand_campaign_id': campaign_filter,  # For backward compatibility
+        'campaign_id': campaign_id  # Pass campaign_id to template for field rep management
+    })
+    # Extra safety: ensure no caching on this page
+    response['Cache-Control'] = 'no-store, no-cache, max-age=0, must-revalidate'
+    response['Pragma'] = 'no-cache'
+    return response
 
 @field_rep_required
 def fieldrep_campaign_detail(request, campaign_id):
-    rep_id = request.user.pk
+    rep = request.user
+    get_object_or_404(CampaignAssignment, field_rep=rep, campaign_id=campaign_id)
 
-    # ✅ MASTER
-    assignment = get_object_or_404(
-        CampaignAssignment.objects.using(MASTER_DB),
-        field_rep_id=rep_id,
-        campaign_id=campaign_id,
-    )
-    campaign = assignment.campaign  # MASTER
+    ccols = CampaignCollateral.objects.filter(campaign_id=campaign_id).select_related('collateral')
+    col_ids = [cc.collateral_id for cc in ccols]
 
-    # ✅ LOCAL (do NOT use campaign_management.CampaignCollateral here)
-    campaign_collaterals = (
-        CMCampaignCollateral.objects.using(LOCAL_DB)
-        .filter(campaign_id=campaign_id, collateral__is_active=True)
-        .select_related("collateral")
-    )
+    shares = ShareLog.objects.filter(
+        field_rep=rep,
+        short_link__resource_type='collateral',
+        short_link__resource_id__in=col_ids
+    ).select_related('short_link')
+
+    doctor_map = {}
+    for s in shares:
+        cid = s.short_link.resource_id
+        doctor_map.setdefault(cid, {})[s.doctor_identifier] = s.short_link
+
+    engagements = DoctorEngagement.objects.filter(
+        short_link__resource_id__in=col_ids,
+        short_link__resource_type='collateral'
+    ).select_related('short_link')
+
+    engagement_map = {e.short_link_id: e for e in engagements}
 
     rows = []
-    for cc in campaign_collaterals:
+    for cc in ccols:
         col = cc.collateral
-
-        # ✅ LOCAL: share logs
-        shared_doctor_contacts = list(
-            ShareLog.objects.using(LOCAL_DB)
-            .filter(field_rep_id=rep_id, short_link__resource_id=col.id)
-            .values_list("doctor_identifier", flat=True)
-            .distinct()
-        )
-
-        doctors = (
-            Doctor.objects.using(LOCAL_DB)
-            .filter(contact__in=shared_doctor_contacts)
-            .order_by("doctor_name")
-        )
-
+        cid = col.id
         doctor_statuses = []
-        for d in doctors:
-            eng = (
-                DoctorEngagement.objects.using(LOCAL_DB)
-                .filter(doctor_id=d.id, short_link__resource_id=col.id)
-                .order_by("-event_timestamp")
-                .first()
-            )
-
+        for doctor, short_link in doctor_map.get(cid, {}).items():
+            eng = engagement_map.get(short_link.id)
             status = 0
-            if eng:
-                if col.type == "pdf":
-                    if eng.downloaded_pdf:
+            detail = ''
+            if col.type == 'pdf':
+                if eng:
+                    if eng.pdf_completed:
                         status = 2
-                    elif eng.viewed:
+                        detail = f"{eng.last_page_scrolled} (completed)"
+                    elif eng.last_page_scrolled > 0:
                         status = 1
-                elif col.type == "video":
-                    if eng.video_completed:
+                        detail = f"{eng.last_page_scrolled} (partial)"
+            elif col.type == 'video':
+                if eng:
+                    if eng.video_watch_percentage >= 90:
                         status = 2
-                    elif eng.viewed:
+                        detail = f"{eng.video_watch_percentage}% (completed)"
+                    elif eng.video_watch_percentage > 0:
                         status = 1
+                        detail = f"{eng.video_watch_percentage}% (partial)"
+            doctor_statuses.append({
+                'doctor': doctor,
+                'status': status,
+                'detail': detail,
+            })
+        rows.append({
+            'collateral': col,
+            'doctor_statuses': doctor_statuses,
+        })
 
-            doctor_statuses.append(
-                {
-                    "doctor": d,
-                    "status": status,
-                    "last_video_percentage": getattr(eng, "last_video_percentage", 0) if eng else 0,
-                    "event_timestamp": getattr(eng, "event_timestamp", None) if eng else None,
-                }
-            )
-
-        rows.append({"collateral": col, "doctor_statuses": doctor_statuses})
-
-    return render(
-        request,
-        "sharing_management/fieldrep_campaign_detail.html",
-        {"campaign": campaign, "rows": rows},
-    )
-
+    return render(request, 'sharing_management/fieldrep_campaign_detail.html', {'rows': rows})
 
 
 def bulk_manual_upload(request):
@@ -847,7 +831,7 @@ def bulk_manual_upload(request):
     if campaign_param:
         try:
             from campaign_management.models import Campaign
-            campaign = Campaign.objects.using(MASTER_DB_ALIAS).get(brand_campaign_id=campaign_param)
+            campaign = Campaign.objects.get(brand_campaign_id=campaign_param)
         except Campaign.DoesNotExist:
             messages.error(request, "Invalid Brand Campaign ID.")
             campaign = None
@@ -1327,7 +1311,7 @@ def fieldrep_create_password(request):
     # Fetch security questions
     try:
         from .models import SecurityQuestion
-        security_questions = SecurityQuestion.objects.using(MASTER_DB_ALIAS).all().values_list('id', 'question_txt')
+        security_questions = SecurityQuestion.objects.all().values_list('id', 'question_txt')
     except Exception as e:
         print(f"Error fetching security questions: {e}")
         security_questions = []
@@ -1409,7 +1393,7 @@ def fieldrep_create_password(request):
             print(f"DEBUG: Found campaign: {campaign}")
 
             if field_rep_user and campaign:
-                assignment, created = m(FieldRepCampaign).get_or_create(
+                assignment, created = FieldRepCampaign.objects.get_or_create(
                     field_rep=field_rep_user,
                     campaign=campaign
                 )
@@ -1682,7 +1666,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
             print(f"[DEBUG] Found rep_user by field_id: {rep_user.id}")
         except User.DoesNotExist:
             try:
-                rep_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+                rep_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
                 print(f"[DEBUG] Found rep_user by field_rep_field_id: {rep_user.id}")
             except User.DoesNotExist:
                 print(f"[DEBUG] User not found with either field_id, creating new user")
@@ -1801,7 +1785,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                             try:
                                 from user_management.models import User
                                 from django.contrib.auth.hashers import make_password
-                                rep_user = m(User).create(
+                                rep_user = User.objects.create(
                                     username=f'fieldrep_{field_rep_id}',
                                     email=f'fieldrep_{field_rep_id}@example.com',
                                     field_id=field_rep_id,
@@ -2105,7 +2089,7 @@ def prefilled_fieldrep_create_password(request):
     whatsapp_number_final = whatsapp_number or None
 
     try:
-        with master_conn().cursor() as cursor:
+        with connection.cursor() as cursor:
             cursor.execute("""
                 SELECT id
                 FROM sharing_management_fieldrepresentative
@@ -2193,7 +2177,7 @@ def prefilled_fieldrep_create_password(request):
 #                 from .utils.db_operations import register_field_representative
 
 #                 # Check if user already exists
-#                 with master_conn().cursor() as cursor:
+#                 with connection.cursor() as cursor:
 #                     cursor.execute("""
 #                         SELECT id FROM sharing_management_fieldrepresentative
 #                         WHERE email = %s
@@ -2277,12 +2261,12 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
         field_rep_user = None
         if field_rep_field_id:
             try:
-                field_rep_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+                field_rep_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
             except User.DoesNotExist:
                 # Try to find by email/gmail as fallback
                 if field_rep_email:
                     try:
-                        field_rep_user = m(User).filter(email=field_rep_email, role='field_rep').first()
+                        field_rep_user = User.objects.filter(email=field_rep_email, role='field_rep').first()
                     except:
                         pass
 
@@ -2354,7 +2338,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
 
         # Get or create a user for this field rep (for short link creation)
         try:
-            actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+            actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
         except User.DoesNotExist:
             # Try to get or create user by email
             if field_rep_email:
@@ -2420,7 +2404,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
 
                 # Get or create a user for this field rep (for short link creation)
                 try:
-                    actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+                    actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
                 except User.DoesNotExist:
                     # Try to get or create user by email
                     if field_rep_email:
@@ -2501,7 +2485,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
 
         # Get or create a user for this field rep (for short link creation)
         try:
-            actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+            actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
         except User.DoesNotExist:
             # Try to get or create user by email
             if field_rep_email:
@@ -2566,7 +2550,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
 
                 # Get or create a user for this field rep (for short link creation)
                 try:
-                    actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+                    actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
                 except User.DoesNotExist:
                     # Try to get or create user by email
                     if field_rep_email:
@@ -2632,55 +2616,76 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
         'collaterals': collaterals_list
     })
 
-@csrf_exempt
 def fieldrep_gmail_login(request):
-    if request.method == "POST":
-        field_id = (request.POST.get("field_id") or "").strip()
-        gmail_id = (request.POST.get("gmail_id") or "").strip()
-        brand_campaign_id = (request.POST.get("brand_campaign_id") or "").strip()
+    brand_campaign_id = request.GET.get('brand_campaign_id') or request.GET.get('campaign')
 
-        if not field_id or not gmail_id:
-            messages.error(request, "Field Rep ID and Gmail ID are required.")
-            return render(request, "sharing_management/fieldrep_gmail_login.html")
+    if request.method == 'POST':
+        # If someone tries to POST a register action (even if UI button is removed),
+        # do not allow registration from this page.
+        if 'register' in request.POST:
+            messages.error(request, "Registration is not allowed from this login link. Please use the registration link.")
+            return render(request, 'sharing_management/fieldrep_gmail_login.html', {
+                'brand_campaign_id': brand_campaign_id
+            })
 
-        rep = (
-            MasterFieldRep.objects.using(MASTER_DB_ALIAS)
-            .select_related("user", "brand")
-            .filter(brand_supplied_field_rep_id=field_id, is_active=True)
-            .first()
-        )
-        if not rep:
-            messages.error(request, "Field rep not found.")
-            return render(request, "sharing_management/fieldrep_gmail_login.html")
+        field_id = (request.POST.get('field_id') or '').strip()
+        gmail_id = (request.POST.get('gmail_id') or '').strip()
 
-        if (getattr(rep.user, "email", "") or "").lower() != gmail_id.lower():
-            messages.error(request, "Gmail ID does not match our records.")
-            return render(request, "sharing_management/fieldrep_gmail_login.html")
+        # Preserve campaign on POST if it was sent as hidden input
+        brand_campaign_id = (request.POST.get('brand_campaign_id') or brand_campaign_id)
 
-        request.session["master_field_rep_id"] = rep.id
-        request.session["master_user_id"] = rep.user_id
-        request.session["field_rep_field_id"] = rep.brand_supplied_field_rep_id
-        request.session["field_rep_email"] = getattr(rep.user, "email", "")
-        request.session["field_rep_name"] = rep.full_name
-        request.session["brand_campaign_id"] = _normalize_campaign_id(brand_campaign_id)
+        if field_id and gmail_id:
+            try:
+                # Strict check: must already exist (no creation here)
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT id, field_id, email
+                        FROM sharing_management_fieldrepresentative
+                        WHERE field_id = %s AND email = %s AND is_active = 1
+                        LIMIT 1
+                    """, [field_id, gmail_id])
+                    result = cursor.fetchone()
 
-        return redirect("fieldrep_dashboard")
+                if result:
+                    user_id, field_id_db, email = result
 
-    return render(request, "sharing_management/fieldrep_gmail_login.html")
+                    # Clear any existing google auth session keys (keep your existing behavior)
+                    google_session_keys = [
+                        '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
+                        'user_id', 'username', 'email', 'first_name', 'last_name'
+                    ]
+                    for key in google_session_keys:
+                        if key in request.session:
+                            del request.session[key]
 
+                    # Store field rep session
+                    request.session['field_rep_id'] = user_id
+                    request.session['field_rep_email'] = email
+                    request.session['field_rep_field_id'] = field_id_db
 
-def fieldrep_logout(request):
-    for k in [
-        "master_field_rep_id",
-        "master_user_id",
-        "field_rep_field_id",
-        "field_rep_email",
-        "field_rep_name",
-        "brand_campaign_id",
-    ]:
-        request.session.pop(k, None)
-    return redirect("fieldrep_login")
+                    messages.success(request, f'Welcome back, {field_id_db}!')
 
+                    # Preserve your existing redirect logic
+                    if field_id_db.startswith('PREFILLED_'):
+                        if brand_campaign_id:
+                            return redirect(f'/share/prefilled-fieldrep-share-collateral/?brand_campaign_id={brand_campaign_id}')
+                        return redirect('prefilled_fieldrep_share_collateral')
+
+                    if brand_campaign_id:
+                        return redirect(f'/share/fieldrep-gmail-share-collateral/?brand_campaign_id={brand_campaign_id}')
+                    return redirect('fieldrep_gmail_share_collateral')
+
+                messages.error(request, 'Invalid Field ID or Gmail ID. Please check and try again.')
+
+            except Exception as e:
+                print(f"Error in Gmail login: {e}")
+                messages.error(request, 'Login failed. Please try again.')
+        else:
+            messages.error(request, 'Please provide both Field ID and Gmail ID.')
+
+    return render(request, 'sharing_management/fieldrep_gmail_login.html', {
+        'brand_campaign_id': brand_campaign_id
+    })
 
 def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     import urllib.parse
@@ -3189,8 +3194,6 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         'selected_collateral_id': selected_collateral_id
     })
 
-
-
 def prefilled_fieldrep_gmail_login(request):
     # Get campaign ID from URL parameters
     campaign_id = request.GET.get('campaign')
@@ -3206,14 +3209,14 @@ def prefilled_fieldrep_gmail_login(request):
             try:
                 # LOGIN-ONLY: must already exist and be active.
                 # Match against either gmail or email field (some records may store gmail in email for compatibility).
-                rep = FieldRepresentative.objects.using(MASTER_DB_ALIAS).filter(
+                rep = FieldRepresentative.objects.filter(
                     field_id=field_rep_id,
                     is_active=True,
                     gmail__iexact=gmail_id
                 ).first()
 
                 if not rep:
-                    rep = FieldRepresentative.objects.using(MASTER_DB_ALIAS).filter(
+                    rep = FieldRepresentative.objects.filter(
                         field_id=field_rep_id,
                         is_active=True,
                         email__iexact=gmail_id
@@ -3320,7 +3323,7 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
     if field_rep_field_id:
         rep_user = User.objects.filter(field_id=field_rep_field_id, role='field_rep').first()
     if not rep_user and field_rep_email:
-        rep_user = m(User).filter(email=field_rep_email, role='field_rep').first()
+        rep_user = User.objects.filter(email=field_rep_email, role='field_rep').first()
     if not rep_user:
         # In some flows, session['field_rep_id'] might already be a User id
         try:
@@ -3630,48 +3633,104 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
     return render(request, 'sharing_management/prefilled_fieldrep_gmail_share_collateral_updated.html', context)
 
 
-from django.contrib import messages
-from django.shortcuts import render
-import re
-
-@csrf_exempt
 def fieldrep_whatsapp_login(request):
-    if request.method == "POST":
-        field_id = (request.POST.get("field_id") or "").strip()
-        whatsapp_number = (request.POST.get("whatsapp_number") or "").strip()
-        brand_campaign_id = (request.POST.get("brand_campaign_id") or "").strip()
+    """
+    Manual WhatsApp login (LOGIN-ONLY):
+    - Must NOT register/create new field reps
+    - Must authenticate only existing reps
+    - Must redirect to the existing WhatsApp share page route name: 'fieldrep_whatsapp_share_collateral'
+    """
+
+    import re
+    import urllib.parse
+
+    # Keep campaign context (used after login to land on correct campaign share screen)
+    campaign_param = (request.GET.get('campaign') or '').strip()
+
+    if request.method == 'POST':
+        field_id = (request.POST.get('field_id') or '').strip()
+        whatsapp_number = (request.POST.get('whatsapp_number') or '').strip()
 
         if not field_id or not whatsapp_number:
-            messages.error(request, "Field Rep ID and WhatsApp number are required.")
-            return render(request, "sharing_management/fieldrep_whatsapp_login.html")
+            messages.error(request, 'Please provide both Field ID and WhatsApp number.')
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
+                'field_id': field_id,
+                'whatsapp_number': whatsapp_number
+            })
 
-        # Find rep in MASTER by brand-supplied id
-        rep = (
-            MasterFieldRep.objects.using(MASTER_DB_ALIAS)
-            .select_related("user", "brand")
-            .filter(brand_supplied_field_rep_id=field_id, is_active=True)
-            .first()
+        # -----------------------------
+        # Normalize WhatsApp number -> E.164 (India-focused, matches existing DB expectations)
+        # Accept:
+        #   - 10-digit mobile: 9876543210        -> +919876543210
+        #   - +91xxxxxxxxxx or 91xxxxxxxxxx      -> +91xxxxxxxxxx
+        #   - 0xxxxxxxxxx (11 digits)           -> +91xxxxxxxxxx
+        # -----------------------------
+        digits = re.sub(r'\D', '', whatsapp_number)
+
+        if len(digits) == 11 and digits.startswith('0'):
+            digits = digits[1:]
+
+        if len(digits) == 10:
+            phone_e164 = f'+91{digits}'
+        elif len(digits) == 12 and digits.startswith('91'):
+            phone_e164 = f'+{digits}'
+        elif whatsapp_number.strip().startswith('+') and 11 <= len(digits) <= 15:
+            phone_e164 = f'+{digits}'
+        else:
+            messages.error(request, 'Invalid WhatsApp number format. Please enter a valid 10-digit Indian number.')
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
+                'field_id': field_id,
+                'whatsapp_number': whatsapp_number
+            })
+
+        # Basic request metadata for audit logging
+        xff = (request.META.get('HTTP_X_FORWARDED_FOR') or '').split(',')[0].strip()
+        ip_address = xff or (request.META.get('REMOTE_ADDR') or '')
+        user_agent = request.META.get('HTTP_USER_AGENT', '')
+
+        # Authenticate field rep directly (LOGIN-ONLY; no creation)
+        success, user_id, user_data = authenticate_field_representative_direct(
+            field_id, phone_e164, ip_address, user_agent
         )
-        if not rep:
-            messages.error(request, "Field rep not found.")
-            return render(request, "sharing_management/fieldrep_whatsapp_login.html")
 
-        # Compare last 10 digits (robust vs formatting)
-        def digits(x): return re.sub(r"\D", "", x or "")
-        if digits(rep.phone_number)[-10:] != digits(whatsapp_number)[-10:]:
-            messages.error(request, "WhatsApp number does not match our records.")
-            return render(request, "sharing_management/fieldrep_whatsapp_login.html")
+        if not success:
+            messages.error(request, 'Invalid Field ID or WhatsApp number. Please check and try again.')
+            return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
+                'field_id': field_id,
+                'whatsapp_number': whatsapp_number
+            })
 
-        request.session["master_field_rep_id"] = rep.id
-        request.session["master_user_id"] = rep.user_id
-        request.session["field_rep_field_id"] = rep.brand_supplied_field_rep_id
-        request.session["field_rep_email"] = getattr(rep.user, "email", "")
-        request.session["field_rep_name"] = rep.full_name
-        request.session["brand_campaign_id"] = _normalize_campaign_id(brand_campaign_id)
+        # Clear any existing Google authentication session keys (keep your current behavior)
+        google_session_keys = [
+            'google_auth_id', 'google_auth_email', 'google_auth_name',
+            '_auth_user_id', '_auth_user_backend', '_auth_user_hash'
+        ]
+        for key in google_session_keys:
+            if key in request.session:
+                del request.session[key]
 
-        return redirect("fieldrep_dashboard")
+        # Store field rep details in session (used by share-collateral view)
+        request.session['field_rep_id'] = user_id
+        request.session['field_rep_email'] = user_data.get('email', '')
+        request.session['field_rep_field_id'] = user_data.get('field_id', field_id)
 
-    return render(request, "sharing_management/fieldrep_whatsapp_login.html")
+        # Preserve campaign context for the share screen
+        if campaign_param:
+            request.session['brand_campaign_id'] = campaign_param
+
+        messages.success(request, f"Welcome back, {user_data.get('field_id', field_id)}!")
+
+        # IMPORTANT: URL name is 'fieldrep_whatsapp_share_collateral' (not ..._updated)
+        redirect_url = reverse('fieldrep_whatsapp_share_collateral')
+        if campaign_param:
+            redirect_url += f'?campaign={urllib.parse.quote(campaign_param)}'
+        return redirect(redirect_url)
+
+    # GET: show login form
+    return render(request, 'sharing_management/fieldrep_whatsapp_login.html', {
+        'campaign': campaign_param
+    })
+
 
 
 def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
@@ -4257,7 +4316,7 @@ def _get_current_rep_ids(request):
     rep_smg_id = None
     if rep_field_id:
         try:
-            with master_conn().cursor() as cursor:
+            with connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT id
                     FROM sharing_management_fieldrepresentative
@@ -4285,7 +4344,7 @@ def _detect_assignment_table():
                          'representative_id', 'field_representative_id')
 
     try:
-        with master_conn().cursor() as cursor:
+        with connection.cursor() as cursor:
             # Step 1: find tables that have a doctor column
             cursor.execute("""
                 SELECT DISTINCT table_name
@@ -4330,7 +4389,7 @@ def _fetch_assigned_prefilled_doctors(rep_pk, rep_field_id, rep_smg_id):
     if detected:
         tbl, doctor_col, rep_col = detected
         try:
-            with master_conn().cursor() as cursor:
+            with connection.cursor() as cursor:
                 # Heuristic: if we have a numeric SMG rep id, try it first
                 bind_val = rep_smg_id if rep_smg_id is not None else rep_pk
                 # If we still don't have a numeric id, try field‑id string
@@ -4357,7 +4416,7 @@ def _fetch_assigned_prefilled_doctors(rep_pk, rep_field_id, rep_smg_id):
             break
         try:
             val = rep_smg_id if rep_smg_id is not None else rep_pk
-            with master_conn().cursor() as cursor:
+            with connection.cursor() as cursor:
                 cursor.execute(f"""
                     SELECT id, full_name, phone, email, specialty, city
                     FROM prefilled_doctor
@@ -4376,7 +4435,7 @@ def _fetch_assigned_prefilled_doctors(rep_pk, rep_field_id, rep_smg_id):
         if not rep_field_id:
             break
         try:
-            with master_conn().cursor() as cursor:
+            with connection.cursor() as cursor:
                 cursor.execute(f"""
                     SELECT id, full_name, phone, email, specialty, city
                     FROM prefilled_doctor
@@ -4421,11 +4480,11 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         field_rep_user = None
         if field_rep_field_id:
             try:
-                field_rep_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+                field_rep_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
             except User.DoesNotExist:
                 if field_rep_email:
                     try:
-                        field_rep_user = m(User).filter(email=field_rep_email, role='field_rep').first()
+                        field_rep_user = User.objects.filter(email=field_rep_email, role='field_rep').first()
                     except:
                         pass
 
@@ -4535,7 +4594,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         if collaterals:
             # Resolve a user for short link creation
             try:
-                actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+                actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
             except User.DoesNotExist:
                 actual_user = request.user if request.user.is_authenticated else None
 
@@ -4645,7 +4704,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             from user_management.models import User
 
             try:
-                actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
+                actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
             except User.DoesNotExist:
                 actual_user = request.user if request.user.is_authenticated else None
             if not actual_user:
