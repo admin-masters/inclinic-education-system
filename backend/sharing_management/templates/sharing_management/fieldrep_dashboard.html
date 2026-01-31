@@ -1,84 +1,8 @@
-{% extends "base.html" %} {% load static %} {% block extrastyle %}
+{% extends "base.html" %}
+{% load static %}
+
+{% block extrastyle %}
 <style>
-  .btn-group-wrap {
-    margin: 2rem 0 1rem;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.75rem;
-    align-items: center;
-  }
-
-  .dropdown {
-    position: relative;
-    display: inline-block;
-  }
-
-  .dropdown-toggle {
-    background-color: #28a745;
-    color: white;
-    padding: 0.5rem 1rem;
-    font-weight: 500;
-    border: none;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-
-  .dropdown-toggle:hover {
-    background-color: #218838;
-    color: white;
-  }
-
-  .dropdown-menu {
-    display: none;
-    position: absolute;
-    background-color: #f9f9f9;
-    min-width: 280px;
-    box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
-    z-index: 1000;
-    border-radius: 0.375rem;
-    border: 1px solid #dee2e6;
-  }
-
-  .dropdown:hover .dropdown-menu {
-    display: block;
-  }
-
-  .dropdown-item {
-    color: #333;
-    padding: 0.75rem 1rem;
-    text-decoration: none;
-    display: block;
-    border-bottom: 1px solid #eee;
-    transition: background-color 0.2s;
-  }
-
-  .dropdown-item:last-child {
-    border-bottom: none;
-  }
-
-  .dropdown-item:hover {
-    background-color: #007bff;
-    color: white;
-    text-decoration: none;
-  }
-
-  .dropdown-header {
-    background-color: #e9ecef;
-    color: #495057;
-    padding: 0.75rem 1rem;
-    font-weight: 600;
-    border-bottom: 1px solid #dee2e6;
-  }
-
-  .dropdown-divider {
-    height: 1px;
-    background-color: #dee2e6;
-    margin: 0.5rem 0;
-  }
-
   .campaigns-table {
     width: 100%;
     background: white;
@@ -112,28 +36,12 @@
     background-color: #f8f9fa;
   }
 
-  .btn {
-    padding: 0.5rem 1rem;
-    font-weight: 500;
-  }
-
   .dashboard-title {
     text-align: center;
     font-size: 2.2rem;
     font-weight: 600;
     color: #333;
     margin-top: 2rem;
-  }
-
-  .btn-info {
-    color: white;
-    background-color: #00bcd4;
-    border: none;
-  }
-
-  .btn-info:hover {
-    background-color: #00acc1;
-    color: white;
   }
 
   .search-container {
@@ -182,8 +90,20 @@
     margin-bottom: 0.5rem;
     display: block;
   }
+
+  .preview-link {
+    color: #007bff;
+    text-decoration: none;
+    font-weight: 600;
+  }
+
+  .preview-link:hover {
+    text-decoration: underline;
+  }
 </style>
-{% endblock %} {% block content %}
+{% endblock %}
+
+{% block content %}
 <script>
   // Force refresh when returning via back/forward cache
   window.addEventListener("pageshow", function (event) {
@@ -204,92 +124,17 @@
     }
   });
 </script>
+
 <h2 class="dashboard-title">Manage Collateral Panel</h2>
 
-<div class="btn-group-wrap">
-  {% if campaign_filter %}
-  <a
-    href="{% url 'collaterals_add_branded' campaign_filter %}"
-    class="btn btn-primary"
-    >Add Collaterals</a
-  >
-  {% else %}
-  <a href="{% url 'collaterals_add' %}" class="btn btn-primary"
-    >Add Collaterals</a
-  >
-  {% endif %} {% if campaign_filter %}
-  <a
-    href="{% url 'edit_campaign_calendar' %}?brand={{ campaign_filter }}"
-    class="btn btn-primary"
-    >Edit Calendar</a
-  >
-  {% else %}
-  <a href="{% url 'edit_campaign_calendar' %}" class="btn btn-primary"
-    >Edit Calendar</a
-  >
-  {% endif %}
-  <a href="{% url 'bulk_manual_upload' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary"
-    >Bulk Registration for Manual Collateral Sharing</a
-  >
-  <a href="{% url 'bulk_pre_mapped_upload' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary"
-    >Bulk Registration for Pre-mapped Doctors Collateral Sharing</a
-  >
-  <a href="{% url 'bulk_manual_upload_whatsapp' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary"
-    >Bulk Registration for Manual Collateral Sharing Whatsapp</a
-  >
-  <a href="{% url 'bulk_pre_filled_share_whatsapp' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary"
-    >Bulk Registration for Pre-mapped Doctors Collateral by Whatsapp</a
-  >
-  <a href="{% url 'bulk_pre_mapped_by_login' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-primary">
-    Bulk Registration for Pre-mapped Collateral Sharing by login
-  </a>
+<!-- Buttons removed -->
 
-  <!-- Field Rep Management Dropdown -->
-  <div class="dropdown">
-    <button class="dropdown-toggle">Field Rep Management ▼</button>
-    <div class="dropdown-menu">
-      <a
-        href="{% url 'fieldrep_email_registration' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
-        class="dropdown-item"
-        >Field Rep Register</a
-      >
-      <a
-        href="{% url 'fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
-        class="dropdown-item"
-        >Field Rep Gmail Login</a
-      >
-      <a
-        href="{% url 'fieldrep_whatsapp_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
-        class="dropdown-item"
-        >Field Rep WhatsApp Login</a
-      >
-      <a
-        href="{% url 'prefilled_fieldrep_registration' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
-        class="dropdown-item"
-        >Pre-filled Field Rep Register</a
-      >
-      <a
-        href="{% url 'prefilled_fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
-        class="dropdown-item"
-        >Pre-filled Gmail Login</a
-      >
-      <a
-        href="{% if campaign_id %}{% url 'prefilled_fieldrep_whatsapp_login_campaign' campaign_id %}{% else %}{% url 'prefilled_fieldrep_whatsapp_login' %}{% endif %}"
-        class="dropdown-item"
-        >Pre-filled WhatsApp Login</a
-      >
-    </div>
-  </div>
-
-  <a href="{% url 'home' %}" class="btn btn-info">Back to Home</a>
-</div>
-
-<!-- Add search bar here -->
 <div class="search-container">
   <form method="GET" action="{% url 'fieldrep_dashboard' %}">
     {% if campaign_filter %}
-    <input type="hidden" name="campaign" value="{{ campaign_filter }}" />
+      <input type="hidden" name="campaign" value="{{ campaign_filter }}" />
     {% endif %}
+
     <label class="search-label">Search by Brand Campaign ID:</label>
     <div class="search-box">
       <input
@@ -314,79 +159,36 @@
         <th>Item Name</th>
         <th>Description for display</th>
         <th>URL of the Page</th>
-        <th>Edit</th>
-        <th>Replace Collateral</th>
-        <th>Delete</th>
       </tr>
     </thead>
     <tbody>
       {% for collateral in collaterals %}
-      <tr>
-        <td>{{ collateral.brand_id }}</td>
-        <td>{{ collateral.item_name }}</td>
-        <td>{{ collateral.description }}</td>
-        <td>
-        <a class="btn btn-warning" href="{% url 'collateral_preview' collateral.id %}">Link</a>
-        </td>
-        <td>
-          {% if collateral.campaign_collateral_id %}
-          <a
-            class="btn btn-primary"
-            href="{% url 'edit_campaign_calendar' %}?id={{ collateral.campaign_collateral_id }}"
-            >Edit Dates</a
-          >
-          {% else %}
-          <a
-            class="btn btn-primary"
-            href="{% url 'edit_campaign_calendar' %}?collateral_id={{ collateral.id }}&brand={{ collateral.brand_id }}"
-            >Edit Dates</a
-          >
-          {% endif %}
-        </td>
-        <td>
-          {% if collateral.id %}
-          <a
-            class="btn btn-success"
-            href="{% url 'replace_collateral' collateral.id %}"
-            >Replace Collateral</a
-          >
-          {% else %}
-          <span class="text-muted">N/A</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if collateral.id %}
-          <form
-            method="post"
-            action="{% url 'dashboard_delete_collateral' collateral.id %}"
-            style="display: inline"
-          >
-            {% csrf_token %} {% if request.GET.campaign %}
-            <input
-              type="hidden"
-              name="campaign"
-              value="{{ request.GET.campaign }}"
-            />
+        <tr>
+          <td>{{ collateral.brand_id }}</td>
+          <td>{{ collateral.item_name }}</td>
+          <td>{{ collateral.description }}</td>
+          <td>
+            {% if collateral.id %}
+              <a
+                class="preview-link"
+                href="{% url 'collateral_preview' collateral.id %}"
+                target="_blank"
+                rel="noopener"
+              >
+                Open
+              </a>
+            {% else %}
+              <span class="text-muted">N/A</span>
             {% endif %}
-            <button
-              type="submit"
-              class="btn btn-danger btn-sm"
-              onclick="return confirm('Are you sure you want to delete this collateral?')"
-            >
-              Delete
-            </button>
-          </form>
-          {% else %}
-          <span class="text-muted">N/A</span>
-          {% endif %}
-        </td>
-      </tr>
+          </td>
+        </tr>
       {% empty %}
-      <tr>
-        <td colspan="7">No collaterals available.</td>
-      </tr>
+        <tr>
+          <td colspan="4">No collaterals available.</td>
+        </tr>
       {% endfor %}
     </tbody>
   </table>
 </div>
+
 {% endblock %}
