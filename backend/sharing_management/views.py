@@ -1,3 +1,5 @@
+# sharing_management/views.py
+
 from __future__ import annotations
 
 import csv
@@ -79,6 +81,22 @@ import json
 from sharing_management.models import CollateralTransaction
 from shortlink_management.models import ShortLink
 from campaign_management.models import CampaignCollateral
+
+from django.db import connections
+
+# MASTER DB alias (fallback to 'default' for local/dev where only one DB exists)
+MASTER_DB_ALIAS = getattr(settings, "MASTER_DB_ALIAS", "master")
+if MASTER_DB_ALIAS not in settings.DATABASES:
+    MASTER_DB_ALIAS = "default"
+
+def m(model_cls):
+    """Return model manager pinned to MASTER DB."""
+    return model_cls.objects.using(MASTER_DB_ALIAS)
+
+def master_conn():
+    """Return MASTER DB connection (for raw SQL)."""
+    return connections[MASTER_DB_ALIAS]
+
 
 @csrf_exempt
 def doctor_view_log(request):
@@ -220,12 +238,12 @@ def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, fie
         from admin_dashboard.models import FieldRepCampaign
         from user_management.models import User
 
-        campaign_obj = Campaign.objects.filter(brand_campaign_id=brand_campaign_id).first()
+        campaign_obj = m(Campaign).filter(brand_campaign_id=brand_campaign_id).first()
         if not campaign_obj:
             return
 
         # Find existing portal user case-insensitively
-        user = User.objects.filter(email__iexact=email).first()
+        user = m(User).filter(email__iexact=email).first()
 
         if user:
             # Do not assign non-field-rep accounts to campaigns
@@ -236,11 +254,11 @@ def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, fie
             base_username = (email.split('@')[0] or email).strip()[:140]
             username_candidate = base_username or email[:140]
             suffix = 0
-            while User.objects.filter(username=username_candidate).exists():
+            while m(User).filter(username=username_candidate).exists():
                 suffix += 1
                 username_candidate = f"{base_username}_{suffix}"[:150]
 
-            user = User.objects.create_user(
+            user = m(User).create_user(
                 username=username_candidate,
                 email=email.lower(),
                 password=raw_password or User.objects.make_random_password(),
@@ -250,7 +268,7 @@ def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, fie
             user.field_id = field_id or user.field_id
             user.first_name = first_name or user.first_name
             user.last_name = last_name or user.last_name
-            user.save()
+            user.save(using=MASTER_DB_ALIAS)
 
         # Light updates only if missing
         changed = False
@@ -264,14 +282,14 @@ def _sync_fieldrep_to_campaign_portal(*, brand_campaign_id: str, email: str, fie
             user.last_name = last_name
             changed = True
         if changed:
-            user.save()
+            user.save(using=MASTER_DB_ALIAS)
 
-        CampaignAssignment.objects.get_or_create(
+        m(CampaignAssignment).get_or_create(
             campaign=campaign_obj,
             field_rep=user,
             defaults={'assigned_by': None},
         )
-        FieldRepCampaign.objects.get_or_create(
+        m(FieldRepCampaign).get_or_create(
             campaign=campaign_obj,
             field_rep=user,
         )
@@ -347,25 +365,25 @@ def get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_i
     """
     from user_management.models import User
     from django.contrib.auth.hashers import make_password
-    
+
     # Try to find existing user by field_id
     user = None
     if field_rep_field_id:
         try:
-            user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+            user = m(User).get(field_id=field_rep_field_id, role='field_rep')
         except User.DoesNotExist:
             pass
-    
+
     # Try to find by email as fallback
     if not user and field_rep_email:
         try:
-            user = User.objects.filter(email=field_rep_email, role='field_rep').first()
+            user = m(User).filter(email=field_rep_email, role='field_rep').first()
         except:
             pass
-    
+
     # Create new user if not found
     if not user and field_rep_field_id and field_rep_email:
-        user = User.objects.create(
+        user = m(User).create(
             username=f'fieldrep_{field_rep_field_id}',
             email=field_rep_email,
             field_id=field_rep_field_id,
@@ -373,7 +391,7 @@ def get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_i
             password=make_password('defaultpass123'),  # Default password
             is_active=True
         )
-    
+
     return user
 
 
@@ -513,7 +531,7 @@ def share_content(request):
     print(f"[share_content] GET brand_campaign_id: {request.GET.get('brand_campaign_id')}")
     print(f"[share_content] POST brand_campaign_id: {request.POST.get('brand_campaign_id')}")
     print(f"[share_content] Final brand_campaign_id: {brand_campaign_id}")
-    
+
     if request.method == 'POST':
         form = ShareForm(request.POST, user=request.user, brand_campaign_id=brand_campaign_id)
         if form.is_valid():
@@ -608,7 +626,7 @@ from django.views.decorators.cache import never_cache
 @never_cache
 def fieldrep_dashboard(request):
     rep = request.user
-    assigned = CampaignAssignment.objects.filter(field_rep=rep).select_related('campaign')
+    assigned = CampaignAssignment.objects.using(MASTER_DB_ALIAS).filter(field_rep=rep).select_related('campaign')
     campaign_ids = [a.campaign_id for a in assigned]
 
     # Use collateral_management CampaignCollateral for mapping IDs
@@ -642,7 +660,7 @@ def fieldrep_dashboard(request):
     stats = []
     for a in assigned:
         campaign = a.campaign
-        campaign_collaterals = CMCampaignCollateral.objects.filter(campaign=campaign)
+        campaign_collaterals = CMCampaignCollateral.objects.filter(campaign_id=campaign.id)
         collateral_ids = [cc.collateral_id for cc in campaign_collaterals]
 
         shares = sum(share_map.get(cid, 0) for cid in collateral_ids)
@@ -674,7 +692,7 @@ def fieldrep_dashboard(request):
         ).select_related('collateral', 'campaign')
 
     all_collaterals = [cc.collateral for cc in all_ccs]
-    
+
     # Add search functionality
     search_query = request.GET.get('search', '').strip()
     if search_query:
@@ -688,7 +706,7 @@ def fieldrep_dashboard(request):
                 continue
             filtered.append(c)
         all_collaterals = filtered
-    
+
     collaterals = []
     # Map Edit Dates to collateral_management CampaignCollateral to align with edit_calendar view
     for c in all_collaterals:
@@ -699,7 +717,7 @@ def fieldrep_dashboard(request):
         # Build best viewer URL: if both assets present, route to combined viewer
         has_pdf = bool(getattr(c, 'file', None))
         has_vid = bool(getattr(c, 'vimeo_url', ''))
-        
+
         # Print fetching path debug info
         if has_pdf:
             print(f"[sharing_management] Fetching collateral file for ID: {getattr(c, 'id', None)}, Title: '{getattr(c, 'title', '')}'")
@@ -707,7 +725,7 @@ def fieldrep_dashboard(request):
             print(f"[sharing_management] File name: {c.file.name}")
             if hasattr(c.file, 'path'):
                 print(f"[sharing_management] File path: {c.file.path}")
-        
+
         viewer_url = None
         if has_pdf and has_vid:
             try:
@@ -729,7 +747,7 @@ def fieldrep_dashboard(request):
         # Print final URL being used
         final_url = viewer_url or (c.file.url if has_pdf else (getattr(c, 'vimeo_url', '') or ''))
         print(f"[sharing_management] Final URL for collateral ID {getattr(c, 'id', None)}: {final_url}")
-        
+
         collaterals.append({
             'brand_id': campaign.brand_campaign_id if campaign else '',
             'item_name': getattr(c, 'title', ''),
@@ -741,12 +759,12 @@ def fieldrep_dashboard(request):
             # Use collateral_management CampaignCollateral id for Edit Dates button
             'campaign_collateral_id': cc.pk if cc else None,
         })
-    
+
     # Get campaign_id from URL parameter or use campaign_filter
     campaign_id = request.GET.get('campaign', campaign_filter)
-    
+
     response = render(request, 'sharing_management/fieldrep_dashboard.html', {
-        'stats': stats, 
+        'stats': stats,
         'collaterals': collaterals,
         'search_query': search_query,
         'campaign_filter': campaign_filter,
@@ -761,9 +779,9 @@ def fieldrep_dashboard(request):
 @field_rep_required
 def fieldrep_campaign_detail(request, campaign_id):
     rep = request.user
-    get_object_or_404(CampaignAssignment, field_rep=rep, campaign_id=campaign_id)
+    get_object_or_404(CampaignAssignment.objects.using(MASTER_DB_ALIAS), field_rep=rep, campaign_id=campaign_id)
 
-    ccols = CampaignCollateral.objects.filter(campaign_id=campaign_id).select_related('collateral')
+    ccols = CampaignCollateral.objects.using(MASTER_DB_ALIAS).filter(campaign_id=campaign_id).select_related('collateral')
     col_ids = [cc.collateral_id for cc in ccols]
 
     shares = ShareLog.objects.filter(
@@ -830,7 +848,7 @@ def bulk_manual_upload(request):
     if campaign_param:
         try:
             from campaign_management.models import Campaign
-            campaign = Campaign.objects.get(brand_campaign_id=campaign_param)
+            campaign = Campaign.objects.using(MASTER_DB_ALIAS).get(brand_campaign_id=campaign_param)
         except Campaign.DoesNotExist:
             messages.error(request, "Invalid Brand Campaign ID.")
             campaign = None
@@ -924,7 +942,7 @@ def all_share_logs(request):
     Show all share logs
     """
     share_logs = ShareLog.objects.all().select_related('collateral', 'field_rep', 'short_link').order_by('-created_at')[:100]
-    
+
     return render(request, "sharing_management/all_share_logs.html", {
         "share_logs": share_logs,
         "total_count": share_logs.count()
@@ -948,13 +966,13 @@ def bulk_upload_help(request):
     """
     from django.contrib.auth import get_user_model
     UserModel = get_user_model()
-    
+
     # Get available field reps
     field_reps = UserModel.objects.filter(role="field_rep").values('id', 'email', 'username')
-    
+
     # Get available collaterals
     collaterals = Collateral.objects.filter(is_active=True).values('id', 'title', 'description')
-    
+
     return render(request, "sharing_management/bulk_upload_help.html", {
         "field_reps": field_reps,
         "collaterals": collaterals,
@@ -1096,7 +1114,7 @@ def edit_collateral_dates(request, pk):
             return redirect('collateral_list')  # Adjust this to your correct redirect
     else:
         form = CollateralForm(instance=collateral)
-    
+
     return render(request, 'collaterals/edit_collateral_dates.html', {'form': form, 'collateral': collateral})
 
 def edit_campaign_calendar(request):
@@ -1105,7 +1123,7 @@ def edit_campaign_calendar(request):
     from collateral_management.models import CampaignCollateral as CMCampaignCollateral
     # Ensure collateral_object is defined across all branches
     collateral_object = None
-    
+
     # Optional filter by Brand Campaign ID
     brand_filter = request.GET.get('brand') or request.GET.get('campaign')
     if brand_filter:
@@ -1113,7 +1131,7 @@ def edit_campaign_calendar(request):
             .filter(campaign__brand_campaign_id=brand_filter)
     else:
         campaign_collaterals = CMCampaignCollateral.objects.select_related('campaign', 'collateral').all()
-    
+
     # Check if we're editing an existing record
     edit_id = request.GET.get('id')
     print(f"Edit ID from URL: {edit_id}")
@@ -1163,9 +1181,9 @@ def edit_campaign_calendar(request):
             start_date = request.POST.get('start_date')
             end_date = request.POST.get('end_date')
             brand_campaign_id = request.POST.get('campaign', '').strip()
-            
+
             print(f"POST data - Collateral ID: {collateral_id}, Start: {start_date}, End: {end_date}")
-            
+
             if collateral_id:
                 # Find existing CampaignCollateral record with this collateral
                 existing_qs = CMCampaignCollateral.objects.filter(collateral_id=collateral_id)
@@ -1173,7 +1191,7 @@ def edit_campaign_calendar(request):
                 if brand_campaign_id:
                     existing_qs = existing_qs.filter(campaign__brand_campaign_id=brand_campaign_id)
                 existing_record = existing_qs.first()
-                
+
                 if existing_record:
                     # Update existing record
                     form = CalendarCampaignCollateralForm(request.POST, instance=existing_record)
@@ -1240,7 +1258,7 @@ def edit_campaign_calendar(request):
                 messages.error(request, 'Please select a collateral.')
                 if request.headers.get('x-requested-with') == 'XMLHttpRequest':
                     return JsonResponse({'success': False, 'error': 'Please select a collateral.'}, status=400)
-        
+
         # Show form with optional initial values from query params
         initial = {}
         # Allow prefill via dashboard link fallback
@@ -1269,16 +1287,16 @@ def edit_campaign_calendar(request):
                         initial['end_date'] = existing_record.end_date.date()
             except Exception:
                 pass
-        
+
         # Initialize form with brand_campaign_id to filter collaterals
         form_kwargs = {'initial': initial}
         if prefill_brand:
             form_kwargs['brand_campaign_id'] = prefill_brand
         elif collateral_object and collateral_object.campaign_collaterals.exists():
             form_kwargs['brand_campaign_id'] = collateral_object.campaign_collaterals.first().campaign.brand_campaign_id
-            
+
         form = CalendarCampaignCollateralForm(**form_kwargs)
-    
+
     return render(request, 'sharing_management/edit_calendar.html', {
         'form': form,
         'campaign_collaterals': campaign_collaterals,
@@ -1296,7 +1314,7 @@ def fieldrep_email_registration(request):
         if brand_campaign_id:
             redirect_url += f'&campaign={brand_campaign_id}'
         return redirect(redirect_url)
-    
+
     # Get brand_campaign_id from GET parameter for template context
     brand_campaign_id = request.GET.get('campaign')
     return render(request, 'sharing_management/fieldrep_email_registration.html', {
@@ -1310,7 +1328,7 @@ def fieldrep_create_password(request):
     # Fetch security questions
     try:
         from .models import SecurityQuestion
-        security_questions = SecurityQuestion.objects.all().values_list('id', 'question_txt')
+        security_questions = SecurityQuestion.objects.using(MASTER_DB_ALIAS).all().values_list('id', 'question_txt')
     except Exception as e:
         print(f"Error fetching security questions: {e}")
         security_questions = []
@@ -1376,23 +1394,23 @@ def fieldrep_create_password(request):
         # 2️⃣ FIX: Assign Field Rep to selected campaign (LOCAL DB)
         if brand_campaign_id:
             print(f"DEBUG: Assigning field rep to campaign {brand_campaign_id}")
-            
+
             field_rep_user = User.objects.filter(
                 email__iexact=email,
                 role='field_rep',
                 active=True
             ).first()
-            
+
             print(f"DEBUG: Found field_rep_user: {field_rep_user}")
 
             campaign = Campaign.objects.filter(
                 brand_campaign_id=brand_campaign_id
             ).first()
-            
+
             print(f"DEBUG: Found campaign: {campaign}")
 
             if field_rep_user and campaign:
-                assignment, created = FieldRepCampaign.objects.get_or_create(
+                assignment, created = m(FieldRepCampaign).get_or_create(
                     field_rep=field_rep_user,
                     campaign=campaign
                 )
@@ -1424,11 +1442,11 @@ def fieldrep_create_password(request):
 
 def fieldrep_login(request):
     brand_campaign_id = request.GET.get('campaign') or request.POST.get('campaign')
-    
+
     if request.method == 'POST':
         email = request.POST.get('email')
         password = request.POST.get('password')
-        
+
         # Authenticate using database
         user_id, field_id, user_email = authenticate_field_representative(email, password)
         # Fallback: some Field Reps are created in the Field Rep Portal (user_management.User)
@@ -1443,7 +1461,7 @@ def fieldrep_login(request):
             except Exception:
                 portal_user = None
 
-        
+
         if user_id:
             # Clear any existing Google authentication session
             # Remove Google auth related session keys
@@ -1451,20 +1469,20 @@ def fieldrep_login(request):
                 '_auth_user_id', '_auth_user_backend', '_auth_user_hash',
                 'user_id', 'username', 'email', 'first_name', 'last_name'
             ]
-            
+
             for key in google_session_keys:
                 if key in request.session:
                     del request.session[key]
-            
+
             # Store field rep user info in session
             request.session['field_rep_id'] = user_id
             request.session['field_rep_email'] = user_email
             request.session['field_rep_field_id'] = field_id
-            
+
             # Store brand_campaign_id in session if available
             if brand_campaign_id:
                 request.session['brand_campaign_id'] = brand_campaign_id
-                        
+
             # Check if user is prefilled or manual based on field_id
             if field_id and field_id.startswith('PREFILLED_'):
                 # Prefilled user - redirect to prefilled share collateral
@@ -1483,7 +1501,7 @@ def fieldrep_login(request):
                 'error': 'Invalid email or password. Please try again.',
                 'brand_campaign_id': brand_campaign_id
             })
-    
+
     return render(request, 'sharing_management/fieldrep_login.html', {
         'brand_campaign_id': brand_campaign_id
     })
@@ -1494,7 +1512,7 @@ def fieldrep_forgot_password(request):
         email = request.POST.get('email')
         security_answer = request.POST.get('security_answer')
         security_question_id = request.POST.get('security_question_id')
-        
+
         # Step 1: If no answer, show security question
         if not security_answer:
             # Get security question from database using email
@@ -1528,7 +1546,7 @@ def fieldrep_reset_password(request):
     if request.method == 'POST':
         password = request.POST.get('password')
         confirm_password = request.POST.get('confirm_password')
-        
+
         if password == confirm_password:
             # Reset password in database
             success = reset_field_representative_password(email, password)
@@ -1545,7 +1563,7 @@ def fieldrep_reset_password(request):
                 'email': email,
                 'error': 'Passwords do not match.'
             })
-    
+
     return render(request, 'sharing_management/fieldrep_reset_password.html', {'email': email})
 
 
@@ -1555,9 +1573,9 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
     field_rep_id = request.session.get('field_rep_id')
     field_rep_email = request.session.get('field_rep_email')
     field_rep_field_id = request.session.get('field_rep_field_id')
-    
+
     print(f"[DEBUG] Session data - field_rep_id: {field_rep_id}, field_rep_email: {field_rep_email}, field_rep_field_id: {field_rep_field_id}")
-    
+
     # If brand_campaign_id not provided in URL, try to get it from session or GET parameters
     print(f"[DEBUG] Initial brand_campaign_id from URL: {brand_campaign_id}")
     if brand_campaign_id is None:
@@ -1569,30 +1587,30 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
     if brand_campaign_id is None:
         brand_campaign_id = request.GET.get('brand_campaign_id')
         print(f"[DEBUG] brand_campaign_id from GET 'brand_campaign_id': {brand_campaign_id}")
-    
+
     print(f"[DEBUG] Final brand_campaign_id: {brand_campaign_id}")
-    
+
     if not field_rep_id:
         messages.error(request, 'Please login first.')
         return redirect('fieldrep_login')
-    
+
     # Get or create user for short link creation
     fieldrep_user = get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_id)
-    
+
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral, CampaignCollateral as CMCampaignCollateral
 
         print(f"[DEBUG] brand_campaign_id for filtering: {brand_campaign_id}")
-        
+
         if brand_campaign_id:
             # Limit to collaterals linked to the given brand campaign
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
-            
+
             from django.utils import timezone
             from django.db.models import Q
             current_date = timezone.now().date()
-            
+
             # Filter by campaign dates - only show collaterals that are currently active (not future-dated)
             cc_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
@@ -1602,7 +1620,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral')
             print(f"[DEBUG] Found {cc_links.count()} campaign-collateral links (after date filtering)")
-            
+
             # Debug: Show all linked collaterals with their status
             print("[DEBUG] All linked collaterals:")
             for link in cc_links:
@@ -1610,10 +1628,10 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                     print(f"  - {link.collateral.title} (ID: {link.collateral.id}, Active: {link.collateral.is_active})")
                 else:
                     print("  - None (collateral was deleted)")
-            
+
             collaterals = [link.collateral for link in cc_links if link.collateral]
             print(f"[DEBUG] Found {len(collaterals)} non-deleted collaterals after filtering")
-            
+
             # Also filter by is_active status
             active_collaterals = [c for c in collaterals if c.is_active]
             print(f"[DEBUG] Found {len(active_collaterals)} active collaterals")
@@ -1622,12 +1640,12 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
             # If no brand_campaign_id, show no collaterals instead of all
             print("[DEBUG] No brand_campaign_id, showing no collaterals")
             collaterals = Collateral.objects.none()
-        
+
         # Convert to list format for template
         collaterals_list = []
-        
+
         print(f"[DEBUG] Processing {len(collaterals)} collaterals for template")
-        
+
         for collateral in collaterals:
             # Create short link for each collateral
             short_link = find_or_create_short_link(collateral, fieldrep_user)
@@ -1639,83 +1657,83 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
             }
             collaterals_list.append(collateral_data)
             print(f"[DEBUG] Added collateral: {collateral.title} (ID: {collateral.id})")
-        
+
         print(f"[DEBUG] Final collaterals_list length: {len(collaterals_list)}")
     except Exception as e:
         print(f"Error fetching collaterals: {e}")
         collaterals_list = []
         messages.error(request, 'Error loading collaterals. Please try again.')
-    
+
     # Add informational message if no collaterals found for this brand campaign
     if brand_campaign_id and not collaterals_list:
         messages.info(request, f'No collaterals found for brand campaign: {brand_campaign_id}')
-    
+
     print(f"[DEBUG] Rendering template with {len(collaterals_list)} collaterals")
-    
+
     # Get doctors assigned to this field rep
     try:
         from doctor_viewer.models import Doctor
         from user_management.models import User
-        
+
         print(f"[DEBUG] Fetching doctors for field_rep_id: {field_rep_id} and field_rep_field_id: {field_rep_field_id}")
-        
+
         # Get the User object for this field rep
         try:
             rep_user = User.objects.get(field_id=field_rep_id, role='field_rep')
             print(f"[DEBUG] Found rep_user by field_id: {rep_user.id}")
         except User.DoesNotExist:
             try:
-                rep_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+                rep_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
                 print(f"[DEBUG] Found rep_user by field_rep_field_id: {rep_user.id}")
             except User.DoesNotExist:
                 print(f"[DEBUG] User not found with either field_id, creating new user")
                 # Create user if doesn't exist
                 rep_user = get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_field_id)
                 print(f"[DEBUG] Created rep_user: {rep_user.id if rep_user else None}")
-        
+
         if not rep_user:
             print(f"[DEBUG] ERROR: Could not find or create rep_user")
             doctors = []
         else:
             doctors = Doctor.objects.filter(rep=rep_user).order_by('name')
             print(f"[DEBUG] Found {doctors.count()} doctors for rep_user: {rep_user.id}")
-            
+
             # Debug: Print all doctors found
             for doctor in doctors:
                 print(f"[DEBUG] Doctor: {doctor.name} ({doctor.phone})")
-        
+
         # Add status information to doctors
         doctors_with_status = []
         for doctor in doctors:
             # Get sharing status for this doctor
             from .models import ShareLog
             print(f"[DEBUG] Checking shares for doctor {doctor.name} ({doctor.phone}) with field_rep_id: {field_rep_id}")
-            
+
             # Debug: Show all shares for this doctor
             all_shares = ShareLog.objects.filter(doctor_identifier=doctor.phone)
             print(f"[DEBUG] Found {all_shares.count()} total shares for this doctor:")
             for share in all_shares:
                 print(f"  - field_rep_id: {share.field_rep_id}, share_timestamp: {share.share_timestamp}")
-            
+
             latest_share = ShareLog.objects.filter(
                 field_rep_id=field_rep_id,
                 doctor_identifier=doctor.phone  # Use doctor_identifier instead of phone_e164
             ).order_by('-share_timestamp').first()
-            
+
             print(f"[DEBUG] Latest share for {doctor.name}: {latest_share}")
-            
+
             doctor.status = 'not_shared'
             doctor.last_shared = None
-            
+
             if latest_share:
                 print(f"[DEBUG] Found share for doctor {doctor.name}: share_timestamp={latest_share.share_timestamp}")
-                
+
                 if latest_share.share_timestamp:
                     # Check if it's been more than 6 days since last share
                     from django.utils import timezone
                     days_since_share = (timezone.now() - latest_share.share_timestamp).days
                     print(f"[DEBUG] Days since share for {doctor.name}: {days_since_share}")
-                    
+
                     if days_since_share > 6:
                         doctor.status = 'needs_reminder'
                         print(f"[DEBUG] Doctor {doctor.name} status: needs_reminder (purple)")
@@ -1725,15 +1743,15 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                     doctor.last_shared = latest_share.share_timestamp
             else:
                 print(f"[DEBUG] No share found for doctor {doctor.name}: not_shared (red)")
-            
+
             doctors_with_status.append(doctor)
-        
+
         doctors = doctors_with_status
-        
+
     except Exception as e:
         print(f"Error fetching doctors: {e}")
         doctors = []
-    
+
     if request.method == 'POST':
         # Check if this is an AJAX request from the send message button
         if request.headers.get('X-Requested-With') == 'XMLHttpRequest' or request.POST.get('ajax'):
@@ -1743,30 +1761,30 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 doctor_whatsapp = request.POST.get('doctor_whatsapp')
                 collateral_id = request.POST.get('collateral')
                 print(f"[DEBUG] Parsed form data: doctor_name={doctor_name}, doctor_whatsapp={doctor_whatsapp}, collateral_id={collateral_id}")
-                
+
                 if not collateral_id:
                     print(f"[DEBUG] ERROR: collateral_id is None or empty")
                     return JsonResponse({
                         'success': False,
                         'message': 'Collateral ID is required'
                     })
-                
+
                 collateral_id = int(collateral_id)
                 print(f"[DEBUG] Converted collateral_id to int: {collateral_id}")
-                
+
                 # Find the selected collateral
                 selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
                 print(f"[DEBUG] Selected collateral: {selected_collateral}")
                 print(f"[DEBUG] Available collaterals: {[c['id'] for c in collaterals_list]}")
-                
+
                 if selected_collateral and doctor_whatsapp:
                     # Check if doctor exists in database, if not create one
                     from doctor_viewer.models import Doctor
                     doctor = None
                     doctor_created = False
-                    
+
                     print(f"[DEBUG] Looking for doctor with phone: {doctor_whatsapp}, field_rep_id: {field_rep_id}")
-                    
+
                     # Get the User object for this field rep
                     from user_management.models import User
                     try:
@@ -1777,14 +1795,14 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                         # Create user if doesn't exist
                         rep_user = get_or_create_fieldrep_user(field_rep_id, field_rep_email, field_rep_id)
                         print(f"[DEBUG] Created new rep_user: {rep_user.id if rep_user else None}")
-                        
+
                         if not rep_user:
                             print(f"[DEBUG] ERROR: Failed to create user, trying with different parameters")
                             # Try creating user with minimal parameters
                             try:
                                 from user_management.models import User
                                 from django.contrib.auth.hashers import make_password
-                                rep_user = User.objects.create(
+                                rep_user = m(User).create(
                                     username=f'fieldrep_{field_rep_id}',
                                     email=f'fieldrep_{field_rep_id}@example.com',
                                     field_id=field_rep_id,
@@ -1796,16 +1814,16 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                             except Exception as e:
                                 print(f"[DEBUG] ERROR: Failed to create minimal user: {e}")
                                 rep_user = None
-                    
+
                     if not rep_user:
                         print(f"[DEBUG] ERROR: rep_user is None!")
                         return JsonResponse({
                             'success': False,
                             'message': 'Unable to find or create field representative user'
                         })
-                    
+
                     print(f"[DEBUG] Using rep_user ID: {rep_user.id} for doctor operations")
-                    
+
                     try:
                         # Try to find existing doctor by phone and rep
                         doctor = Doctor.objects.get(phone=doctor_whatsapp, rep=rep_user)
@@ -1835,7 +1853,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                             'success': False,
                             'message': f'Error finding doctor: {str(e)}'
                         })
-                    
+
                     # Ensure we have a doctor object
                     if not doctor:
                         print(f"[DEBUG] ERROR: Doctor object is None after search/creation")
@@ -1843,13 +1861,13 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                             'success': False,
                             'message': 'Unable to find or create doctor record'
                         })
-                    
+
                     print(f"[DEBUG] Doctor object before JsonResponse: {doctor}")
                     if doctor:
                         print(f"[DEBUG] Doctor details: {doctor.name} (ID: {doctor.id})")
                     else:
                         print(f"[DEBUG] ERROR: Doctor object is None before JsonResponse!")
-                    
+
                     # Log the share in database
                     try:
                         from .utils.db_operations import log_manual_doctor_share
@@ -1857,7 +1875,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                         from collateral_management.models import Collateral
                         collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                         short_link = find_or_create_short_link(collateral_obj, fieldrep_user)
-                        
+
                         # Log the share
                         log_manual_doctor_share(
                             short_link_id=short_link.id,
@@ -1865,9 +1883,9 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                             phone_e164=doctor_whatsapp,
                             collateral_id=collateral_id
                         )
-                        
+
                         print(f"[DEBUG] Share logged with field_rep_id: {field_rep_id} for doctor: {doctor_name}")
-                        
+
                         # Debug: Verify the share was created
                         from .models import ShareLog
                         created_share = ShareLog.objects.filter(
@@ -1878,7 +1896,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                             print(f"[DEBUG] Verified share created: field_rep_id={created_share.field_rep_id}, doctor={created_share.doctor_identifier}")
                         else:
                             print(f"[DEBUG] ERROR: Share not found after creation!")
-                        
+
                         # Get brand-specific message
                         message = get_brand_specific_message(
                         collateral_id,
@@ -1889,7 +1907,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
 
 
                         wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
-                        
+
                         return JsonResponse({
                             'success': True,
                             'message': f'Collateral shared successfully with {doctor_name}!',
@@ -1897,7 +1915,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                             'doctor_created': doctor_created,
                             'doctor_id': doctor.id if doctor else None
                         })
-                        
+
                     except Exception as e:
                         print(f"Error logging share: {e}")
                         return JsonResponse({
@@ -1917,7 +1935,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                     'success': False,
                     'message': f'Server error: {str(e)}'
                 })
-        
+
         # Regular form submission (original functionality)
         doctor_name = request.POST.get('doctor_name')
         doctor_whatsapp = request.POST.get('doctor_whatsapp')
@@ -1925,7 +1943,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
 
         # Find the selected collateral
         selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
-        
+
         if selected_collateral and doctor_whatsapp:
             # Log the share in database
             try:
@@ -1934,7 +1952,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 from collateral_management.models import Collateral
                 collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, fieldrep_user)
-                
+
                 # Log the share
                 log_manual_doctor_share(
                     short_link_id=short_link.id,
@@ -1942,7 +1960,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                     phone_e164=doctor_whatsapp,
                     collateral_id=collateral_id
                 )
-                
+
                 # Get brand-specific message
                 message = get_brand_specific_message(
                 collateral_id,
@@ -1952,9 +1970,9 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 )
 
                 wa_url = f"https://wa.me/91{doctor_whatsapp}?text={urllib.parse.quote(message)}"
-                
+
                 return redirect(wa_url)
-                
+
             except Exception as e:
                 print(f"Error logging share: {e}")
                 messages.error(request, 'Error sharing collateral. Please try again.')
@@ -1962,7 +1980,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
         else:
             messages.error(request, 'Please provide all required information.')
             return redirect('fieldrep_share_collateral')
-    
+
     return render(request, 'sharing_management/fieldrep_share_collateral.html', {
         'fieldrep_id': field_rep_field_id or 'Unknown',
         'fieldrep_email': field_rep_email,
@@ -2088,7 +2106,7 @@ def prefilled_fieldrep_create_password(request):
     whatsapp_number_final = whatsapp_number or None
 
     try:
-        with connection.cursor() as cursor:
+        with master_conn().cursor() as cursor:
             cursor.execute("""
                 SELECT id
                 FROM sharing_management_fieldrepresentative
@@ -2174,25 +2192,25 @@ def prefilled_fieldrep_create_password(request):
 #             # Register user logic here
 #             try:
 #                 from .utils.db_operations import register_field_representative
-                
+
 #                 # Check if user already exists
-#                 with connection.cursor() as cursor:
+#                 with master_conn().cursor() as cursor:
 #                     cursor.execute("""
-#                         SELECT id FROM sharing_management_fieldrepresentative 
+#                         SELECT id FROM sharing_management_fieldrepresentative
 #                         WHERE email = %s
 #                         LIMIT 1
 #                     """, [email])
 #                     existing_user = cursor.fetchone()
-                
+
 #                 if existing_user:
 #                     messages.success(request, 'User already exists! Please login with your credentials.')
 #                     return redirect('fieldrep_login')
-                
+
 #                 # Generate a unique field ID for prefilled user
 #                 import time
 #                 timestamp = int(time.time())
 #                 field_id = f"PREFILLED_{email.split('@')[0].upper()}_{timestamp}"
-                
+
 #                 # Register the user
 #                 success = register_field_representative(
 #                     field_id=field_id,
@@ -2202,9 +2220,9 @@ def prefilled_fieldrep_create_password(request):
 #                     security_question_id=1,  # Default question
 #                     security_answer="prefilled_user"  # Default answer
 #                 )
-                
+
 #                 if success:
-                    
+
 #                     return redirect('fieldrep_login')
 #                 else:
 #                     return render(request, 'sharing_management/prefilled_fieldrep_create_password.html', {
@@ -2234,41 +2252,41 @@ def prefilled_fieldrep_create_password(request):
 
 def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
     import urllib.parse
-    
+
     # Get user info from session
     field_rep_id = request.session.get('field_rep_id')
     field_rep_email = request.session.get('field_rep_email')
     field_rep_field_id = request.session.get('field_rep_field_id')
-    
+
     # Store brand_campaign_id in session if provided
     if brand_campaign_id:
         request.session['brand_campaign_id'] = brand_campaign_id
     else:
         # Try to get from session if not in URL
         brand_campaign_id = request.session.get('brand_campaign_id')
-    
+
     if not field_rep_id:
         messages.error(request, 'Please login first.')
         return redirect('fieldrep_login')
-    
+
     # Get doctors assigned to THIS field rep (from admin dashboard)
     try:
         from doctor_viewer.models import Doctor
         from user_management.models import User
-        
+
         # Get the field rep user object by field_id (since field_rep_id is from FieldRepresentative table)
         field_rep_user = None
         if field_rep_field_id:
             try:
-                field_rep_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+                field_rep_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
             except User.DoesNotExist:
                 # Try to find by email/gmail as fallback
                 if field_rep_email:
                     try:
-                        field_rep_user = User.objects.filter(email=field_rep_email, role='field_rep').first()
+                        field_rep_user = m(User).filter(email=field_rep_email, role='field_rep').first()
                     except:
                         pass
-        
+
         doctors_list = []
         if field_rep_user:
             # Fetch doctors assigned via admin dashboard (doctor_viewer_doctor table)
@@ -2284,7 +2302,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                 }
                 for doc in assigned_doctors
             ]
-        
+
         # Also try to get prefilled doctors as fallback
         if not doctors_list:
             try:
@@ -2303,22 +2321,22 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                 ]
             except Exception as e:
                 pass
-        
+
         if not doctors_list:
             messages.info(request, "No doctors are assigned to your account.")
     except Exception as e:
         doctors_list = []
-        
-    
+
+
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral, CampaignCollateral as CMCampaignCollateral
         from user_management.models import User
         from django.utils import timezone
         from django.db.models import Q
-        
+
         current_date = timezone.now().date()
-        
+
         if brand_campaign_id:
             # Filter collaterals by campaign with date filtering - only show currently active campaigns
             campaign_links = CMCampaignCollateral.objects.filter(
@@ -2329,15 +2347,15 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                 Q(start_date__lte=current_date, end_date__gte=current_date) |
                 Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral')
-            
+
             collaterals = [link.collateral for link in campaign_links if link.collateral]
         else:
             # If no campaign specified, show all active collaterals
             collaterals = Collateral.objects.filter(is_active=True)
-        
+
         # Get or create a user for this field rep (for short link creation)
         try:
-            actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+            actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
         except User.DoesNotExist:
             # Try to get or create user by email
             if field_rep_email:
@@ -2351,7 +2369,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                 )
             else:
                 actual_user = request.user if request.user.is_authenticated else None
-        
+
         # Convert to list format for template
         collaterals_list = []
         for collateral in collaterals:
@@ -2370,40 +2388,40 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
     except Exception as e:
         collaterals_list = []
         messages.error(request, 'Error loading collaterals. Please try again.')
-    
+
     if request.method == 'POST':
         try:
             doctor_id_str = request.POST.get('doctor_id', '').strip()
             collateral_id_str = request.POST.get('collateral', '').strip()
-            
+
             if not doctor_id_str or not collateral_id_str:
                 messages.error(request, 'Please select both doctor and collateral.')
                 return redirect('prefilled_fieldrep_share_collateral')
-            
+
             doctor_id = int(doctor_id_str)
             collateral_id = int(collateral_id_str)
-            
+
             # Find the selected doctor and collateral
             selected_doctor = next((d for d in doctors_list if d['id'] == doctor_id), None)
             selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
-            
+
             if not selected_doctor:
                 messages.error(request, f'Doctor with ID {doctor_id} not found. Please select a valid doctor.')
                 return redirect('prefilled_fieldrep_share_collateral')
-            
+
             if not selected_collateral:
                 messages.error(request, f'Collateral with ID {collateral_id} not found. Please select a valid collateral.')
                 return redirect('prefilled_fieldrep_share_collateral')
-            
+
             # Now we know both exist, proceed with sharing
             try:
                 from .utils.db_operations import share_prefilled_doctor
                 from collateral_management.models import Collateral
                 from user_management.models import User
-                
+
                 # Get or create a user for this field rep (for short link creation)
                 try:
-                    actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+                    actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
                 except User.DoesNotExist:
                     # Try to get or create user by email
                     if field_rep_email:
@@ -2417,15 +2435,15 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                         )
                     else:
                         actual_user = request.user if request.user.is_authenticated else None
-                
+
                 if not actual_user:
                     messages.error(request, 'Unable to create user for short link. Please try again.')
                     return redirect('prefilled_fieldrep_share_collateral')
-                
+
                 # Get the short link for this collateral
                 collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, actual_user)
-                
+
                 # Share the prefilled doctor (use actual_user.id instead of field_rep_id)
                 success = share_prefilled_doctor(
                     rep_id=actual_user.id,  # Use User ID, not FieldRepresentative ID
@@ -2433,7 +2451,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                     short_link_id=short_link.id,
                     collateral_id=collateral_id
                 )
-                
+
                 if success:
                     # Get brand-specific message
                     message = get_brand_specific_message(
@@ -2445,46 +2463,46 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                     # Clean phone number for WhatsApp URL (remove +91, +, spaces, etc.)
                     clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
                     wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
-                    
+
                     messages.success(request, f'Collateral shared successfully with {selected_doctor["name"]}!')
                     return redirect(wa_url)
                 else:
                     messages.error(request, 'Error sharing collateral. Please try again.')
                     return redirect('prefilled_fieldrep_share_collateral')
-                    
+
             except Exception as e:
                 messages.error(request, 'Error sharing collateral. Please try again.')
                 return redirect('prefilled_fieldrep_share_collateral')
-                
+
         except ValueError:
             messages.error(request, 'Invalid doctor or collateral ID. Please select valid options.')
             return redirect('prefilled_fieldrep_share_collateral')
         except Exception as e:
             messages.error(request, 'An error occurred. Please try again.')
             return redirect('prefilled_fieldrep_share_collateral')
-    
+
     # Get assigned doctors for this field rep
     try:
         doctors_list = []
-        
-        
+
+
         if not doctors_list:
             messages.info(request, "No doctors are assigned to your account.")
     except Exception as e:
         doctors_list = []
-        
-    
+
+
     # Get real collaterals from database
     collaterals_list = []
     try:
         from collateral_management.models import Collateral
         from user_management.models import User
-        
+
         collaterals = Collateral.objects.filter(is_active=True)
-        
+
         # Get or create a user for this field rep (for short link creation)
         try:
-            actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+            actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
         except User.DoesNotExist:
             # Try to get or create user by email
             if field_rep_email:
@@ -2498,7 +2516,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                 )
             else:
                 actual_user = request.user if request.user.is_authenticated else None
-        
+
         # Convert to list format for template
         for collateral in collaterals:
             try:
@@ -2516,40 +2534,40 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
     except Exception as e:
         collaterals_list = []
         messages.error(request, 'Error loading collaterals. Please try again.')
-    
+
     if request.method == 'POST':
         try:
             doctor_id_str = request.POST.get('doctor_id', '').strip()
             collateral_id_str = request.POST.get('collateral', '').strip()
-            
+
             if not doctor_id_str or not collateral_id_str:
                 messages.error(request, 'Please select both doctor and collateral.')
                 return redirect('prefilled_fieldrep_share_collateral')
-        
+
             doctor_id = int(doctor_id_str)
             collateral_id = int(collateral_id_str)
-            
+
             # Find the selected doctor and collateral
             selected_doctor = next((d for d in doctors_list if d['id'] == doctor_id), None)
             selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
-            
+
             if not selected_doctor:
                 messages.error(request, f'Doctor with ID {doctor_id} not found. Please select a valid doctor.')
                 return redirect('prefilled_fieldrep_share_collateral')
-            
+
             if not selected_collateral:
                 messages.error(request, f'Collateral with ID {collateral_id} not found. Please select a valid collateral.')
                 return redirect('prefilled_fieldrep_share_collateral')
-            
+
             # Now we know both exist, proceed with sharing
             try:
                 from .utils.db_operations import share_prefilled_doctor
                 from collateral_management.models import Collateral
                 from user_management.models import User
-                
+
                 # Get or create a user for this field rep (for short link creation)
                 try:
-                    actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+                    actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
                 except User.DoesNotExist:
                     # Try to get or create user by email
                     if field_rep_email:
@@ -2563,15 +2581,15 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                         )
                     else:
                         actual_user = request.user if request.user.is_authenticated else None
-                
+
                 if not actual_user:
                     messages.error(request, 'Unable to create user for short link. Please try again.')
                     return redirect('prefilled_fieldrep_share_collateral')
-            
+
                 # Get the short link for this collateral
                 collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, actual_user)
-                
+
                 # Share the prefilled doctor (use actual_user.id instead of field_rep_id)
                 success = share_prefilled_doctor(
                     rep_id=actual_user.id,  # Use User ID, not FieldRepresentative ID
@@ -2579,7 +2597,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                     short_link_id=short_link.id,
                     collateral_id=collateral_id
                 )
-                
+
                 if success:
                     # Get brand-specific message
                     message = get_brand_specific_message(
@@ -2591,13 +2609,13 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
                     # Clean phone number for WhatsApp URL (remove +91, +, spaces, etc.)
                     clean_phone = selected_doctor['phone'].replace('+91', '').replace('+', '').replace(' ', '').replace('-', '')
                     wa_url = f"https://wa.me/91{clean_phone}?text={urllib.parse.quote(message)}"
-                    
+
                     messages.success(request, f'Collateral shared successfully with {selected_doctor["name"]}!')
                     return redirect(wa_url)
                 else:
                     messages.error(request, 'Error sharing collateral. Please try again.')
                     return redirect('prefilled_fieldrep_share_collateral')
-                        
+
             except Exception as e:
                 messages.error(request, 'Error sharing collateral. Please try again.')
         except ValueError:
@@ -2606,7 +2624,7 @@ def prefilled_fieldrep_share_collateral(request, brand_campaign_id=None):
         except Exception as e:
             messages.error(request, 'An error occurred. Please try again.')
             return redirect('prefilled_fieldrep_share_collateral')
-    
+
     # This is the response for GET requests or if no POST data was submitted
     return render(request, 'sharing_management/prefilled_fieldrep_share_collateral.html', {
         'fieldrep_id': field_rep_field_id or 'Unknown',
@@ -2636,7 +2654,7 @@ def fieldrep_gmail_login(request):
         if field_id and gmail_id:
             try:
                 # Strict check: must already exist (no creation here)
-                with connection.cursor() as cursor:
+                with master_conn().cursor() as cursor:
                     cursor.execute("""
                         SELECT id, field_id, email
                         FROM sharing_management_fieldrepresentative
@@ -2693,15 +2711,15 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     field_rep_id = request.session.get('field_rep_id')
     field_rep_email = request.session.get('field_rep_email')
     field_rep_field_id = request.session.get('field_rep_field_id')
-    
+
     # If brand_campaign_id not provided in URL, try to get it from GET parameters
     if brand_campaign_id is None:
         brand_campaign_id = request.GET.get('brand_campaign_id')
-    
+
     if not field_rep_id:
         messages.error(request, 'Please login first.')
         return redirect('fieldrep_login')
-    
+
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral, CampaignCollateral as CMCampaignCollateral
@@ -2709,14 +2727,14 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
 
         # Initialize empty list for collaterals
         collaterals = []
-        
+
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
-            
+
             from django.utils import timezone
             from django.db.models import Q
             current_date = timezone.now().date()
-            
+
             # First from campaign_management.CampaignCollateral with date filtering
             cc_links = CMCampaignCollateral2.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
@@ -2727,7 +2745,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             ).select_related('collateral', 'campaign')
             # Note: campaign_management.Collateral doesn't have is_active field, so we don't filter on it
             campaign_collaterals = [link.collateral for link in cc_links if link.collateral]
-            
+
             # Then from collateral_management.CampaignCollateral with date filtering
             collateral_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id,
@@ -2738,24 +2756,24 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral', 'campaign')
             collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and getattr(link.collateral, 'is_active', True)]
-            
+
             # Combine and deduplicate collaterals
             collaterals = list({c.id: c for c in campaign_collaterals + collateral_collaterals if hasattr(c, 'id')}.values())
-            
+
             print(f"[DEBUG] Found {len(collaterals)} active collaterals for current date")
             for c in collaterals:
                 print(f"[DEBUG] - {c.title} (ID: {c.id})")
-            
+
             if not collaterals:
                 messages.info(request, f"No active collaterals found for campaign {brand_campaign_id}")
         else:
             # Show all active collaterals if no brand campaign ID provided
             collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
             messages.info(request, "Showing all available collaterals as no specific campaign is selected.")
-        
+
         # Convert to list format for template
         collaterals_list = []
-        
+
         # Get or create a user for this field rep
         from user_management.models import User
         try:
@@ -2767,7 +2785,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 first_name=f"Field Rep {field_rep_id}",
                 password=User.objects.make_random_password()
             )
-        
+
         for collateral in collaterals:
             try:
                 short_link = find_or_create_short_link(collateral, user)
@@ -2784,7 +2802,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         print(f"Error fetching collaterals: {e}")
         collaterals_list = []
         messages.error(request, 'Error loading collaterals. Please try again.')
-    
+
     if request.method == 'POST':
         doctor_id = request.POST.get('doctor_id')
         doctor_name = request.POST.get('doctor_name')
@@ -2846,11 +2864,11 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     except (ValueError, TypeError):
                         messages.error(request, 'Invalid doctor ID')
                         return redirect(request.path)
-                
+
                 if not doc:
                     messages.error(request, 'Doctor not found')
                     return redirect(request.path)
-                
+
                 field_rep_user = None
                 # Safely resolve by numeric id only if applicable
                 if isinstance(field_rep_id, int):
@@ -3061,7 +3079,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             if params:
                 redirect_url = f"{redirect_url}?{'&'.join(params)}"
             return redirect(redirect_url)
-    
+
     # Get assigned doctors for this field rep
     from doctor_viewer.models import Doctor
     from sharing_management.models import ShareLog
@@ -3111,7 +3129,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             else:
                 q |= Q(rep__username=f"field_rep_{field_rep_id}")
         assigned_doctors = Doctor.objects.filter(q)
-    
+
     # Get the selected collateral ID from URL parameters
     # -----------------------------
     # Default collateral selection
@@ -3123,12 +3141,12 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     if not selected_collateral_id and collaterals_list:
         selected_collateral_id = str(collaterals_list[0]['id'])
 
-    
+
     # Prepare doctors with status
     doctors_with_status = []
     for doctor in assigned_doctors:
         status = 'not_sent'
-        
+
         if selected_collateral_id:
             # Check if this collateral was shared with this doctor
             # Match ShareLog records using actual user id or fallback username
@@ -3160,7 +3178,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             share_log_q &= rep_filters
 
             share_log = ShareLog.objects.filter(share_log_q).order_by('-share_timestamp').first()
-            
+
             if share_log:
                 status = 'sent'
                 from doctor_viewer.models import DoctorEngagement
@@ -3176,14 +3194,14 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     six_days_ago = timezone.now() - timedelta(days=6)
                     if share_log.share_timestamp < six_days_ago:
                         status = 'reminder'
-        
+
         doctors_with_status.append({
             'id': doctor.id,
             'name': doctor.name,
             'phone': doctor.phone,
             'status': status
         })
-    
+
     return render(request, 'sharing_management/fieldrep_gmail_share_collateral.html', {
         'fieldrep_id': field_rep_field_id or 'Unknown',
         'fieldrep_email': field_rep_email,
@@ -3208,14 +3226,14 @@ def prefilled_fieldrep_gmail_login(request):
             try:
                 # LOGIN-ONLY: must already exist and be active.
                 # Match against either gmail or email field (some records may store gmail in email for compatibility).
-                rep = FieldRepresentative.objects.filter(
+                rep = FieldRepresentative.objects.using(MASTER_DB_ALIAS).filter(
                     field_id=field_rep_id,
                     is_active=True,
                     gmail__iexact=gmail_id
                 ).first()
 
                 if not rep:
-                    rep = FieldRepresentative.objects.filter(
+                    rep = FieldRepresentative.objects.using(MASTER_DB_ALIAS).filter(
                         field_id=field_rep_id,
                         is_active=True,
                         email__iexact=gmail_id
@@ -3322,7 +3340,7 @@ def prefilled_fieldrep_gmail_share_collateral_updated(request):
     if field_rep_field_id:
         rep_user = User.objects.filter(field_id=field_rep_field_id, role='field_rep').first()
     if not rep_user and field_rep_email:
-        rep_user = User.objects.filter(email=field_rep_email, role='field_rep').first()
+        rep_user = m(User).filter(email=field_rep_email, role='field_rep').first()
     if not rep_user:
         # In some flows, session['field_rep_id'] might already be a User id
         try:
@@ -3734,13 +3752,13 @@ def fieldrep_whatsapp_login(request):
 
 def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
     import urllib.parse
-    
+
     # Get user info from session
     field_rep_id = request.session.get('field_rep_id')
     field_rep_email = request.session.get('field_rep_email')
     field_rep_field_id = request.session.get('field_rep_field_id')
     selected_collateral_id = None  # Initialize with default value
-    
+
     # Resolve brand_campaign_id robustly (support URL kwargs, GET, POST, and session)
     brand_campaign_id = (
         request.resolver_match.kwargs.get('brand_campaign_id')
@@ -3753,30 +3771,30 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
     brand_campaign_id = str(brand_campaign_id).strip() if brand_campaign_id else None
     if brand_campaign_id:
         request.session['brand_campaign_id'] = brand_campaign_id
-    
+
     print(f"DEBUG: Share collateral view - Session data: ID={field_rep_id}, Email={field_rep_email}, Field_ID={field_rep_field_id}, Campaign={brand_campaign_id}")
-    
+
     if not field_rep_id:
         print(f"DEBUG: No field_rep_id in session, redirecting to login")
         messages.error(request, 'Please login first.')
         return redirect('fieldrep_whatsapp_login')
-    
+
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral, CampaignCollateral
         from user_management.models import User
         from campaign_management.models import CampaignCollateral as CMCampaignCollateral
-        
+
         # Initialize empty list for collaterals
         collaterals = []
-        
+
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
-            
+
             from django.utils import timezone
             from django.db.models import Q
             current_date = timezone.now().date()
-            
+
             # First from campaign_management.CampaignCollateral with date filtering
             cc_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
@@ -3786,10 +3804,10 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                 Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management (after date filtering)")
-            
+
             campaign_collaterals = [link.collateral for link in cc_links if link.collateral and getattr(link.collateral, 'is_active', True)]
             print(f"[DEBUG] After filtering, {len(campaign_collaterals)} active campaign collaterals")
-            
+
             # Then from collateral_management.CampaignCollateral with date filtering
             collateral_links = CampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
@@ -3799,17 +3817,17 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                 Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management (after date filtering)")
-            
+
             collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and getattr(link.collateral, 'is_active', True)]
             print(f"[DEBUG] After filtering, {len(collateral_collaterals)} active collaterals from collateral_management")
-            
+
             # Combine and deduplicate collaterals
             all_collaterals = campaign_collaterals + collateral_collaterals
             print(f"[DEBUG] Total collaterals before deduplication: {len(all_collaterals)}")
-            
+
             collaterals = list({c.id: c for c in all_collaterals if hasattr(c, 'id')}.values())
             print(f"[DEBUG] Total unique collaterals after deduplication: {len(collaterals)}")
-            
+
             if not collaterals:
                 messages.info(request, f"No collaterals found for campaign {brand_campaign_id}")
             else:
@@ -3826,7 +3844,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
             # Show all active collaterals if no brand campaign ID provided
             collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
             messages.info(request, "Showing all available collaterals as no specific campaign is selected.")
-            
+
             # Initialize selected collateral from GET or default to latest
             selected_collateral_id = request.GET.get('collateral')
             if not selected_collateral_id and collaterals.exists():
@@ -3836,13 +3854,13 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     selected_collateral_id = int(selected_collateral_id)
                 except (ValueError, TypeError):
                     selected_collateral_id = None
-        
+
         # Get the actual user object for short link creation
         try:
             actual_user = User.objects.get(id=field_rep_id)
         except User.DoesNotExist:
             actual_user = request.user  # fallback
-        
+
         # Convert to list format for template
         collaterals_list = []
         for collateral in collaterals:
@@ -3858,12 +3876,12 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
             except Exception as e:
                 print(f"Error creating short link for collateral {getattr(collateral, 'id', 'unknown')}: {e}")
                 continue
-                
+
     except Exception as e:
         print(f"Error fetching collaterals: {e}")
         collaterals_list = []
         messages.error(request, 'Error loading collaterals. Please try again.')
-    
+
     # Do not override selected collateral here; keep original flow
 
     if request.method == 'POST':
@@ -3921,7 +3939,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         if not collateral_id:
             messages.error(request, 'Please select a collateral.')
             return redirect('fieldrep_whatsapp_share_collateral')
-            
+
         try:
             collateral_id = int(collateral_id)
         except (ValueError, TypeError):
@@ -3931,7 +3949,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         # Find the selected collateral
         selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
         print(f"Selected collateral: {selected_collateral}")
-        
+
         # Branch A: assigned doctor via doctor_id (button in list)
         if doctor_id:
             try:
@@ -3957,7 +3975,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     except (ValueError, TypeError):
                         messages.error(request, 'Invalid doctor ID')
                         return redirect(request.path)
-                
+
                 if not doc:
                     messages.error(request, 'Doctor not found')
                     return redirect(request.path)
@@ -4000,23 +4018,23 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                 from collateral_management.models import Collateral
                 from doctor_viewer.models import Doctor
                 from user_management.models import User
-                
+
                 # Get the field rep user
                 try:
                     field_rep_user = User.objects.get(id=field_rep_id)
                 except User.DoesNotExist:
                     messages.error(request, 'Field representative not found.')
                     return redirect('fieldrep_whatsapp_share_collateral')
-                
+
                 # Clean and validate phone number
                 clean_phone = ''.join(c for c in doctor_whatsapp if c.isdigit())
                 if len(clean_phone) != 10:
                     messages.error(request, 'Please enter a valid 10-digit phone number.')
                     return redirect('fieldrep_whatsapp_share_collateral')
-                
+
                 # Format phone number for storage
                 formatted_phone = f"+91{clean_phone}"
-                
+
                 # Create or update the doctor record
                 doctor, created = Doctor.objects.update_or_create(
                     rep=field_rep_user,
@@ -4026,17 +4044,17 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                         'source': 'manual'
                     }
                 )
-                
+
                 # Get the collateral object
                 try:
                     collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
                 except Collateral.DoesNotExist:
                     messages.error(request, 'Selected collateral not found or inactive.')
                     return redirect('fieldrep_whatsapp_share_collateral')
-                
+
                 # Create or get short link
                 short_link = find_or_create_short_link(collateral_obj, actual_user)
-                
+
                 # Log the doctor share
                 success = log_manual_doctor_share(
                     short_link_id=short_link.id,
@@ -4044,7 +4062,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     phone_e164=formatted_phone,
                     collateral_id=collateral_id
                 )
-                
+
                 if success:
                     # Get brand-specific message
                     message = get_brand_specific_message(
@@ -4053,17 +4071,17 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                         selected_collateral.get('link', ''),
                         brand_campaign_id=brand_campaign_id
                     )
-                    
+
                     # Clean phone number for WhatsApp URL
                     whatsapp_phone = clean_phone  # Already cleaned to 10 digits
                     wa_url = f"https://wa.me/91{whatsapp_phone}?text={urllib.parse.quote(message)}"
-                    
+
                     # Add success message and redirect to WhatsApp
                     return redirect(wa_url)
                 else:
                     messages.error(request, 'Failed to log share. Please try again.')
                     return redirect('fieldrep_whatsapp_share_collateral')
-                    
+
             except Exception as e:
                 print(f"Error in doctor share process: {str(e)}")
                 import traceback
@@ -4073,25 +4091,25 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         else:
             messages.error(request, 'Please fill in all required fields.')
             return redirect('fieldrep_whatsapp_share_collateral')
-    
+
     # Debug information
     print(f"[DEBUG] Rendering template with {len(collaterals_list)} collaterals")
-    
+
     # Get the actual user object to get the name
     from user_management.models import User
     from doctor_viewer.models import Doctor
     from sharing_management.models import ShareLog
     from django.db.models import Max, Q
     from datetime import datetime, timedelta
-    
+
     try:
         user = User.objects.get(id=field_rep_id)
         field_rep_name = user.get_full_name() or user.username or field_rep_field_id or "Field Representative"
-        
+
         # Get doctors assigned to this field rep
         doctors = Doctor.objects.filter(rep=user)
         print(f"[DEBUG] Found {doctors.count()} doctors assigned to field rep {field_rep_id}")
-        
+
         # Get share logs for these doctors
         doctors_list = []
         if doctors.exists():
@@ -4108,15 +4126,15 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                 latest_share=Max('share_timestamp'),
                 latest_view=Max('created_at')
             )
-            
+
             # Create a dictionary of doctor_identifier -> latest share info
             share_info = {log['doctor_identifier']: log for log in latest_logs}
-            
+
             # Determine status for each doctor
             now = datetime.now()
             for doctor in doctors:
                 status = 'not_shared'  # default status
-                
+
                 # Use phone number as the identifier for share logs
                 if doctor.phone in share_info:
                     log = share_info[doctor.phone]
@@ -4128,7 +4146,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                             status = 'needs_reminder'
                         else:
                             status = 'shared'
-                
+
                 doctors_list.append({
                     'id': doctor.id,
                     'name': doctor.name,
@@ -4138,9 +4156,9 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
                     'city': getattr(doctor, 'city', ''),
                     'status': status
                 })
-            
+
             print(f"[DEBUG] Processed {len(doctors_list)} doctors with their status")
-        
+
     except User.DoesNotExist:
         field_rep_name = field_rep_field_id or "Field Representative"
         doctors_list = []
@@ -4149,7 +4167,7 @@ def fieldrep_whatsapp_share_collateral_updated(request, brand_campaign_id=None):
         import traceback
         traceback.print_exc()
         doctors_list = []
-    
+
     # Compute per-doctor status for the selected collateral to drive button colors
     try:
         from sharing_management.models import ShareLog
@@ -4213,14 +4231,14 @@ def prefilled_fieldrep_whatsapp_login(request, brand_campaign_id=None):
     # If user is already authenticated, redirect to share collateral page
     if request.user.is_authenticated and hasattr(request.user, 'fieldrep'):
         if brand_campaign_id:
-            return redirect('prefilled_fieldrep_whatsapp_share_collateral_by_campaign', 
+            return redirect('prefilled_fieldrep_whatsapp_share_collateral_by_campaign',
                           brand_campaign_id=brand_campaign_id)
         return redirect('prefilled_fieldrep_whatsapp_share_collateral')
 
     if request.method == 'POST':
         field_id = (request.POST.get('field_id') or '').strip()
         raw_phone = request.POST.get('whatsapp_number') or ''
-        
+
         # Store brand_campaign_id in session if provided in URL
         if brand_campaign_id:
             request.session['brand_campaign_id'] = brand_campaign_id
@@ -4269,16 +4287,16 @@ def prefilled_fieldrep_whatsapp_login(request, brand_campaign_id=None):
         request.session['fieldrep_field_id'] = fr_field_id
         request.session['field_rep_field_id'] = fr_field_id
         request.session['is_prefilled_fieldrep'] = True
-        
+
         # Store brand_campaign_id in session if available in the URL
         if brand_campaign_id:
             request.session['brand_campaign_id'] = brand_campaign_id
 
-        
+
         # Redirect to the share collateral page with brand_campaign_id if available
         if brand_campaign_id or 'brand_campaign_id' in request.session:
             campaign_id = brand_campaign_id or request.session.get('brand_campaign_id')
-            return redirect('prefilled_fieldrep_whatsapp_share_collateral_by_campaign', 
+            return redirect('prefilled_fieldrep_whatsapp_share_collateral_by_campaign',
                           brand_campaign_id=campaign_id)
         return redirect('prefilled_fieldrep_whatsapp_share_collateral')
 
@@ -4315,7 +4333,7 @@ def _get_current_rep_ids(request):
     rep_smg_id = None
     if rep_field_id:
         try:
-            with connection.cursor() as cursor:
+            with master_conn().cursor() as cursor:
                 cursor.execute("""
                     SELECT id
                     FROM sharing_management_fieldrepresentative
@@ -4343,7 +4361,7 @@ def _detect_assignment_table():
                          'representative_id', 'field_representative_id')
 
     try:
-        with connection.cursor() as cursor:
+        with master_conn().cursor() as cursor:
             # Step 1: find tables that have a doctor column
             cursor.execute("""
                 SELECT DISTINCT table_name
@@ -4388,7 +4406,7 @@ def _fetch_assigned_prefilled_doctors(rep_pk, rep_field_id, rep_smg_id):
     if detected:
         tbl, doctor_col, rep_col = detected
         try:
-            with connection.cursor() as cursor:
+            with master_conn().cursor() as cursor:
                 # Heuristic: if we have a numeric SMG rep id, try it first
                 bind_val = rep_smg_id if rep_smg_id is not None else rep_pk
                 # If we still don't have a numeric id, try field‑id string
@@ -4415,7 +4433,7 @@ def _fetch_assigned_prefilled_doctors(rep_pk, rep_field_id, rep_smg_id):
             break
         try:
             val = rep_smg_id if rep_smg_id is not None else rep_pk
-            with connection.cursor() as cursor:
+            with master_conn().cursor() as cursor:
                 cursor.execute(f"""
                     SELECT id, full_name, phone, email, specialty, city
                     FROM prefilled_doctor
@@ -4434,7 +4452,7 @@ def _fetch_assigned_prefilled_doctors(rep_pk, rep_field_id, rep_smg_id):
         if not rep_field_id:
             break
         try:
-            with connection.cursor() as cursor:
+            with master_conn().cursor() as cursor:
                 cursor.execute(f"""
                     SELECT id, full_name, phone, email, specialty, city
                     FROM prefilled_doctor
@@ -4453,14 +4471,14 @@ def _fetch_assigned_prefilled_doctors(rep_pk, rep_field_id, rep_smg_id):
 def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None):
     import urllib.parse
     from django.utils import timezone
-    
+
     # Debug: Print incoming brand_campaign_id
     print(f"[DEBUG] Incoming brand_campaign_id: {brand_campaign_id}")
     print(f"[DEBUG] POST data: {request.POST}")
-    
+
     brand_campaign_id = request.POST.get('brand_campaign_id') or brand_campaign_id
     print(f"[DEBUG] Final brand_campaign_id: {brand_campaign_id}")
-    
+
     # Get user info from session
     field_rep_id = request.session.get('field_rep_id')
     field_rep_email = request.session.get('field_rep_email')
@@ -4469,24 +4487,24 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
     if not field_rep_id:
         messages.error(request, 'Please login first.')
         return redirect('fieldrep_login')
-    
+
     # Get doctors assigned to THIS field rep (from admin dashboard)
     try:
         from doctor_viewer.models import Doctor
         from user_management.models import User
-        
+
         # Get the field rep user object by field_id (since field_rep_id is from FieldRepresentative table)
         field_rep_user = None
         if field_rep_field_id:
             try:
-                field_rep_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+                field_rep_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
             except User.DoesNotExist:
                 if field_rep_email:
                     try:
-                        field_rep_user = User.objects.filter(email=field_rep_email, role='field_rep').first()
+                        field_rep_user = m(User).filter(email=field_rep_email, role='field_rep').first()
                     except:
                         pass
-        
+
         doctors_list = []
         if field_rep_user:
             assigned_doctors = Doctor.objects.filter(rep=field_rep_user)
@@ -4501,7 +4519,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
                 }
                 for doc in assigned_doctors
             ]
-        
+
         if not doctors_list:
             try:
                 rep_pk, rep_field_id, rep_smg_id = _get_current_rep_ids(request)
@@ -4519,68 +4537,68 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
                 ]
             except Exception:
                 pass
-        
+
         if not doctors_list:
             messages.info(request, "No doctors are assigned to your account.")
     except Exception:
         doctors_list = []
-        
-    
+
+
     # Get real collaterals from database
     try:
         from collateral_management.models import Collateral, CampaignCollateral
         from user_management.models import User
         from campaign_management.models import CampaignCollateral as CMCampaignCollateral, CampaignAssignment
-        
+
         # Initialize empty list for collaterals
         collaterals = []
-        
+
         # Get the field rep's assigned campaigns if no specific brand_campaign_id is provided
         if not brand_campaign_id or brand_campaign_id == 'all':
             # Try to get from session first
             brand_campaign_id = request.session.get('brand_campaign_id')
-            
+
             # If still no campaign ID, get the first assigned campaign for this field rep
             if not brand_campaign_id and field_rep_field_id:
                 try:
                     assignment = CampaignAssignment.objects.filter(
                         field_rep__field_id=field_rep_field_id
                     ).select_related('campaign').first()
-                    
+
                     if assignment and assignment.campaign:
                         brand_campaign_id = assignment.campaign.brand_campaign_id
                         request.session['brand_campaign_id'] = brand_campaign_id
                 except Exception as e:
                     print(f"Error getting assigned campaign: {e}")
-        
+
         if brand_campaign_id and brand_campaign_id != 'all':
             print(f"[DEBUG] Filtering collaterals for brand_campaign_id: {brand_campaign_id}")
-            
+
             # First from campaign_management.CampaignCollateral
             cc_links = CMCampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(cc_links)} campaign collaterals from campaign_management")
-            
+
             campaign_collaterals = [link.collateral for link in cc_links if link.collateral]
             print(f"[DEBUG] After filtering, {len(campaign_collaterals)} campaign collaterals (no is_active filter for campaign_management)")
-            
+
             # Then from collateral_management.CampaignCollateral
             collateral_links = CampaignCollateral.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
             ).select_related('collateral', 'campaign')
             print(f"[DEBUG] Found {len(collateral_links)} collaterals from collateral_management")
-            
+
             collateral_collaterals = [link.collateral for link in collateral_links if link.collateral and link.collateral.is_active]
             print(f"[DEBUG] After filtering, {len(collateral_collaterals)} active collaterals from collateral_management")
-            
+
             # Combine and deduplicate collaterals
             all_collaterals = campaign_collaterals + collateral_collaterals
             print(f"[DEBUG] Total collaterals before deduplication: {len(all_collaterals)}")
-            
+
             collaterals = list({c.id: c for c in all_collaterals}.values())
             print(f"[DEBUG] Total unique collaterals after deduplication: {len(collaterals)}")
-            
+
             # If no collaterals found, show a message
             if not collaterals:
                 messages.info(request, f"No collaterals found for campaign {brand_campaign_id}")
@@ -4588,15 +4606,15 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
             # Show all active collaterals if no brand campaign ID provided and no assigned campaign found
             collaterals = Collateral.objects.filter(is_active=True).order_by('-created_at')
             print(f"[DEBUG] No campaign specified, fetching {len(collaterals)} active collaterals")
-        
+
         # Common code for both cases - create collaterals_list from the filtered collaterals
         if collaterals:
             # Resolve a user for short link creation
             try:
-                actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+                actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
             except User.DoesNotExist:
                 actual_user = request.user if request.user.is_authenticated else None
-            
+
             collaterals_list = []
             for collateral in collaterals:
                 # Only include active collaterals (additional safety check)
@@ -4611,14 +4629,14 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
                         'description': collateral_description,
                         'link': request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
                     })
-            
+
             # Sort collaterals by creation date (newest first)
             collaterals_list.sort(key=lambda x: next((c.created_at for c in collaterals if c.id == x['id']), timezone.now()), reverse=True)
-            
+
             print(f"[DEBUG] Final collaterals_list contains {len(collaterals_list)} active collaterals")
         else:
             collaterals_list = []
-        
+
         # Set default collateral selection
         latest_collateral_id = collaterals[0].id if collaterals else None
         selected_collateral_id = int(request.POST.get('collateral')) if request.method == 'POST' and request.POST.get('collateral') else latest_collateral_id
@@ -4626,7 +4644,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         collaterals_list = []
         selected_collateral_id = None
         messages.error(request, 'Error loading collaterals. Please try again.')
-    
+
     # Build per-doctor status for selected collateral
     status_by_doctor = {}
     try:
@@ -4634,7 +4652,7 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         from .models import ShareLog
         from doctor_viewer.models import DoctorEngagement
         from shortlink_management.models import ShortLink
-        
+
         if selected_collateral_id:
             # For each doctor, determine status
             now = timezone.now()
@@ -4683,27 +4701,27 @@ def prefilled_fieldrep_whatsapp_share_collateral(request, brand_campaign_id=None
         try:
             doctor_id_str = request.POST.get('doctor_id', '').strip()
             collateral_id_str = request.POST.get('collateral', '').strip()
-            
+
             if not doctor_id_str or not collateral_id_str:
                 messages.error(request, 'Please select both doctor and collateral.')
                 return redirect('prefilled_fieldrep_whatsapp_share_collateral')
-            
+
             doctor_id = int(doctor_id_str)
             collateral_id = int(collateral_id_str)
-            
+
             selected_doctor = next((d for d in doctors_list if d['id'] == doctor_id), None)
             selected_collateral = next((c for c in collaterals_list if c['id'] == collateral_id), None)
-            
+
             if not selected_doctor or not selected_collateral:
                 messages.error(request, 'Invalid selection.')
                 return redirect('prefilled_fieldrep_whatsapp_share_collateral')
-            
+
             from .utils.db_operations import share_prefilled_doctor
             from collateral_management.models import Collateral
             from user_management.models import User
-            
+
             try:
-                actual_user = User.objects.get(field_id=field_rep_field_id, role='field_rep')
+                actual_user = m(User).get(field_id=field_rep_field_id, role='field_rep')
             except User.DoesNotExist:
                 actual_user = request.user if request.user.is_authenticated else None
             if not actual_user:

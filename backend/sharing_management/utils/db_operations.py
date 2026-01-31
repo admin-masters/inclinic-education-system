@@ -8,6 +8,18 @@ from django.contrib.auth.hashers import make_password
 # Salt for PBKDF2 hashing - should be stored securely in production
 SALT = b'inclinic_salt_2024'
 
+
+from django.conf import settings
+from django.db import connections
+
+MASTER_DB_ALIAS = getattr(settings, "MASTER_DB_ALIAS", "master")
+if MASTER_DB_ALIAS not in settings.DATABASES:
+    MASTER_DB_ALIAS = "default"
+
+def master_conn():
+    return connections[MASTER_DB_ALIAS]
+
+
 def register_field_representative(field_id, email, whatsapp_number, password, security_question_id, security_answer):
     """
     Register a new field representative with the specified placeholder style.

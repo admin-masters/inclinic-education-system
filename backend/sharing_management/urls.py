@@ -1,15 +1,17 @@
+#sharing_management/urls.py
+
 from django.urls import path
+from . import views
 from .views import (
     share_content, share_success, list_share_logs,
     fieldrep_dashboard, fieldrep_campaign_detail,
     bulk_manual_upload, bulk_template_csv,
     bulk_pre_mapped_upload, bulk_pre_mapped_template,
-    bulk_pre_filled_share_whatsapp, bulk_prefilled_whatsapp_template_csv, edit_campaign_calendar,
-    dashboard_delete_collateral,
-    prefilled_fieldrep_whatsapp_share_collateral  # Keep this if it's used elsewhere
+    bulk_pre_filled_share_whatsapp, bulk_prefilled_whatsapp_template_csv,
+    bulk_manual_upload_whatsapp, bulk_whatsapp_template_csv,
+    edit_campaign_calendar, dashboard_delete_collateral,
+    prefilled_fieldrep_whatsapp_share_collateral,  # Keep this if used elsewhere
 )
-from .views import bulk_manual_upload_whatsapp, bulk_whatsapp_template_csv
-from . import views
 
 urlpatterns = [
     path('share/', share_content, name='share_content'),
@@ -103,6 +105,7 @@ path(
 path('collaterals/edit/<int:pk>/', views.edit_collateral_dates, name='edit_collateral_dates'),
 path('edit-calendar/', edit_campaign_calendar, name='edit_campaign_calendar'),
 path('video-tracking/', views.video_tracking, name='video_tracking'),
+path('doctor-view-log/', views.doctor_view_log, name='doctor_view_log'),
 path('debug-collaterals/', views.debug_collaterals, name='debug_collaterals'),
 path('dashboard/collateral/<int:pk>/delete/', dashboard_delete_collateral, name='dashboard_delete_collateral'),
 path("bulk/premapped/success/", views.bulk_premapped_success, name="bulk_premapped_success"),
