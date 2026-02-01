@@ -91,76 +91,82 @@ def resolve_view(request, code: str):
         return render(request, "doctor_viewer/error.html", {"msg": "Collateral unavailable"})
 
     existing_engagement_id = request.session.get("dv_engagement_id")
-    if existing_engagement_id:
-        engagement = DoctorEngagement.objects.filter(id=existing_engagement_id).first()
-    else:
-        engagement = None
+    engagement = DoctorEngagement.objects.filter(id=existing_engagement_id).first() if existing_engagement_id else None
 
     if not engagement:
         engagement = DoctorEngagement.objects.create(short_link=short_link)
         request.session["dv_engagement_id"] = engagement.id
 
-    # NOTE: ShareLog model has ghost field(s) like field_rep_email that don't exist in DB.
-    # Using defer() avoids selecting missing columns.
+    # ---------------------------------------------------------
+    # IMPORTANT: ShareLog model has ghost fields not in DB.
+    # So DO NOT use ShareLog.objects.get()/filter().first() here.
+    # ---------------------------------------------------------
     share_id = request.GET.get("share_id") or request.GET.get("s")
 
-    if share_id:
-        try:
-            share_id_int = int(share_id)
-        except Exception:
-            share_id_int = None
-
-        if share_id_int:
+    sl = None
+    try:
+        if share_id:
             try:
-                qs = ShareLog.objects
-                # Avoid selecting the missing column
-                try:
-                    qs = qs.defer("field_rep_email")
-                except Exception:
-                    pass
+                share_id_int = int(share_id)
+            except Exception:
+                share_id_int = None
 
-                sl = qs.filter(id=share_id_int).first()
-                if sl:
-                    # Prevent any later deferred-load of this missing DB column
-                    try:
-                        sl.__dict__["field_rep_email"] = ""
-                    except Exception:
-                        pass
+            if share_id_int:
+                rows = list(
+                    ShareLog.objects.raw(
+                        """
+                        SELECT id, short_link_id, doctor_identifier, share_channel,
+                               share_timestamp, collateral_id, field_rep_id, message_text
+                        FROM sharing_management_sharelog
+                        WHERE id = %s
+                        LIMIT 1
+                        """,
+                        [share_id_int],
+                    )
+                )
+                sl = rows[0] if rows else None
 
-                    mark_viewed(sl, sm_engagement_id=None)
-                    request.session["share_id"] = sl.id
-            except Exception as e:
-                print("[VIEW DEBUG] ShareLog lookup by id failed:", e)
+        if sl is None:
+            rows = list(
+                ShareLog.objects.raw(
+                    """
+                    SELECT id, short_link_id, doctor_identifier, share_channel,
+                           share_timestamp, collateral_id, field_rep_id, message_text
+                    FROM sharing_management_sharelog
+                    WHERE short_link_id = %s
+                    ORDER BY share_timestamp DESC, id DESC
+                    LIMIT 1
+                    """,
+                    [short_link.id],
+                )
+            )
+            sl = rows[0] if rows else None
 
-    else:
-        try:
-            qs = ShareLog.objects
+        if sl:
+            # Prevent Django from trying to lazy-load ghost DB columns later
             try:
-                qs = qs.defer("field_rep_email")
+                sl.__dict__["field_rep_email"] = ""
+            except Exception:
+                pass
+            try:
+                sl.__dict__["brand_campaign_id"] = ""
             except Exception:
                 pass
 
-            sl = (
-                qs.filter(short_link=short_link)
-                .order_by("-share_timestamp", "-id")
-                .first()
-            )
-            if sl:
-                try:
-                    sl.__dict__["field_rep_email"] = ""
-                except Exception:
-                    pass
-
+            try:
                 mark_viewed(sl, sm_engagement_id=None)
-                request.session["share_id"] = sl.id
-        except Exception as e:
-            print("[VIEW DEBUG] ShareLog lookup by short_link failed:", e)
+            except Exception as e:
+                print("[VIEW DEBUG] mark_viewed failed:", e)
+
+            request.session["share_id"] = sl.id
+
+    except Exception as e:
+        print("[VIEW DEBUG] ShareLog raw lookup failed:", e)
 
     context = {
         "collateral": collateral,
         "engagement_id": engagement.id,
         "short_code": code,
-        "engagement_id": engagement.id,
     }
     return render(request, "doctor_viewer/view.html", context)
 
@@ -196,7 +202,7 @@ def log_engagement(request):
     if not engagement:
         return JsonResponse({"ok": False, "error": "DoctorEngagement not found"}, status=404)
 
-    old_last_page = int(engagement.last_page_scrolled or 1)
+    old_last_page = int(engagement.last_page_scrolled or 0)
     old_pdf_completed = bool(engagement.pdf_completed)
     old_video_pct = int(engagement.video_watch_percentage or 0)
     old_status = int(engagement.status or 0)
@@ -217,15 +223,15 @@ def log_engagement(request):
             page_number = int(data.get("page_number") or 1)
         except Exception:
             page_number = 1
-
         if page_number < 1:
             page_number = 1
 
-        engagement.last_page_scrolled = max(int(engagement.last_page_scrolled or 1), page_number)
+        engagement.last_page_scrolled = max(int(engagement.last_page_scrolled or 0), page_number)
 
+        # Update status if total pages provided
         if pdf_total_pages > 0:
             half = (pdf_total_pages + 1) // 2
-            last_page = int(engagement.last_page_scrolled or 1)
+            last_page = int(engagement.last_page_scrolled or 0)
 
             if last_page <= 1:
                 engagement.status = 0
@@ -241,9 +247,9 @@ def log_engagement(request):
             pct = int(value)
         except Exception:
             pct = 0
-
         pct = max(0, min(100, pct))
 
+        # bucket into 0/50/100
         if pct >= 100:
             pct = 100
         elif pct >= 50:
@@ -254,46 +260,32 @@ def log_engagement(request):
         engagement.video_watch_percentage = max(int(engagement.video_watch_percentage or 0), pct)
 
     engagement.updated_at = now
-    engagement.save(
-        update_fields=[
-            "last_page_scrolled",
-            "pdf_completed",
-            "video_watch_percentage",
-            "status",
-            "updated_at",
-        ]
-    )
+    engagement.save(update_fields=["last_page_scrolled", "pdf_completed", "video_watch_percentage", "status", "updated_at"])
 
-    new_last_page = int(engagement.last_page_scrolled or 1)
+    new_last_page = int(engagement.last_page_scrolled or 0)
     new_pdf_completed = bool(engagement.pdf_completed)
     new_video_pct = int(engagement.video_watch_percentage or 0)
     new_status = int(engagement.status or 0)
 
     if new_last_page != old_last_page:
-        print(
-            f"[TRACKING DEBUG] PDF last_page_scrolled changed: {old_last_page} -> {new_last_page} "
-            f"(engagement_id={engagement.id}, share_id={share_id}, event={event})"
-        )
+        print(f"[TRACKING DEBUG] PDF last_page_scrolled changed: {old_last_page} -> {new_last_page} "
+              f"(engagement_id={engagement.id}, share_id={share_id}, event={event})")
 
     if new_status != old_status:
-        print(
-            f"[TRACKING DEBUG] PDF status changed: {old_status} -> {new_status} "
-            f"(0=no scroll, 1=half, 2=full) (engagement_id={engagement.id}, share_id={share_id})"
-        )
+        print(f"[TRACKING DEBUG] PDF status changed: {old_status} -> {new_status} "
+              f"(engagement_id={engagement.id}, share_id={share_id})")
 
     if new_pdf_completed != old_pdf_completed:
-        print(
-            f"[TRACKING DEBUG] PDF downloaded changed: {old_pdf_completed} -> {new_pdf_completed} "
-            f"(engagement_id={engagement.id}, share_id={share_id})"
-        )
+        print(f"[TRACKING DEBUG] PDF downloaded changed: {old_pdf_completed} -> {new_pdf_completed} "
+              f"(engagement_id={engagement.id}, share_id={share_id})")
 
     if new_video_pct != old_video_pct:
-        print(
-            f"[TRACKING DEBUG] Video % changed: {old_video_pct}% -> {new_video_pct}% "
-            f"(engagement_id={engagement.id}, share_id={share_id})"
-        )
+        print(f"[TRACKING DEBUG] Video % changed: {old_video_pct}% -> {new_video_pct}% "
+              f"(engagement_id={engagement.id}, share_id={share_id})")
 
-    # ---- FIX HERE: never load ShareLog with a plain .get() (it selects ghost column field_rep_email)
+    # ---------------------------------------------------------
+    # FIX: Load ShareLog WITHOUT selecting ghost DB columns.
+    # ---------------------------------------------------------
     if share_id:
         try:
             try:
@@ -305,59 +297,94 @@ def log_engagement(request):
                 print(f"[TRACKING DEBUG] share_id not int: {share_id}")
                 return JsonResponse({"ok": True, "event": event})
 
-            qs = ShareLog.objects
-            # Avoid selecting the missing DB column
-            try:
-                qs = qs.defer("field_rep_email")
-            except Exception:
-                pass
+            rows = list(
+                ShareLog.objects.raw(
+                    """
+                    SELECT id, short_link_id, doctor_identifier, share_channel,
+                           share_timestamp, collateral_id, field_rep_id, message_text
+                    FROM sharing_management_sharelog
+                    WHERE id = %s
+                    LIMIT 1
+                    """,
+                    [share_id_int],
+                )
+            )
+            sl = rows[0] if rows else None
 
-            sl = qs.filter(id=share_id_int).first()
             if not sl:
                 print(f"[TRACKING DEBUG] ShareLog not found for share_id={share_id_int}")
                 return JsonResponse({"ok": True, "event": event})
 
-            # Prevent any later deferred-fetch from trying to hit missing column
+            # Prevent lazy-loading ghost fields
             try:
                 sl.__dict__["field_rep_email"] = ""
             except Exception:
                 pass
 
-            # Update CollateralTransaction/dashboard via existing services
-            mark_viewed(sl, sm_engagement_id=None)
+            # If your services try to read brand_campaign_id, set it here best-effort
+            brand_campaign_id_val = ""
+            try:
+                if getattr(sl, "collateral_id", None):
+                    link = (
+                        CollateralCampaignLink.objects
+                        .select_related("campaign")
+                        .filter(collateral_id=sl.collateral_id)
+                        .order_by("-id")
+                        .first()
+                    )
+                    if link and getattr(link, "campaign", None):
+                        brand_campaign_id_val = getattr(link.campaign, "brand_campaign_id", "") or ""
+            except Exception as e:
+                print("[TRACKING DEBUG] brand_campaign_id best-effort lookup failed:", e)
 
-            mark_pdf_progress(
-                sl,
-                last_page=int(engagement.last_page_scrolled or 1),
-                completed=bool(engagement.pdf_completed),
-                dv_engagement_id=engagement.id,
-                total_pages=pdf_total_pages,
-            )
-            print("[TRACKING DEBUG] ✅ mark_pdf_progress called for share_id =", sl.id)
+            try:
+                sl.__dict__["brand_campaign_id"] = brand_campaign_id_val
+            except Exception:
+                pass
+
+            # Now update dashboard/transactions
+            try:
+                mark_viewed(sl, sm_engagement_id=None)
+            except Exception as e:
+                print("[TRACKING DEBUG] mark_viewed failed:", e)
+
+            try:
+                mark_pdf_progress(
+                    sl,
+                    last_page=int(engagement.last_page_scrolled or 0),
+                    completed=bool(engagement.pdf_completed),
+                    dv_engagement_id=engagement.id,
+                    total_pages=pdf_total_pages,
+                )
+                print("[TRACKING DEBUG] ✅ mark_pdf_progress called for share_id =", sl.id)
+            except Exception as e:
+                print("[TRACKING DEBUG] mark_pdf_progress failed:", e)
 
             if engagement.pdf_completed:
-                mark_downloaded_pdf(sl)
-                print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called for share_id =", sl.id)
+                try:
+                    mark_downloaded_pdf(sl)
+                    print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called for share_id =", sl.id)
+                except Exception as e:
+                    print("[TRACKING DEBUG] mark_downloaded_pdf failed:", e)
 
             if event == "video_progress":
-                mark_video_event(
-                    sl,
-                    status=int(engagement.video_watch_percentage or 0),
-                    percentage=int(engagement.video_watch_percentage or 0),
-                    event_id=0,
-                    when=timezone.now(),
-                )
-                print(
-                    "[TRACKING DEBUG] ✅ mark_video_event called for share_id =",
-                    sl.id,
-                    " pct =",
-                    int(engagement.video_watch_percentage or 0),
-                )
+                try:
+                    mark_video_event(
+                        sl,
+                        status=int(engagement.video_watch_percentage or 0),
+                        percentage=int(engagement.video_watch_percentage or 0),
+                        event_id=0,
+                        when=timezone.now(),
+                    )
+                    print("[TRACKING DEBUG] ✅ mark_video_event called for share_id =", sl.id)
+                except Exception as e:
+                    print("[TRACKING DEBUG] mark_video_event failed:", e)
 
         except Exception as e:
             print("[TRACKING DEBUG] ERROR updating ShareLog/CollateralTransaction:", e)
 
     return JsonResponse({"ok": True, "event": event})
+
 
 
 # ──────────────────────────────────────────────────────────────
@@ -605,6 +632,9 @@ def doctor_collateral_view(request):
     """
     OTP-based verification flow (existing behavior preserved).
     """
+    from django.contrib import messages
+    import re
+
     if request.method == "POST":
         whatsapp_number = request.POST.get("whatsapp_number")
         short_link_id = request.POST.get("short_link_id")
@@ -612,109 +642,109 @@ def doctor_collateral_view(request):
 
         if whatsapp_number and short_link_id and otp:
             try:
-                from django.contrib import messages
                 from sharing_management.utils.db_operations import grant_download_access, verify_doctor_otp
 
                 success, row_id = verify_doctor_otp(whatsapp_number, short_link_id, otp)
 
-                if success:
-                    grant_success = grant_download_access(short_link_id)
-
-                    # best-effort mark download in ShareLog
-                    try:
-                        sl = ShareLog.objects.filter(short_link_id=short_link_id).order_by("-share_timestamp").first()
-                        if sl:
-                            mark_downloaded_pdf(sl)
-                    except Exception:
-                        pass
-
-                    if grant_success:
-                        short_link = get_object_or_404(ShortLink, id=short_link_id)
-                        collateral = short_link.get_collateral()
-
-                        if collateral:
-                            share_id = (
-                                data.get("share_id")
-                                or request.GET.get("share_id")
-                                or request.POST.get("share_id")
-                                or request.session.get("share_id")
-                            )
-                            if share_id:
-                                try:
-                                    sl = ShareLog.objects.get(id=share_id)
-                                    mark_viewed(sl, sm_engagement_id=None)
-                                except ShareLog.DoesNotExist:
-                                    pass
-
-                            # Build Archives list
-                            campaign_id = None
-                            if getattr(collateral, "campaign_id", None):
-                                campaign_id = collateral.campaign_id
-                            else:
-                                link = (
-                                    CollateralCampaignLink.objects.filter(collateral=collateral)
-                                    .select_related("campaign")
-                                    .first()
-                                )
-                                if link:
-                                    campaign_id = link.campaign_id
-
-                            archives = []
-                            if campaign_id:
-                                older_qs = (
-                                    Collateral.objects.filter(
-                                        campaign_id=campaign_id,
-                                        is_active=True,
-                                        upload_date__lt=collateral.upload_date,
-                                    )
-                                    .exclude(pk=collateral.pk)
-                                    .order_by("-upload_date")
-                                )
-
-                                n_prev = older_qs.count()
-                                limit = 3 if n_prev >= 3 else n_prev
-                                older_items = list(older_qs[:limit])
-
-                                for c in older_items:
-                                    sl = (
-                                        ShortLink.objects.filter(
-                                            resource_type="collateral",
-                                            resource_id=c.id,
-                                            is_active=True,
-                                        )
-                                        .order_by("-date_created")
-                                        .first()
-                                    )
-                                    archives.append({"obj": c, "short_code": sl.short_code if sl else None})
-
-                            absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
-
-                            return render(
-                                request,
-                                "doctor_viewer/doctor_collateral_view.html",
-                                {
-                                    "collateral": collateral,
-                                    "short_link": short_link,
-                                    "verified": True,
-                                    "archives": archives,
-                                    "absolute_pdf_url": absolute_pdf_url,
-                                    "share_id": share_id,
-                                },
-                            )
-
-                        messages.error(request, "Collateral not found.")
-                    else:
-                        messages.error(request, "Error granting access.")
-                else:
+                if not success:
                     messages.error(request, "Invalid OTP. Please try again.")
+                    return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
-            except Exception:
-                from django.contrib import messages
+                grant_success = grant_download_access(short_link_id)
+                if not grant_success:
+                    messages.error(request, "Error granting access.")
+                    return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
+                short_link = get_object_or_404(ShortLink, id=short_link_id)
+                collateral = short_link.get_collateral()
+                if not collateral:
+                    messages.error(request, "Collateral not found.")
+                    return render(request, "doctor_viewer/doctor_collateral_verify.html")
+
+                # best-effort mark download in ShareLog (RAW, avoid ghost fields)
+                try:
+                    rows = list(
+                        ShareLog.objects.raw(
+                            """
+                            SELECT id, short_link_id, doctor_identifier, share_channel,
+                                   share_timestamp, collateral_id, field_rep_id, message_text
+                            FROM sharing_management_sharelog
+                            WHERE short_link_id = %s
+                            ORDER BY share_timestamp DESC, id DESC
+                            LIMIT 1
+                            """,
+                            [int(short_link_id)],
+                        )
+                    )
+                    sl = rows[0] if rows else None
+                    if sl:
+                        try:
+                            sl.__dict__["field_rep_email"] = ""
+                        except Exception:
+                            pass
+                        try:
+                            sl.__dict__["brand_campaign_id"] = ""
+                        except Exception:
+                            pass
+                        mark_downloaded_pdf(sl)
+                except Exception as e:
+                    print("[OTP VIEW DEBUG] mark_downloaded_pdf failed:", e)
+
+                # Archives (keep existing logic)
+                campaign_id = None
+                if getattr(collateral, "campaign_id", None):
+                    campaign_id = collateral.campaign_id
+                else:
+                    link = (
+                        CollateralCampaignLink.objects.filter(collateral=collateral)
+                        .select_related("campaign")
+                        .first()
+                    )
+                    if link:
+                        campaign_id = link.campaign_id
+
+                archives = []
+                if campaign_id:
+                    older_qs = (
+                        Collateral.objects.filter(
+                            campaign_id=campaign_id,
+                            is_active=True,
+                            upload_date__lt=collateral.upload_date,
+                        )
+                        .exclude(pk=collateral.pk)
+                        .order_by("-upload_date")[:3]
+                    )
+                    for c in older_qs:
+                        sl2 = (
+                            ShortLink.objects.filter(
+                                resource_type="collateral",
+                                resource_id=c.id,
+                                is_active=True,
+                            )
+                            .order_by("-date_created")
+                            .first()
+                        )
+                        archives.append({"obj": c, "short_code": sl2.short_code if sl2 else None})
+
+                absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
+
+                return render(
+                    request,
+                    "doctor_viewer/doctor_collateral_view.html",
+                    {
+                        "collateral": collateral,
+                        "short_link": short_link,
+                        "verified": True,
+                        "archives": archives,
+                        "absolute_pdf_url": absolute_pdf_url,
+                        "share_id": request.session.get("share_id"),
+                    },
+                )
+
+            except Exception as e:
+                print("[OTP VIEW DEBUG] ERROR:", e)
                 messages.error(request, "Error verifying OTP. Please try again.")
         else:
-            from django.contrib import messages
-
             messages.error(request, "Please provide all required information.")
 
     return render(request, "doctor_viewer/doctor_collateral_verify.html")
