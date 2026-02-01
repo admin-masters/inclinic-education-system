@@ -175,6 +175,7 @@ def resolve_view(request, code: str):
 # POST /view/log/        JSON body → update DoctorEngagement
 # ──────────────────────────────────────────────────────────────
 @csrf_exempt
+@csrf_exempt
 def log_engagement(request):
     if request.method != "POST":
         return JsonResponse({"ok": False, "error": "POST required"}, status=405)
@@ -215,6 +216,9 @@ def log_engagement(request):
     except Exception:
         pdf_total_pages = 0
 
+    # ----------------------------
+    # Update engagement fields
+    # ----------------------------
     if event == "pdf_download":
         engagement.pdf_completed = True
 
@@ -223,12 +227,13 @@ def log_engagement(request):
             page_number = int(data.get("page_number") or 1)
         except Exception:
             page_number = 1
+
         if page_number < 1:
             page_number = 1
 
         engagement.last_page_scrolled = max(int(engagement.last_page_scrolled or 0), page_number)
 
-        # Update status if total pages provided
+        # Optional status logic if total pages is known
         if pdf_total_pages > 0:
             half = (pdf_total_pages + 1) // 2
             last_page = int(engagement.last_page_scrolled or 0)
@@ -247,9 +252,10 @@ def log_engagement(request):
             pct = int(value)
         except Exception:
             pct = 0
+
         pct = max(0, min(100, pct))
 
-        # bucket into 0/50/100
+        # bucket to 0/50/100
         if pct >= 100:
             pct = 100
         elif pct >= 50:
@@ -260,7 +266,15 @@ def log_engagement(request):
         engagement.video_watch_percentage = max(int(engagement.video_watch_percentage or 0), pct)
 
     engagement.updated_at = now
-    engagement.save(update_fields=["last_page_scrolled", "pdf_completed", "video_watch_percentage", "status", "updated_at"])
+    engagement.save(
+        update_fields=[
+            "last_page_scrolled",
+            "pdf_completed",
+            "video_watch_percentage",
+            "status",
+            "updated_at",
+        ]
+    )
 
     new_last_page = int(engagement.last_page_scrolled or 0)
     new_pdf_completed = bool(engagement.pdf_completed)
@@ -268,122 +282,88 @@ def log_engagement(request):
     new_status = int(engagement.status or 0)
 
     if new_last_page != old_last_page:
-        print(f"[TRACKING DEBUG] PDF last_page_scrolled changed: {old_last_page} -> {new_last_page} "
-              f"(engagement_id={engagement.id}, share_id={share_id}, event={event})")
-
+        print(
+            f"[TRACKING DEBUG] PDF last_page_scrolled changed: {old_last_page} -> {new_last_page} "
+            f"(engagement_id={engagement.id}, share_id={share_id}, event={event})"
+        )
     if new_status != old_status:
-        print(f"[TRACKING DEBUG] PDF status changed: {old_status} -> {new_status} "
-              f"(engagement_id={engagement.id}, share_id={share_id})")
-
+        print(
+            f"[TRACKING DEBUG] PDF status changed: {old_status} -> {new_status} "
+            f"(0=no scroll, 1=half, 2=full) (engagement_id={engagement.id}, share_id={share_id})"
+        )
     if new_pdf_completed != old_pdf_completed:
-        print(f"[TRACKING DEBUG] PDF downloaded changed: {old_pdf_completed} -> {new_pdf_completed} "
-              f"(engagement_id={engagement.id}, share_id={share_id})")
-
+        print(
+            f"[TRACKING DEBUG] PDF downloaded changed: {old_pdf_completed} -> {new_pdf_completed} "
+            f"(engagement_id={engagement.id}, share_id={share_id})"
+        )
     if new_video_pct != old_video_pct:
-        print(f"[TRACKING DEBUG] Video % changed: {old_video_pct}% -> {new_video_pct}% "
-              f"(engagement_id={engagement.id}, share_id={share_id})")
+        print(
+            f"[TRACKING DEBUG] Video % changed: {old_video_pct}% -> {new_video_pct}% "
+            f"(engagement_id={engagement.id}, share_id={share_id})"
+        )
 
-    # ---------------------------------------------------------
-    # FIX: Load ShareLog WITHOUT selecting ghost DB columns.
-    # ---------------------------------------------------------
+    # ----------------------------
+    # Update ShareLog + Transaction dashboard
+    # ----------------------------
     if share_id:
         try:
-            try:
-                share_id_int = int(share_id)
-            except Exception:
-                share_id_int = None
+            share_id_int = int(share_id)
+        except Exception:
+            share_id_int = None
 
-            if not share_id_int:
-                print(f"[TRACKING DEBUG] share_id not int: {share_id}")
-                return JsonResponse({"ok": True, "event": event})
+        if not share_id_int:
+            print(f"[TRACKING DEBUG] share_id is not an int: {share_id}")
+            return JsonResponse({"ok": True, "event": event})
 
-            rows = list(
-                ShareLog.objects.raw(
-                    """
-                    SELECT id, short_link_id, doctor_identifier, share_channel,
-                           share_timestamp, collateral_id, field_rep_id, message_text
-                    FROM sharing_management_sharelog
-                    WHERE id = %s
-                    LIMIT 1
-                    """,
-                    [share_id_int],
-                )
-            )
-            sl = rows[0] if rows else None
-
+        try:
+            sl = ShareLog.objects.select_related("short_link", "collateral").filter(id=share_id_int).first()
             if not sl:
                 print(f"[TRACKING DEBUG] ShareLog not found for share_id={share_id_int}")
                 return JsonResponse({"ok": True, "event": event})
 
-            # Prevent lazy-loading ghost fields
-            try:
-                sl.__dict__["field_rep_email"] = ""
-            except Exception:
-                pass
-
-            # If your services try to read brand_campaign_id, set it here best-effort
-            brand_campaign_id_val = ""
-            try:
-                if getattr(sl, "collateral_id", None):
-                    link = (
-                        CollateralCampaignLink.objects
-                        .select_related("campaign")
-                        .filter(collateral_id=sl.collateral_id)
-                        .order_by("-id")
-                        .first()
-                    )
-                    if link and getattr(link, "campaign", None):
-                        brand_campaign_id_val = getattr(link.campaign, "brand_campaign_id", "") or ""
-            except Exception as e:
-                print("[TRACKING DEBUG] brand_campaign_id best-effort lookup failed:", e)
-
-            try:
-                sl.__dict__["brand_campaign_id"] = brand_campaign_id_val
-            except Exception:
-                pass
-
-            # Now update dashboard/transactions
-            try:
-                mark_viewed(sl, sm_engagement_id=None)
-            except Exception as e:
-                print("[TRACKING DEBUG] mark_viewed failed:", e)
-
-            try:
-                mark_pdf_progress(
-                    sl,
-                    last_page=int(engagement.last_page_scrolled or 0),
-                    completed=bool(engagement.pdf_completed),
-                    dv_engagement_id=engagement.id,
-                    total_pages=pdf_total_pages,
+            # Optional sanity check
+            if sl.short_link_id and engagement.short_link_id and sl.short_link_id != engagement.short_link_id:
+                print(
+                    f"[TRACKING DEBUG] WARNING: share_id short_link mismatch "
+                    f"(ShareLog.short_link_id={sl.short_link_id} vs engagement.short_link_id={engagement.short_link_id})"
                 )
-                print("[TRACKING DEBUG] ✅ mark_pdf_progress called for share_id =", sl.id)
-            except Exception as e:
-                print("[TRACKING DEBUG] mark_pdf_progress failed:", e)
+
+            # These are your existing services
+            mark_viewed(sl, sm_engagement_id=None)
+
+            mark_pdf_progress(
+                sl,
+                last_page=int(engagement.last_page_scrolled or 0),
+                completed=bool(engagement.pdf_completed),
+                dv_engagement_id=engagement.id,
+                total_pages=pdf_total_pages,
+            )
+            print("[TRACKING DEBUG] ✅ mark_pdf_progress called for share_id =", sl.id)
 
             if engagement.pdf_completed:
-                try:
-                    mark_downloaded_pdf(sl)
-                    print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called for share_id =", sl.id)
-                except Exception as e:
-                    print("[TRACKING DEBUG] mark_downloaded_pdf failed:", e)
+                mark_downloaded_pdf(sl)
+                print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called for share_id =", sl.id)
 
             if event == "video_progress":
-                try:
-                    mark_video_event(
-                        sl,
-                        status=int(engagement.video_watch_percentage or 0),
-                        percentage=int(engagement.video_watch_percentage or 0),
-                        event_id=0,
-                        when=timezone.now(),
-                    )
-                    print("[TRACKING DEBUG] ✅ mark_video_event called for share_id =", sl.id)
-                except Exception as e:
-                    print("[TRACKING DEBUG] mark_video_event failed:", e)
+                mark_video_event(
+                    sl,
+                    status=int(engagement.video_watch_percentage or 0),
+                    percentage=int(engagement.video_watch_percentage or 0),
+                    event_id=0,
+                    when=timezone.now(),
+                )
+                print(
+                    "[TRACKING DEBUG] ✅ mark_video_event called for share_id =",
+                    sl.id,
+                    " pct =",
+                    int(engagement.video_watch_percentage or 0),
+                )
 
         except Exception as e:
             print("[TRACKING DEBUG] ERROR updating ShareLog/CollateralTransaction:", e)
 
     return JsonResponse({"ok": True, "event": event})
+
 
 
 
