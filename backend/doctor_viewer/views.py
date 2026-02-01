@@ -175,7 +175,6 @@ def resolve_view(request, code: str):
 # POST /view/log/        JSON body → update DoctorEngagement
 # ──────────────────────────────────────────────────────────────
 @csrf_exempt
-@csrf_exempt
 def log_engagement(request):
     if request.method != "POST":
         return JsonResponse({"ok": False, "error": "POST required"}, status=405)
@@ -216,9 +215,9 @@ def log_engagement(request):
     except Exception:
         pdf_total_pages = 0
 
-    # ----------------------------
-    # Update engagement fields
-    # ----------------------------
+    # -----------------------------
+    # Update engagement
+    # -----------------------------
     if event == "pdf_download":
         engagement.pdf_completed = True
 
@@ -233,7 +232,7 @@ def log_engagement(request):
 
         engagement.last_page_scrolled = max(int(engagement.last_page_scrolled or 0), page_number)
 
-        # Optional status logic if total pages is known
+        # status: 0=no scroll, 1=half, 2=full
         if pdf_total_pages > 0:
             half = (pdf_total_pages + 1) // 2
             last_page = int(engagement.last_page_scrolled or 0)
@@ -255,7 +254,7 @@ def log_engagement(request):
 
         pct = max(0, min(100, pct))
 
-        # bucket to 0/50/100
+        # bucket behavior (keep as you had)
         if pct >= 100:
             pct = 100
         elif pct >= 50:
@@ -286,49 +285,164 @@ def log_engagement(request):
             f"[TRACKING DEBUG] PDF last_page_scrolled changed: {old_last_page} -> {new_last_page} "
             f"(engagement_id={engagement.id}, share_id={share_id}, event={event})"
         )
+
     if new_status != old_status:
         print(
             f"[TRACKING DEBUG] PDF status changed: {old_status} -> {new_status} "
             f"(0=no scroll, 1=half, 2=full) (engagement_id={engagement.id}, share_id={share_id})"
         )
+
     if new_pdf_completed != old_pdf_completed:
         print(
             f"[TRACKING DEBUG] PDF downloaded changed: {old_pdf_completed} -> {new_pdf_completed} "
             f"(engagement_id={engagement.id}, share_id={share_id})"
         )
+
     if new_video_pct != old_video_pct:
         print(
             f"[TRACKING DEBUG] Video % changed: {old_video_pct}% -> {new_video_pct}% "
             f"(engagement_id={engagement.id}, share_id={share_id})"
         )
 
-    # ----------------------------
-    # Update ShareLog + Transaction dashboard
-    # ----------------------------
+    # -----------------------------
+    # Update ShareLog + CollateralTransaction
+    # (NO RAW SQL; ORM only)
+    # -----------------------------
     if share_id:
         try:
-            share_id_int = int(share_id)
-        except Exception:
-            share_id_int = None
+            try:
+                share_id_int = int(share_id)
+            except Exception:
+                print(f"[TRACKING DEBUG] share_id not int: {share_id}")
+                return JsonResponse({"ok": True, "event": event})
 
-        if not share_id_int:
-            print(f"[TRACKING DEBUG] share_id is not an int: {share_id}")
-            return JsonResponse({"ok": True, "event": event})
+            # IMPORTANT:
+            # Use only() so we don't SELECT columns that might still not exist in DB
+            # (you previously had brand_campaign_id / field_rep_email mismatch issues).
+            sl = (
+                ShareLog.objects
+                .only(
+                    "id",
+                    "short_link",
+                    "collateral",
+                    "doctor_identifier",
+                    "share_channel",
+                    "share_timestamp",
+                    "field_rep_id",
+                )
+                .filter(id=share_id_int)
+                .first()
+            )
 
-        try:
-            sl = ShareLog.objects.select_related("short_link", "collateral").filter(id=share_id_int).first()
             if not sl:
                 print(f"[TRACKING DEBUG] ShareLog not found for share_id={share_id_int}")
                 return JsonResponse({"ok": True, "event": event})
 
-            # Optional sanity check
-            if sl.short_link_id and engagement.short_link_id and sl.short_link_id != engagement.short_link_id:
-                print(
-                    f"[TRACKING DEBUG] WARNING: share_id short_link mismatch "
-                    f"(ShareLog.short_link_id={sl.short_link_id} vs engagement.short_link_id={engagement.short_link_id})"
-                )
+            # Prevent any deferred fetch of columns that may not exist yet in DB
+            # (even if model has them).
+            sl.__dict__.setdefault("field_rep_email", "")
+            sl.__dict__.setdefault("brand_campaign_id", "")
 
-            # These are your existing services
+            # Best-effort brand_campaign_id inference (NO DB read from ShareLog table)
+            try:
+                if getattr(sl, "collateral_id", None):
+                    link = (
+                        CollateralCampaignLink.objects
+                        .select_related("campaign")
+                        .filter(collateral_id=sl.collateral_id)
+                        .order_by("-id")
+                        .first()
+                    )
+                    if link and getattr(link, "campaign", None):
+                        bc = getattr(link.campaign, "brand_campaign_id", "") or ""
+                        if bc:
+                            sl.__dict__["brand_campaign_id"] = bc
+            except Exception as e:
+                print("[TRACKING DEBUG] brand_campaign_id inference error:", e)
+
+            # ---- CRITICAL FIX:
+            # If field_rep_id is NULL in ShareLog, resolve it from master DB (by email)
+            if sl.field_rep_id is None:
+                print("[TRACKING DEBUG] ShareLog.field_rep_id is None; attempting backfill...")
+
+                email_guess = ""
+                try:
+                    # safest signal in this flow: shortlink.created_by.email
+                    sh = (
+                        ShortLink.objects
+                        .select_related("created_by")
+                        .only("id", "created_by_id", "created_by__email")
+                        .filter(id=sl.short_link_id)
+                        .first()
+                    )
+                    if sh and getattr(sh, "created_by", None):
+                        email_guess = (sh.created_by.email or "").strip()
+                except Exception as e:
+                    print("[TRACKING DEBUG] ShortLink created_by lookup failed:", e)
+
+                print("[TRACKING DEBUG] email_guess =", email_guess)
+
+                # Resolve master DB alias
+                master_alias = getattr(settings, "MASTER_DB_ALIAS", None)
+                if not master_alias:
+                    for cand in ("master", "master_db", "masterdb"):
+                        if cand in getattr(settings, "DATABASES", {}):
+                            master_alias = cand
+                            break
+                if not master_alias:
+                    master_alias = "default"
+
+                if email_guess:
+                    try:
+                        from campaign_management.master_models import MasterFieldRep
+
+                        mfr = (
+                            MasterFieldRep.objects.using(master_alias)
+                            .select_related("user")
+                            .filter(user__email__iexact=email_guess)
+                            .first()
+                        )
+
+                        if mfr:
+                            sl.field_rep_id = mfr.id
+                            # don't trigger deferred fetch; write into __dict__
+                            try:
+                                sl.__dict__["field_rep_email"] = (getattr(mfr.user, "email", "") or "").strip()
+                            except Exception:
+                                pass
+
+                            # Persist if columns exist; if not, fall back to field_rep_id only
+                            try:
+                                sl.updated_at = timezone.now()
+                                sl.save(update_fields=["field_rep_id", "field_rep_email", "updated_at"])
+                                print("[TRACKING DEBUG] ✅ backfilled ShareLog.field_rep_id =", sl.field_rep_id)
+                            except Exception as e1:
+                                try:
+                                    sl.updated_at = timezone.now()
+                                    sl.save(update_fields=["field_rep_id", "updated_at"])
+                                    print("[TRACKING DEBUG] ✅ backfilled ShareLog.field_rep_id (id-only) =", sl.field_rep_id)
+                                except Exception as e2:
+                                    print("[TRACKING DEBUG] ❌ failed to persist field_rep_id backfill:", e1, e2)
+                        else:
+                            print("[TRACKING DEBUG] ❌ no MasterFieldRep found for email:", email_guess)
+
+                    except Exception as e:
+                        print("[TRACKING DEBUG] master fieldrep resolution error:", e)
+
+            print(
+                "[TRACKING DEBUG] using ShareLog:",
+                "id=", sl.id,
+                "field_rep_id=", sl.field_rep_id,
+                "doctor_identifier=", getattr(sl, "doctor_identifier", None),
+                "brand_campaign_id(dict)=", sl.__dict__.get("brand_campaign_id", ""),
+            )
+
+            if sl.field_rep_id is None:
+                # Avoid raising inside transaction code
+                print("[TRACKING DEBUG] ⚠️ field_rep_id still None; skipping mark_* calls.")
+                return JsonResponse({"ok": True, "event": event})
+
+            # Now safe to call transaction updaters
             mark_viewed(sl, sm_engagement_id=None)
 
             mark_pdf_progress(
@@ -338,11 +452,11 @@ def log_engagement(request):
                 dv_engagement_id=engagement.id,
                 total_pages=pdf_total_pages,
             )
-            print("[TRACKING DEBUG] ✅ mark_pdf_progress called for share_id =", sl.id)
+            print("[TRACKING DEBUG] ✅ mark_pdf_progress called share_id =", sl.id)
 
             if engagement.pdf_completed:
                 mark_downloaded_pdf(sl)
-                print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called for share_id =", sl.id)
+                print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called share_id =", sl.id)
 
             if event == "video_progress":
                 mark_video_event(
@@ -352,18 +466,12 @@ def log_engagement(request):
                     event_id=0,
                     when=timezone.now(),
                 )
-                print(
-                    "[TRACKING DEBUG] ✅ mark_video_event called for share_id =",
-                    sl.id,
-                    " pct =",
-                    int(engagement.video_watch_percentage or 0),
-                )
+                print("[TRACKING DEBUG] ✅ mark_video_event called share_id =", sl.id)
 
         except Exception as e:
             print("[TRACKING DEBUG] ERROR updating ShareLog/CollateralTransaction:", e)
 
     return JsonResponse({"ok": True, "event": event})
-
 
 
 
