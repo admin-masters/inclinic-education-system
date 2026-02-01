@@ -1784,126 +1784,121 @@ def fieldrep_gmail_login(request):
 # ===========================
 def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     """
-    Field Rep "Gmail share" page.
-    Despite the name, it ultimately prepares a WhatsApp message link.
-
-    This version adds robust debugging + supports:
-      - doctor_id (select existing doctor)
-      - manual doctor entry (doctor_name + doctor_whatsapp)
-      - collateral id coming from POST OR GET (?collateral=71)
-      - AJAX/JSON submissions returning JsonResponse
+    Debug-focused rewrite:
+    - Uses ONLY print() for logs (no _smdbg)
+    - Adds robust logging for POST payload, session values, user resolution, collateral selection
+    - Supports both manual doctor entry and doctor selection by doctor_id
+    - Returns JSON for AJAX requests; redirects for normal POST
     """
+    import traceback
     import urllib.parse as _up
-    import json as _json
-    import re as _re
-    from datetime import timedelta
+    import re
 
-    from django.contrib import messages
-    from django.http import JsonResponse
-    from django.shortcuts import redirect, render
-    from django.utils import timezone
+    print("\n[SMDBG] ===== fieldrep_gmail_share_collateral START =====")
+    print(f"[SMDBG] method={request.method} path={request.path} full_path={request.get_full_path()}")
+    print(f"[SMDBG] GET={dict(request.GET)}")
 
-    # --- Session context ---
     field_rep_id = request.session.get("field_rep_id")
     field_rep_email = request.session.get("field_rep_email")
     field_rep_field_id = request.session.get("field_rep_field_id")
+    session_campaign = request.session.get("brand_campaign_id")
+
+    print(f"[SMDBG] session field_rep_id={field_rep_id} field_rep_email={field_rep_email} field_rep_field_id={field_rep_field_id} session_campaign={session_campaign}")
 
     if brand_campaign_id is None:
-        brand_campaign_id = (
-            request.GET.get("brand_campaign_id")
-            or request.GET.get("campaign")
-            or request.session.get("brand_campaign_id")
-        )
+        brand_campaign_id = request.GET.get("brand_campaign_id") or request.GET.get("campaign") or session_campaign
 
-    print(
-        "fieldrep_gmail_share_collateral START "
-        f"method={request.method} path={request.path} "
-        f"GET={dict(request.GET)} "
-        f"session(field_rep_id={field_rep_id}, field_rep_email={field_rep_email}, field_rep_field_id={field_rep_field_id}) "
-        f"content_type={request.META.get('CONTENT_TYPE')} xrw={request.headers.get('x-requested-with')}"
-    )
+    print(f"[SMDBG] resolved brand_campaign_id={brand_campaign_id}")
+
+    # Detect AJAX/fetch
+    xrw = request.headers.get("X-Requested-With") or request.META.get("HTTP_X_REQUESTED_WITH")
+    accept = request.headers.get("Accept") or request.META.get("HTTP_ACCEPT")
+    is_ajax = (xrw == "XMLHttpRequest") or (accept and "application/json" in accept)
+    print(f"[SMDBG] headers X-Requested-With={xrw} Accept={accept} -> is_ajax={is_ajax}")
 
     if not field_rep_id:
-        _smdbg("No session field_rep_id -> redirect to fieldrep_login")
+        print("[SMDBG] No field_rep_id in session -> redirect to fieldrep_login")
         messages.error(request, "Please login first.")
         return redirect("fieldrep_login")
 
-    # --- Resolve portal rep user (UMUser) ---
+    # ------------------------------------------------------------------
+    # Resolve actual portal user (user_management.User) for ShortLink creator + Doctor.rep
+    # ------------------------------------------------------------------
+    actual_user = None
     try:
         from user_management.models import User as UMUser
+
+        if field_rep_field_id:
+            actual_user = UMUser.objects.filter(field_id=field_rep_field_id, role="field_rep").first()
+            print(f"[SMDBG] actual_user by field_id -> {getattr(actual_user, 'id', None)}")
+
+        if not actual_user and field_rep_email:
+            actual_user = UMUser.objects.filter(email__iexact=field_rep_email, role="field_rep").first()
+            print(f"[SMDBG] actual_user by email -> {getattr(actual_user, 'id', None)}")
+
+        if not actual_user:
+            try:
+                actual_user = UMUser.objects.get(id=int(field_rep_id))
+                print(f"[SMDBG] actual_user by id(field_rep_id) -> {getattr(actual_user, 'id', None)}")
+            except Exception as e:
+                print(f"[SMDBG] actual_user by id failed: {e}")
+
     except Exception as e:
-        _smdbg(f"ERROR importing UMUser: {e}")
-        UMUser = None
+        print("[SMDBG] ERROR resolving actual_user:", str(e))
+        print(traceback.format_exc())
+        actual_user = None
 
-    actual_user = None
-    if UMUser:
-        try:
-            if field_rep_field_id:
-                actual_user = UMUser.objects.filter(field_id=field_rep_field_id, role="field_rep").first()
-            if not actual_user and field_rep_email:
-                actual_user = UMUser.objects.filter(email__iexact=field_rep_email, role="field_rep").first()
-            if not actual_user:
-                # last resort: session id might be UMUser id (int)
-                try:
-                    actual_user = UMUser.objects.get(id=int(field_rep_id))
-                except Exception:
-                    actual_user = None
-        except Exception as e:
-            _smdbg(f"ERROR resolving actual_user: {e}")
-            actual_user = None
+    print(f"[SMDBG] final actual_user.id={getattr(actual_user, 'id', None)} username={getattr(actual_user, 'username', None)} email={getattr(actual_user, 'email', None)}")
 
-    print(
-        "Resolved actual_user="
-        f"{getattr(actual_user, 'id', None)} "
-        f"email={getattr(actual_user, 'email', None)} field_id={getattr(actual_user, 'field_id', None)}"
-    )
-
-    # --- Build collaterals list (same concept as your existing code) ---
+    # ------------------------------------------------------------------
+    # Build collaterals list (filtered by campaign + date window)
+    # ------------------------------------------------------------------
     collaterals_list = []
     try:
         from django.db.models import Q as _Q
-        from collateral_management.models import Collateral as CMCollateral, CampaignCollateral as CMCampaignCollateral2
+        from collateral_management.models import Collateral as CMCollateral
+        from collateral_management.models import CampaignCollateral as CMCampaignCollateral2
         from campaign_management.models import CampaignCollateral as CampaignMgmtCC
 
         collaterals = []
 
         if brand_campaign_id and brand_campaign_id != "all":
-            current_date = timezone.now().date()
-
-            # campaign_management CC
-            cc_links = CampaignMgmtCC.objects.filter(
+            current_dt = timezone.now()
+            # NOTE: your start_date/end_date appear to be DateTimeFields -> compare with datetime, not date
+            cc_links_1 = CampaignMgmtCC.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
             ).filter(
-                _Q(start_date__lte=current_date, end_date__gte=current_date)
-                | _Q(start_date__isnull=True, end_date__isnull=True)
+                _Q(start_date__lte=current_dt, end_date__gte=current_dt) |
+                _Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related("collateral", "campaign")
-            campaign_collaterals = [link.collateral for link in cc_links if getattr(link, "collateral", None)]
 
-            # collateral_management CC
-            collateral_links = CMCampaignCollateral2.objects.filter(
+            cc_links_2 = CMCampaignCollateral2.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id,
                 collateral__is_active=True,
             ).filter(
-                _Q(start_date__lte=current_date, end_date__gte=current_date)
-                | _Q(start_date__isnull=True, end_date__isnull=True)
+                _Q(start_date__lte=current_dt, end_date__gte=current_dt) |
+                _Q(start_date__isnull=True, end_date__isnull=True)
             ).select_related("collateral", "campaign")
-            collateral_collaterals = [
-                link.collateral for link in collateral_links
-                if getattr(link, "collateral", None) and getattr(link.collateral, "is_active", True)
-            ]
 
-            # unique by id
-            collaterals = list({c.id: c for c in (campaign_collaterals + collateral_collaterals) if hasattr(c, "id")}.values())
+            c1 = [x.collateral for x in cc_links_1 if getattr(x, "collateral", None)]
+            c2 = [x.collateral for x in cc_links_2 if getattr(x, "collateral", None) and getattr(x.collateral, "is_active", True)]
+            merged = {}
+            for c in (c1 + c2):
+                if getattr(c, "id", None) is not None:
+                    merged[c.id] = c
+            collaterals = list(merged.values())
+
+            print(f"[SMDBG] collaterals from campaign filters: c1={len(c1)} c2={len(c2)} merged={len(collaterals)}")
         else:
-            collaterals = CMCollateral.objects.filter(is_active=True).order_by("-created_at")
+            collaterals = list(CMCollateral.objects.filter(is_active=True).order_by("-created_at")[:500])
+            print(f"[SMDBG] collaterals all active count={len(collaterals)}")
 
-        _smdbg(f"Collaterals fetched count={len(collaterals)} brand_campaign_id={brand_campaign_id}")
-
+        # Build list with short links
         for collateral in collaterals:
             try:
                 if not actual_user:
+                    print("[SMDBG] actual_user is None -> skipping shortlink creation")
                     continue
-
                 short_link = find_or_create_short_link(collateral, actual_user)
                 collaterals_list.append({
                     "id": collateral.id,
@@ -1912,180 +1907,170 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     "link": request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/"),
                 })
             except Exception as e:
-                _smdbg(f"Collateral list build skip collateral_id={getattr(collateral, 'id', None)} err={e}")
+                print(f"[SMDBG] ERROR building collateral entry for collateral.id={getattr(collateral,'id',None)}: {e}")
+                print(traceback.format_exc())
                 continue
 
-        _smdbg(f"collaterals_list built count={len(collaterals_list)}")
+        print(f"[SMDBG] collaterals_list prepared count={len(collaterals_list)} ids={[c['id'] for c in collaterals_list[:10]]}")
 
     except Exception as e:
-        print(f"ERROR fetching collaterals: {e}")
+        print("[SMDBG] ERROR fetching collaterals:", str(e))
+        print(traceback.format_exc())
         collaterals_list = []
         messages.error(request, "Error loading collaterals. Please try again.")
 
-    # --- Assigned doctors list (for UI + status) ---
-    from doctor_viewer.models import Doctor
-    from .models import ShareLog, CollateralTransaction
-
-    assigned_doctors = Doctor.objects.filter(rep=actual_user) if actual_user else Doctor.objects.none()
-
-    # Selected collateral (prefer GET param ?collateral=...)
-    selected_collateral_id = (request.GET.get("collateral") or request.POST.get("collateral") or "").strip()
+    # Selected collateral for doctor status UI / default selection
+    selected_collateral_id = (request.GET.get("collateral") or "").strip()
     if not selected_collateral_id and collaterals_list:
         selected_collateral_id = str(collaterals_list[0]["id"])
+    print(f"[SMDBG] selected_collateral_id(GET/default)={selected_collateral_id}")
 
-    # Build doctors status list (best-effort; never break page)
+    # ------------------------------------------------------------------
+    # Doctors list for UI
+    # ------------------------------------------------------------------
+    assigned_doctors = Doctor.objects.filter(rep=actual_user).order_by("name") if actual_user else Doctor.objects.none()
+    print(f"[SMDBG] assigned_doctors count={assigned_doctors.count() if hasattr(assigned_doctors,'count') else 'n/a'}")
+
     doctors_with_status = []
-    six_days_ago = timezone.now() - timedelta(days=6)
+    try:
+        six_days_ago = timezone.now() - timedelta(days=6)
 
-    for doctor in assigned_doctors:
-        status = "not_sent"
-        try:
-            if selected_collateral_id:
-                phone_val = doctor.phone or ""
-                phone_clean = phone_val.replace("+", "").replace(" ", "").replace("-", "")
-                possible_ids = [phone_val]
-                if phone_clean and len(phone_clean) == 10:
-                    possible_ids.extend([f"+91{phone_clean}", f"91{phone_clean}"])
+        for doctor in assigned_doctors:
+            status = "not_sent"
 
-                # ShareLog may or may not have collateral_id; keep it safe
-                qs = ShareLog.objects.filter(doctor_identifier__in=possible_ids).order_by("-share_timestamp")
-                try:
-                    qs = qs.filter(collateral_id=selected_collateral_id)
-                except Exception:
-                    # model may not have collateral_id column
-                    pass
+            # Best-effort status check; guard if ShareLog doesn't have collateral_id field
+            try:
+                if selected_collateral_id:
+                    phone_val = (doctor.phone or "").strip()
+                    phone_clean = phone_val.replace("+", "").replace(" ", "").replace("-", "")
+                    possible_ids = [phone_val]
+                    if phone_clean and len(phone_clean) == 10:
+                        possible_ids.extend([f"+91{phone_clean}", f"91{phone_clean}"])
 
-                share_log = qs.first()
+                    qs = ShareLog.objects.filter(
+                        doctor_identifier__in=possible_ids,
+                    ).order_by("-share_timestamp")
 
-                if share_log:
-                    engaged = CollateralTransaction.objects.filter(
-                        field_rep_id=str(getattr(share_log, "field_rep_id", "")),
-                        doctor_number=getattr(share_log, "doctor_identifier", ""),
-                        collateral_id=getattr(share_log, "collateral_id", "") or selected_collateral_id,
-                        has_viewed=True,
-                    ).exists()
-                    if engaged:
-                        status = "opened"
-                    else:
-                        status = "reminder" if share_log.share_timestamp and share_log.share_timestamp < six_days_ago else "sent"
-        except Exception as e:
-            _smdbg(f"Doctor status calc error doctor_id={doctor.id} err={e}")
+                    # If your ShareLog has collateral_id, filter it. If not, skip filtering.
+                    try:
+                        qs = qs.filter(collateral_id=selected_collateral_id)
+                    except Exception:
+                        pass
 
-        doctors_with_status.append({
-            "id": doctor.id,
-            "name": doctor.name,
-            "phone": doctor.phone,
-            "status": status,
-        })
+                    share_log = qs.first()
 
-    # --- POST handling ---
+                    if share_log:
+                        engaged = CollateralTransaction.objects.filter(
+                            field_rep_id=str(getattr(share_log, "field_rep_id", "")),
+                            doctor_number=getattr(share_log, "doctor_identifier", ""),
+                            collateral_id=getattr(share_log, "collateral_id", None),
+                            has_viewed=True,
+                        ).exists()
+
+                        if engaged:
+                            status = "opened"
+                        else:
+                            ts = getattr(share_log, "share_timestamp", None)
+                            status = "reminder" if (ts and ts < six_days_ago) else "sent"
+            except Exception as e:
+                print(f"[SMDBG] doctor status calc error doctor.id={doctor.id}: {e}")
+
+            doctors_with_status.append({
+                "id": doctor.id,
+                "name": doctor.name,
+                "phone": doctor.phone,
+                "status": status,
+            })
+
+    except Exception as e:
+        print("[SMDBG] ERROR building doctors_with_status:", str(e))
+        print(traceback.format_exc())
+        doctors_with_status = []
+
+    # ------------------------------------------------------------------
+    # POST: Create doctor/share link and send WhatsApp URL back
+    # ------------------------------------------------------------------
     if request.method == "POST":
-        # Detect AJAX/JSON
-        is_ajax = (
-            request.headers.get("x-requested-with") == "XMLHttpRequest"
-            or (request.META.get("CONTENT_TYPE") or "").startswith("application/json")
-            or str(request.POST.get("ajax") or "").lower() in ("1", "true", "yes")
-        )
+        print("[SMDBG] ----- POST RECEIVED -----")
+        print(f"[SMDBG] POST keys={list(request.POST.keys())}")
+        print(f"[SMDBG] POST={dict(request.POST)}")
 
-        # Parse payload (form or json)
-        payload = request.POST
-        if (request.META.get("CONTENT_TYPE") or "").startswith("application/json"):
-            try:
-                payload = _json.loads((request.body or b"{}").decode("utf-8") or "{}")
-            except Exception as e:
-                _smdbg(f"ERROR parsing JSON body: {e}")
-                payload = {}
+        # Accept collateral from POST first, fallback to GET (?collateral=)
+        collateral_id_str = (request.POST.get("collateral") or request.GET.get("collateral") or "").strip()
+        print(f"[SMDBG] collateral_id_str resolved={collateral_id_str}")
 
-        # Pull fields with fallbacks
-        def _pget(key: str, default=""):
-            try:
-                if isinstance(payload, dict):
-                    return (payload.get(key) or default)
-                return (payload.get(key) or default)
-            except Exception:
-                return default
-
-        doctor_id_raw = str(_pget("doctor_id") or _pget("doctor") or "").strip()
-        doctor_name = str(_pget("doctor_name") or _pget("name") or "").strip()
-        doctor_whatsapp = str(
-            _pget("doctor_whatsapp")
-            or _pget("doctor_phone")
-            or _pget("doctor_contact")
-            or _pget("whatsapp")
-            or _pget("phone")
+        # Accept both manual and selected doctor flows
+        doctor_id = (request.POST.get("doctor_id") or "").strip()
+        doctor_name = (request.POST.get("doctor_name") or request.POST.get("doctorName") or "").strip()
+        doctor_whatsapp = (
+            request.POST.get("doctor_whatsapp")
+            or request.POST.get("doctor_phone")
+            or request.POST.get("doctor_mobile")
+            or request.POST.get("whatsapp_number")
             or ""
         ).strip()
 
-        collateral_id_str = str(
-            _pget("collateral")
-            or _pget("collateral_id")
-            or request.GET.get("collateral")   # IMPORTANT: accept collateral from query string
-            or ""
-        ).strip()
+        print(f"[SMDBG] doctor_id={doctor_id} doctor_name={doctor_name} doctor_whatsapp={doctor_whatsapp}")
 
-        _smdbg(
-            "POST received "
-            f"is_ajax={is_ajax} "
-            f"keys={list(payload.keys()) if hasattr(payload, 'keys') else type(payload)} "
-            f"doctor_id={doctor_id_raw} doctor_name={doctor_name} doctor_whatsapp={doctor_whatsapp} "
-            f"collateral_id_str={collateral_id_str}"
-        )
-
-        # If a doctor was selected by id, resolve it
-        if doctor_id_raw and (not doctor_name or not doctor_whatsapp):
-            try:
-                did = int(doctor_id_raw)
-                d = Doctor.objects.filter(id=did).first()
-                if d:
-                    doctor_name = doctor_name or (d.name or "")
-                    doctor_whatsapp = doctor_whatsapp or (d.phone or "")
-                    _smdbg(f"Resolved doctor from doctor_id={did} -> name={doctor_name} phone={doctor_whatsapp}")
-            except Exception as e:
-                _smdbg(f"ERROR resolving doctor_id={doctor_id_raw}: {e}")
-
-        # Validate collateral
-        if not collateral_id_str or not str(collateral_id_str).isdigit():
-            msg = "Please select a valid collateral (collateral id missing)."
-            _smdbg(f"POST validation failed: {msg}")
+        if not collateral_id_str.isdigit():
+            print("[SMDBG] INVALID collateral_id_str -> returning error")
+            msg = "Please select a valid collateral."
+            messages.error(request, msg)
             if is_ajax:
                 return JsonResponse({"success": False, "message": msg}, status=400)
-            messages.error(request, msg)
             return redirect(request.get_full_path())
 
         collateral_id = int(collateral_id_str)
 
-        # Find selected collateral in list (for name/description)
-        selected_collateral = next((c for c in collaterals_list if c["id"] == collateral_id), None)
-        if not selected_collateral:
-            _smdbg(f"Selected collateral not found in collaterals_list for id={collateral_id}. Will try DB lookup.")
-            selected_collateral = {"id": collateral_id, "name": "Collateral", "description": "", "link": ""}
+        selected_collateral = next((c for c in collaterals_list if int(c["id"]) == int(collateral_id)), None)
+        print(f"[SMDBG] selected_collateral found={bool(selected_collateral)}")
 
-        # Validate doctor details
-        if not doctor_name or not doctor_whatsapp:
-            msg = "Please fill doctor name and WhatsApp number (or select a doctor)."
-            _smdbg(f"POST validation failed: {msg}")
-            if is_ajax:
-                return JsonResponse({"success": False, "message": msg}, status=400)
+        if not selected_collateral:
+            msg = "Selected collateral not found (not in filtered list)."
+            print(f"[SMDBG] {msg} collateral_id={collateral_id}")
             messages.error(request, msg)
+            if is_ajax:
+                return JsonResponse({"success": False, "message": msg}, status=404)
             return redirect(request.get_full_path())
 
-        # Normalize phone to e164 (+91...)
-        phone_e164 = _normalize_phone_e164(doctor_whatsapp)
-        if not phone_e164:
-            msg = f"Invalid WhatsApp number: {doctor_whatsapp}"
-            _smdbg(f"POST validation failed: {msg}")
+        # If doctor_id provided but manual fields missing -> load doctor from DB
+        if doctor_id and (not doctor_name or not doctor_whatsapp):
+            try:
+                d = Doctor.objects.filter(id=int(doctor_id)).first()
+                print(f"[SMDBG] doctor lookup by doctor_id -> found={bool(d)}")
+                if d:
+                    doctor_name = doctor_name or (d.name or "")
+                    doctor_whatsapp = doctor_whatsapp or (d.phone or "")
+            except Exception as e:
+                print(f"[SMDBG] ERROR resolving doctor by doctor_id={doctor_id}: {e}")
+                print(traceback.format_exc())
+
+        if not doctor_name or not doctor_whatsapp:
+            msg = "Doctor name and WhatsApp number are required."
+            print(f"[SMDBG] {msg} (doctor_name={doctor_name}, doctor_whatsapp={doctor_whatsapp})")
+            messages.error(request, msg)
             if is_ajax:
                 return JsonResponse({"success": False, "message": msg}, status=400)
-            messages.error(request, "Please enter a valid WhatsApp number.")
+            return redirect(request.get_full_path())
+
+        # Normalize number to E.164
+        phone_e164 = _normalize_phone_e164(doctor_whatsapp)
+        print(f"[SMDBG] normalized phone_e164={phone_e164}")
+
+        if not phone_e164:
+            msg = "Please enter a valid WhatsApp number."
+            print(f"[SMDBG] {msg} raw={doctor_whatsapp}")
+            messages.error(request, msg)
+            if is_ajax:
+                return JsonResponse({"success": False, "message": msg}, status=400)
             return redirect(request.get_full_path())
 
         # Ensure rep user exists
         rep_user = actual_user
-        if not rep_user and UMUser and field_rep_email:
-            rep_user = UMUser.objects.filter(email__iexact=field_rep_email).first()
-        if not rep_user and UMUser:
-            # very last resort: create minimal rep user to not block sharing
-            try:
+        try:
+            from user_management.models import User as UMUser
+            if not rep_user:
+                # last resort: create a field_rep user shell
                 rep_user = UMUser.objects.create_user(
                     username=f"field_rep_{field_rep_id}",
                     email=field_rep_email or f"field_rep_{field_rep_id}@example.com",
@@ -2093,114 +2078,100 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     role="field_rep",
                     field_id=field_rep_field_id or "",
                 )
-                _smdbg(f"Created fallback rep_user id={rep_user.id}")
-            except Exception as e:
-                _smdbg(f"ERROR creating fallback rep_user: {e}")
-                msg = "Unable to resolve field rep user for sharing."
-                if is_ajax:
-                    return JsonResponse({"success": False, "message": msg}, status=500)
-                messages.error(request, msg)
-                return redirect(request.get_full_path())
+                print(f"[SMDBG] created fallback rep_user id={rep_user.id}")
+        except Exception as e:
+            print("[SMDBG] ERROR ensuring rep_user:", str(e))
+            print(traceback.format_exc())
+            rep_user = actual_user  # keep best effort
 
-        # Save/Update Doctor under this rep
+        print(f"[SMDBG] rep_user.id={getattr(rep_user,'id',None)}")
+
+        # Store/update Doctor under this rep_user
         try:
-            phone_last10 = _re.sub(r"\D", "", phone_e164)[-10:]
-            doctor_obj, created = Doctor.objects.update_or_create(
+            phone_last10 = re.sub(r"\D", "", phone_e164)[-10:]
+            doc_obj, created = Doctor.objects.update_or_create(
                 rep=rep_user,
                 phone=phone_last10,
-                defaults={"name": doctor_name},
+                defaults={"name": doctor_name, "source": "manual"},
             )
-            _smdbg(f"Doctor upsert ok id={doctor_obj.id} created={created} rep_user_id={rep_user.id} phone_last10={phone_last10}")
+            print(f"[SMDBG] Doctor upserted id={doc_obj.id} created={created} phone_last10={phone_last10}")
         except Exception as e:
-            _smdbg(f"ERROR saving Doctor: {e}")
-            if is_ajax:
-                return JsonResponse({"success": False, "message": f"Failed to save doctor: {e}"}, status=500)
-            messages.error(request, "Failed to save doctor. Please try again.")
-            return redirect(request.get_full_path())
+            print("[SMDBG] ERROR saving Doctor:", str(e))
+            print(traceback.format_exc())
 
-        # Build shortlink and log share (best effort)
+        # Create ShortLink + ShareLog best effort
         try:
-            from collateral_management.models import Collateral as PortalCollateral
-            collateral_obj = PortalCollateral.objects.get(id=collateral_id, is_active=True)
-        except Exception as e:
-            _smdbg(f"ERROR loading Collateral id={collateral_id}: {e}")
-            msg = "Selected collateral not found or inactive."
-            if is_ajax:
-                return JsonResponse({"success": False, "message": msg}, status=404)
-            messages.error(request, msg)
-            return redirect(request.get_full_path())
-
-        short_link = None
-        try:
+            collateral_obj = Collateral.objects.get(id=collateral_id, is_active=True)
             short_link = find_or_create_short_link(collateral_obj, rep_user)
-            short_url = request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
-            _smdbg(f"ShortLink ok short_code={short_link.short_code} short_url={short_url}")
+            print(f"[SMDBG] short_link created/resolved id={short_link.id} code={short_link.short_code}")
         except Exception as e:
-            _smdbg(f"ERROR creating short link: {e}")
-            msg = "Failed to generate share link."
+            msg = f"Failed to resolve collateral/shortlink: {e}"
+            print("[SMDBG] " + msg)
+            print(traceback.format_exc())
+            messages.error(request, msg)
             if is_ajax:
                 return JsonResponse({"success": False, "message": msg}, status=500)
-            messages.error(request, msg)
             return redirect(request.get_full_path())
 
-        # Try your existing share-log helper, else fallback ShareLog create
         try:
-            from .utils.db_operations import log_manual_doctor_share
-            log_manual_doctor_share(
-                short_link_id=short_link.id,
-                field_rep_id=rep_user.id,
-                phone_e164=phone_e164,
-                collateral_id=collateral_id,
-            )
-            _smdbg("log_manual_doctor_share OK")
-        except Exception as e:
-            _smdbg(f"log_manual_doctor_share failed (fallback to ShareLog). err={e}")
+            # Your existing helper (if present)
             try:
-                # ShareLog schema differs across your revisions; keep it defensive
-                kwargs = dict(
-                    short_link=short_link,
-                    field_rep=rep_user,
-                    doctor_identifier=phone_e164,
-                    share_channel="WhatsApp",
-                    share_timestamp=timezone.now(),
+                from .utils.db_operations import log_manual_doctor_share
+                log_manual_doctor_share(
+                    short_link_id=short_link.id,
+                    field_rep_id=getattr(rep_user, "id", field_rep_id),
+                    phone_e164=phone_e164,
+                    collateral_id=collateral_id,
                 )
-                # If ShareLog has collateral FK, include it
+                print("[SMDBG] log_manual_doctor_share() OK")
+            except Exception as e:
+                print(f"[SMDBG] log_manual_doctor_share() failed: {e} -> trying ShareLog fallback")
                 try:
-                    kwargs["collateral"] = collateral_obj
-                except Exception:
-                    pass
-                ShareLog.objects.create(**kwargs)
-                _smdbg("Fallback ShareLog create OK")
-            except Exception as e2:
-                _smdbg(f"Fallback ShareLog create FAILED err={e2}")
-
-        # Build WA message
-        try:
-            message = get_brand_specific_message(
-                collateral_id,
-                selected_collateral.get("name") or getattr(collateral_obj, "title", "Collateral"),
-                short_url,
-                brand_campaign_id=brand_campaign_id,
-            )
+                    ShareLog.objects.create(
+                        short_link=short_link,
+                        collateral=collateral_obj,
+                        field_rep=rep_user,
+                        doctor_identifier=phone_e164,
+                        share_channel="WhatsApp",
+                        share_timestamp=timezone.now(),
+                        created_at=timezone.now(),
+                        updated_at=timezone.now(),
+                    )
+                    print("[SMDBG] ShareLog fallback created OK")
+                except Exception as e2:
+                    print(f"[SMDBG] ShareLog fallback also failed: {e2}")
+                    print(traceback.format_exc())
         except Exception as e:
-            _smdbg(f"ERROR building brand message: {e}")
-            message = f"Hello Doctor, please check this: {short_url}"
+            print("[SMDBG] ERROR logging share:", str(e))
+            print(traceback.format_exc())
 
-        wa_number = _re.sub(r"\D", "", phone_e164)
+        # Build WA URL
+        message = get_brand_specific_message(
+            collateral_id,
+            selected_collateral["name"],
+            selected_collateral["link"],
+            brand_campaign_id=brand_campaign_id,
+        )
+
+        wa_number = re.sub(r"\D", "", phone_e164)  # already has country code from normalize
         wa_url = f"https://wa.me/{wa_number}?text={_up.quote(message)}"
-        _smdbg(f"Returning WhatsApp URL: {wa_url[:120]}...")
+        print(f"[SMDBG] FINAL wa_url={wa_url}")
 
         if is_ajax:
             return JsonResponse({
                 "success": True,
-                "message": "Prepared WhatsApp share link.",
+                "message": f"Prepared WhatsApp share for {doctor_name}",
                 "whatsapp_url": wa_url,
-                "doctor_id": doctor_obj.id,
             })
 
         return redirect(wa_url)
 
-    # --- GET render ---
+    # ------------------------------------------------------------------
+    # GET render
+    # ------------------------------------------------------------------
+    print("[SMDBG] ----- GET RENDER -----")
+    print(f"[SMDBG] Rendering with collaterals={len(collaterals_list)} doctors={len(doctors_with_status)} selected_collateral_id={selected_collateral_id}")
+
     return render(request, "sharing_management/fieldrep_gmail_share_collateral.html", {
         "fieldrep_id": field_rep_field_id or "Unknown",
         "fieldrep_email": field_rep_email,
