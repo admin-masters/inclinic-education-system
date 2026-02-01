@@ -1852,7 +1852,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             _smdbg(f"ERROR resolving actual_user: {e}")
             actual_user = None
 
-    _smdbg(
+    print(
         "Resolved actual_user="
         f"{getattr(actual_user, 'id', None)} "
         f"email={getattr(actual_user, 'email', None)} field_id={getattr(actual_user, 'field_id', None)}"
