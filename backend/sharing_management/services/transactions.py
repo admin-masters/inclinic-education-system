@@ -1,43 +1,46 @@
 # sharing_management/services/transactions.py
 from __future__ import annotations
 
-from typing import Optional, Tuple
+import uuid
+from typing import Any, Optional
 
+from django.conf import settings
 from django.utils import timezone
 
 from sharing_management.models import CollateralTransaction, ShareLog
 
 
-def _safe_int(v) -> Optional[int]:
-    try:
-        if v is None:
-            return None
-        if isinstance(v, int):
-            return v
-        s = str(v).strip()
-        if s == "" or s.lower() == "none":
-            return None
-        return int(s)
-    except Exception:
-        return None
+MASTER_ALIAS = getattr(settings, "MASTER_DB_ALIAS", "master")
 
 
-def _collateral_id_from_sharelog(sl: ShareLog) -> Optional[int]:
+def _as_str(v: Any) -> str:
     """
-    ShareLog may have collateral_id populated.
-    If not, derive from ShortLink (resource_type="collateral").
+    Always return a safe string.
+    - UUID -> str(UUID)
+    - None -> ""
+    """
+    if v is None:
+        return ""
+    if isinstance(v, uuid.UUID):
+        return str(v)
+    return str(v)
+
+
+def _resolve_collateral_id(share_log: ShareLog) -> Optional[int]:
+    """
+    Prefer ShareLog.collateral_id. Fallback to ShortLink.resource_id when needed.
     """
     try:
-        if getattr(sl, "collateral_id", None):
-            return int(sl.collateral_id)
+        if getattr(share_log, "collateral_id", None):
+            return int(share_log.collateral_id)
     except Exception:
         pass
 
     try:
-        short_link = getattr(sl, "short_link", None)
-        if short_link and getattr(short_link, "resource_type", "") == "collateral":
-            rid = getattr(short_link, "resource_id", None)
-            if rid:
+        sl = getattr(share_log, "short_link", None)
+        if sl and getattr(sl, "resource_type", "") == "collateral":
+            rid = getattr(sl, "resource_id", None)
+            if rid is not None:
                 return int(rid)
     except Exception:
         pass
@@ -45,280 +48,262 @@ def _collateral_id_from_sharelog(sl: ShareLog) -> Optional[int]:
     return None
 
 
-def _doctor_number_from_sharelog(sl: ShareLog) -> str:
-    return (getattr(sl, "doctor_identifier", "") or "").strip()
-
-
-def _brand_campaign_id_from_sharelog(sl: ShareLog, fallback: str = "") -> str:
-    bc = (getattr(sl, "brand_campaign_id", "") or "").strip()
-    if bc:
-        return bc
-    return (fallback or "").strip()
-
-
-def _sent_at_from_sharelog(sl: ShareLog, fallback=None):
-    if fallback is not None:
-        return fallback
-    ts = getattr(sl, "share_timestamp", None)
-    return ts or timezone.now()
-
-
-def _get_or_create_tx_for_sharelog(
-    sl: ShareLog,
-    *,
-    brand_campaign_id: str = "",
-    doctor_name: Optional[str] = None,
-    sent_at=None,
-) -> Tuple[Optional[CollateralTransaction], bool]:
+def _maybe_backfill_field_rep_id(share_log: ShareLog) -> None:
     """
-    Creates/returns a CollateralTransaction row for this ShareLog, without using transaction_date.
-    We mimic the old "transaction_date" grouping by using sent_at__date (local date).
+    If ShareLog.field_rep_id is missing, try to backfill from master DB using field_rep_email.
+    This is best-effort and should never crash tracking.
     """
-    field_rep_id = _safe_int(getattr(sl, "field_rep_id", None))
-    doctor_number = _doctor_number_from_sharelog(sl)
-    collateral_id = _collateral_id_from_sharelog(sl)
-    share_channel = (getattr(sl, "share_channel", "") or "").strip()
-    field_rep_email = (getattr(sl, "field_rep_email", "") or "").strip()
-    bc_id = _brand_campaign_id_from_sharelog(sl, fallback=brand_campaign_id)
-    sent_at_dt = _sent_at_from_sharelog(sl, fallback=sent_at)
+    if getattr(share_log, "field_rep_id", None):
+        return
 
-    if not doctor_number or not collateral_id:
-        print(
-            "[TXNDBG] cannot create tx: missing doctor_number or collateral_id",
-            "doctor_number=",
-            doctor_number,
-            "collateral_id=",
-            collateral_id,
-        )
-        return None, False
-
-    # Find an existing transaction for same rep+doctor+collateral ON SAME DAY (sent_at__date),
-    # which replaces the old transaction_date behavior.
-    qs = CollateralTransaction.objects.filter(
-        doctor_number=doctor_number,
-        collateral_id=collateral_id,
-    )
-
-    # field_rep_id can be null for legacy rows, but try to match when possible.
-    if field_rep_id is not None:
-        qs = qs.filter(field_rep_id=field_rep_id)
-    else:
-        qs = qs.filter(field_rep_id__isnull=True)
-
-    if bc_id:
-        qs = qs.filter(brand_campaign_id=bc_id)
+    email = _as_str(getattr(share_log, "field_rep_email", "")).strip()
+    if not email:
+        return
 
     try:
-        sent_day = timezone.localdate(sent_at_dt)
-        qs = qs.filter(sent_at__date=sent_day)
-    except Exception:
-        # If sent_at_dt is weird, just skip date grouping.
-        pass
+        from campaign_management.master_models import MasterAuthUser, MasterFieldRep
 
-    tx = qs.order_by("-sent_at", "-id").first()
-    if tx:
-        # Keep these fields reasonably synced (best effort).
-        changed = False
-        if bc_id and (tx.brand_campaign_id or "") != bc_id:
-            tx.brand_campaign_id = bc_id
-            changed = True
-        if share_channel and (tx.share_channel or "") != share_channel:
-            tx.share_channel = share_channel
-            changed = True
-        if field_rep_email and (tx.field_rep_email or "") != field_rep_email:
-            tx.field_rep_email = field_rep_email
-            changed = True
-        if doctor_name and (tx.doctor_name or "") != doctor_name:
-            tx.doctor_name = doctor_name
-            changed = True
-        if tx.sent_at is None:
-            tx.sent_at = sent_at_dt
-            changed = True
-
-        if changed:
-            tx.save(update_fields=["brand_campaign_id", "share_channel", "field_rep_email", "doctor_name", "sent_at", "updated_at"])
-        return tx, False
-
-    # Create new transaction row
-    try:
-        tx = CollateralTransaction.objects.create(
-            field_rep_id=field_rep_id,
-            field_rep_email=field_rep_email,
-            brand_campaign_id=bc_id,
-            doctor_number=doctor_number,
-            doctor_name=(doctor_name or ""),
-            collateral_id=collateral_id,
-            share_channel=share_channel,
-            sent_at=sent_at_dt,
+        au = (
+            MasterAuthUser.objects.using(MASTER_ALIAS)
+            .filter(email__iexact=email)
+            .first()
         )
+        if not au:
+            return
+
+        fr = (
+            MasterFieldRep.objects.using(MASTER_ALIAS)
+            .filter(user=au)
+            .first()
+        )
+        if not fr:
+            return
+
+        share_log.field_rep_id = int(fr.id)
+        share_log.save(update_fields=["field_rep_id"])
         print(
-            "[TXNDBG] created CollateralTransaction",
-            "id=",
-            tx.id,
-            "field_rep_id=",
-            tx.field_rep_id,
-            "doctor_number=",
-            tx.doctor_number,
-            "collateral_id=",
-            tx.collateral_id,
-            "brand_campaign_id=",
-            tx.brand_campaign_id,
+            "[TXDBG] backfilled ShareLog.field_rep_id=",
+            share_log.field_rep_id,
+            " share_log.id=",
+            share_log.id,
         )
-        return tx, True
     except Exception as e:
-        print("[TXNDBG] ERROR creating CollateralTransaction:", e)
-        return None, False
+        print("[TXDBG] backfill field_rep_id failed:", e)
 
 
-# ---------------------------------------------------------------------
-# Public API used by views
-# ---------------------------------------------------------------------
 def upsert_from_sharelog(
     share_log: ShareLog,
-    *,
-    brand_campaign_id: str = "",
+    brand_campaign_id: Any = "",
     doctor_name: Optional[str] = None,
-    field_rep_unique_id=None,  # kept for backward compatibility (unused)
+    field_rep_unique_id: Optional[str] = None,  # kept for compatibility; not used
     sent_at=None,
-) -> Optional[CollateralTransaction]:
-    tx, _created = _get_or_create_tx_for_sharelog(
-        share_log,
-        brand_campaign_id=brand_campaign_id,
-        doctor_name=doctor_name,
-        sent_at=sent_at,
-    )
-    return tx
+):
+    """
+    Create/update one CollateralTransaction row for this ShareLog.
+    Primary key mapping is done via sm_engagement_id = ShareLog.id.
+    """
+    if not share_log:
+        return None
+
+    _maybe_backfill_field_rep_id(share_log)
+
+    field_rep_id = getattr(share_log, "field_rep_id", None)
+    if field_rep_id is None:
+        # IMPORTANT: avoid "Field expected a number but got None"
+        print("[TXDBG] ShareLog.field_rep_id is None; skipping transaction upsert. share_log.id=", getattr(share_log, "id", None))
+        return None
+
+    now = timezone.now()
+
+    # ---- CRITICAL FIX: always string-cast before strip() ----
+    bc_raw = brand_campaign_id if brand_campaign_id else getattr(share_log, "brand_campaign_id", "")
+    bc_id = _as_str(bc_raw).strip()
+
+    doctor_number = _as_str(getattr(share_log, "doctor_identifier", "")).strip()
+    collateral_id = _resolve_collateral_id(share_log)
+
+    # Build defaults carefully (avoid None -> int field failures)
+    defaults = {
+        "field_rep_id": int(field_rep_id),
+        "field_rep_email": _as_str(getattr(share_log, "field_rep_email", "")).strip(),
+        "brand_campaign_id": bc_id,
+        "doctor_number": doctor_number,
+        "doctor_name": _as_str(doctor_name).strip() if doctor_name else "",
+        "share_channel": _as_str(getattr(share_log, "share_channel", "")).strip(),
+        "sent_at": sent_at or getattr(share_log, "share_timestamp", None) or now,
+        "sm_engagement_id": int(getattr(share_log, "id", 0) or 0),
+        "updated_at": now,
+    }
+
+    if collateral_id is not None:
+        defaults["collateral_id"] = int(collateral_id)
+
+    lookup = {"sm_engagement_id": defaults["sm_engagement_id"]}
+
+    try:
+        tx, _created = CollateralTransaction.objects.update_or_create(
+            **lookup,
+            defaults=defaults,
+        )
+        return tx
+
+    except CollateralTransaction.MultipleObjectsReturned:
+        # If duplicates exist, update the newest row deterministically.
+        tx = (
+            CollateralTransaction.objects.filter(**lookup)
+            .order_by("-id")
+            .first()
+        )
+        if not tx:
+            return None
+
+        for k, v in defaults.items():
+            setattr(tx, k, v)
+
+        tx.save()
+        return tx
+
+    except Exception as e:
+        print("[TXDBG] upsert_from_sharelog failed:", e)
+        return None
 
 
-def mark_viewed(share_log: ShareLog, sm_engagement_id=None) -> Optional[CollateralTransaction]:
-    tx, _ = _get_or_create_tx_for_sharelog(share_log)
+def mark_viewed(share_log: ShareLog, sm_engagement_id=None):
+    tx = upsert_from_sharelog(share_log)
     if not tx:
         return None
 
     now = timezone.now()
-    update_fields = ["has_viewed", "last_viewed_at", "updated_at"]
 
-    if not tx.first_viewed_at:
-        tx.first_viewed_at = now
-        update_fields.append("first_viewed_at")
+    if not getattr(tx, "has_viewed", False):
+        tx.has_viewed = True
+        if not getattr(tx, "first_viewed_at", None):
+            tx.first_viewed_at = now
 
-    tx.has_viewed = True
     tx.last_viewed_at = now
+    tx.updated_at = now
 
-    if sm_engagement_id is not None:
-        tx.sm_engagement_id = sm_engagement_id
-        update_fields.append("sm_engagement_id")
+    try:
+        tx.save(update_fields=["has_viewed", "first_viewed_at", "last_viewed_at", "updated_at"])
+    except Exception:
+        tx.save()
 
-    tx.save(update_fields=update_fields)
     return tx
 
 
 def mark_pdf_progress(
     share_log: ShareLog,
-    *,
-    last_page: int = 0,
-    completed: bool = False,
+    last_page=0,
+    completed=False,
     dv_engagement_id=None,
-    total_pages: int = 0,
-) -> Optional[CollateralTransaction]:
-    tx, _ = _get_or_create_tx_for_sharelog(share_log)
+    total_pages=0,
+    sm_engagement_id=None,
+):
+    tx = upsert_from_sharelog(share_log)
     if not tx:
         return None
 
-    try:
-        last_page = int(last_page or 0)
-    except Exception:
-        last_page = 0
+    now = timezone.now()
 
     try:
-        total_pages = int(total_pages or 0)
+        last_page_i = int(last_page or 0)
     except Exception:
-        total_pages = 0
+        last_page_i = 0
+    if last_page_i < 0:
+        last_page_i = 0
 
-    update_fields = ["updated_at"]
+    try:
+        total_pages_i = int(total_pages or 0)
+    except Exception:
+        total_pages_i = 0
+    if total_pages_i < 0:
+        total_pages_i = 0
 
-    if last_page > int(tx.pdf_last_page or 0):
-        tx.pdf_last_page = last_page
-        update_fields.append("pdf_last_page")
+    # Mark viewed as soon as we get scroll progress
+    tx.has_viewed = True
+    if not getattr(tx, "first_viewed_at", None):
+        tx.first_viewed_at = now
+    tx.last_viewed_at = now
 
-    if total_pages > 0 and total_pages != int(tx.pdf_total_pages or 0):
-        tx.pdf_total_pages = total_pages
-        update_fields.append("pdf_total_pages")
+    tx.pdf_last_page = max(int(getattr(tx, "pdf_last_page", 0) or 0), last_page_i)
 
-    if completed and not bool(tx.pdf_completed):
+    if total_pages_i:
+        tx.pdf_total_pages = max(int(getattr(tx, "pdf_total_pages", 0) or 0), total_pages_i)
+
+    if completed:
         tx.pdf_completed = True
-        update_fields.append("pdf_completed")
 
     if dv_engagement_id is not None:
-        tx.dv_engagement_id = dv_engagement_id
-        update_fields.append("dv_engagement_id")
+        try:
+            tx.dv_engagement_id = int(dv_engagement_id)
+        except Exception:
+            pass
 
-    # Viewing PDF implies viewed
-    if not tx.has_viewed:
-        tx.has_viewed = True
-        update_fields.append("has_viewed")
-    if not tx.first_viewed_at:
-        tx.first_viewed_at = timezone.now()
-        update_fields.append("first_viewed_at")
-    tx.last_viewed_at = timezone.now()
-    update_fields.append("last_viewed_at")
+    tx.updated_at = now
 
-    tx.save(update_fields=update_fields)
+    try:
+        tx.save(update_fields=[
+            "has_viewed",
+            "first_viewed_at",
+            "last_viewed_at",
+            "pdf_last_page",
+            "pdf_total_pages",
+            "pdf_completed",
+            "dv_engagement_id",
+            "updated_at",
+        ])
+    except Exception:
+        tx.save()
+
     return tx
 
 
-def mark_downloaded_pdf(share_log: ShareLog) -> Optional[CollateralTransaction]:
-    tx, _ = _get_or_create_tx_for_sharelog(share_log)
+def mark_downloaded_pdf(share_log: ShareLog, sm_engagement_id=None):
+    tx = upsert_from_sharelog(share_log)
     if not tx:
         return None
 
-    update_fields = ["downloaded_pdf", "updated_at"]
+    now = timezone.now()
     tx.downloaded_pdf = True
+    tx.pdf_completed = True
+    tx.updated_at = now
 
-    if not bool(tx.pdf_completed):
-        tx.pdf_completed = True
-        update_fields.append("pdf_completed")
+    try:
+        tx.save(update_fields=["downloaded_pdf", "pdf_completed", "updated_at"])
+    except Exception:
+        tx.save()
 
-    tx.save(update_fields=update_fields)
     return tx
 
 
 def mark_video_event(
     share_log: ShareLog,
-    *,
-    status: int = 0,
-    percentage: int = 0,
-    event_id=0,  # kept for compat (unused)
+    status=0,        # kept for compatibility (not used)
+    percentage=0,
+    event_id=0,      # kept for compatibility (not used)
     when=None,
-) -> Optional[CollateralTransaction]:
-    tx, _ = _get_or_create_tx_for_sharelog(share_log)
+    sm_engagement_id=None,
+):
+    tx = upsert_from_sharelog(share_log)
     if not tx:
         return None
 
     try:
-        percentage = int(percentage or 0)
+        pct = int(percentage or 0)
     except Exception:
-        percentage = 0
-    percentage = max(0, min(100, percentage))
+        pct = 0
 
-    update_fields = ["video_watch_percentage", "updated_at"]
+    pct = max(0, min(100, pct))
 
-    if percentage > int(tx.video_watch_percentage or 0):
-        tx.video_watch_percentage = percentage
-
-    if percentage >= 90 and not bool(tx.video_completed):
+    tx.video_watch_percentage = max(int(getattr(tx, "video_watch_percentage", 0) or 0), pct)
+    if tx.video_watch_percentage >= 90:
         tx.video_completed = True
-        update_fields.append("video_completed")
 
-    # mark as viewed too
-    if not tx.has_viewed:
-        tx.has_viewed = True
-        update_fields.append("has_viewed")
-    if not tx.first_viewed_at:
-        tx.first_viewed_at = when or timezone.now()
-        update_fields.append("first_viewed_at")
-    tx.last_viewed_at = when or timezone.now()
-    update_fields.append("last_viewed_at")
+    tx.updated_at = when or timezone.now()
 
-    tx.save(update_fields=update_fields)
+    try:
+        tx.save(update_fields=["video_watch_percentage", "video_completed", "updated_at"])
+    except Exception:
+        tx.save()
+
     return tx
