@@ -1815,7 +1815,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             or request.session.get("brand_campaign_id")
         )
 
-    _smdbg(
+    print(
         "fieldrep_gmail_share_collateral START "
         f"method={request.method} path={request.path} "
         f"GET={dict(request.GET)} "
