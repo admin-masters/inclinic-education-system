@@ -75,7 +75,7 @@ logger = logging.getLogger(__name__)
 SM_VERBOSE_LOGS = getattr(settings, "SHARING_MANAGEMENT_VERBOSE_LOGS", True)
 
 
-def print(msg: str) -> None:
+def _smdbg(msg: str) -> None:
     """
     Sharing-management debug logger.
     Enabled when settings.DEBUG=True OR settings.SHARING_MGMT_DEBUG=True
@@ -336,7 +336,7 @@ def _portal_sync_assignment(portal_user, brand_campaign_id: str, request=None):
          frc_created=frc_created)
     return True
 
-def print(request, msg: str, **kwargs):
+def _smdbg(request, msg: str, **kwargs):
     """
     Debug printer for sharing_management.
     DO NOT log passwords.
@@ -405,13 +405,13 @@ def _debug_master_fieldrep_lookup(request, field_id: str, gmail_id: str):
     try:
         from campaign_management.master_models import MasterFieldRep
     except Exception as e:
-        print(request, "IMPORT_FAIL MasterFieldRep", error=str(e), alias=alias)
+        _smdbg(request, "IMPORT_FAIL MasterFieldRep", error=str(e), alias=alias)
         return None, {"error": f"Import MasterFieldRep failed: {e}", **debug}
 
     fid = (field_id or "").strip()
     email = (gmail_id or "").strip().lower()
 
-    print(request, "MASTER_LOOKUP begin", alias=alias, field_id=fid, gmail_id=email)
+    _smdbg(request, "MASTER_LOOKUP begin", alias=alias, field_id=fid, gmail_id=email)
 
     try:
         base = MasterFieldRep.objects.using(alias).select_related("user").all()
@@ -430,7 +430,7 @@ def _debug_master_fieldrep_lookup(request, field_id: str, gmail_id: str):
             debug["master_auth_user_id"] = getattr(rep, "user_id", None)
             debug["master_rep_email"] = getattr(getattr(rep, "user", None), "email", None)
             debug["master_rep_field_id"] = getattr(rep, "brand_supplied_field_rep_id", None)
-            print(request, "MASTER_LOOKUP strict matched", **debug)
+            _smdbg(request, "MASTER_LOOKUP strict matched", **debug)
             return rep, debug
 
         # Diagnostics: email-only and field-only counts
@@ -445,11 +445,11 @@ def _debug_master_fieldrep_lookup(request, field_id: str, gmail_id: str):
         debug["email_only_sample(id,field_id)"] = sample_email
         debug["field_only_sample(id,email)"] = sample_field
 
-        print(request, "MASTER_LOOKUP strict NOT matched", **debug)
+        _smdbg(request, "MASTER_LOOKUP strict NOT matched", **debug)
         return None, debug
 
     except Exception as e:
-        print(request, "MASTER_LOOKUP exception", error=str(e), alias=alias)
+        _smdbg(request, "MASTER_LOOKUP exception", error=str(e), alias=alias)
         return None, {"error": str(e), **debug}
 
 
@@ -470,7 +470,7 @@ def _debug_master_campaign_assignment(request, master_fieldrep_id: int, campaign
     try:
         from campaign_management.master_models import MasterCampaign, MasterCampaignFieldRep
     except Exception as e:
-        print(request, "IMPORT_FAIL MasterCampaign/MasterCampaignFieldRep", error=str(e), alias=alias)
+        _smdbg(request, "IMPORT_FAIL MasterCampaign/MasterCampaignFieldRep", error=str(e), alias=alias)
         return False, None, {"error": f"Import master models failed: {e}", **debug}
 
     try:
@@ -492,7 +492,7 @@ def _debug_master_campaign_assignment(request, master_fieldrep_id: int, campaign
                 campaign_id=cid,
                 field_rep_id=master_fieldrep_id,
             ).count()
-            print(
+            _smdbg(
                 request,
                 "MASTER_ASSIGNMENT check",
                 field_rep_id=master_fieldrep_id,
@@ -510,11 +510,11 @@ def _debug_master_campaign_assignment(request, master_fieldrep_id: int, campaign
             .values_list("campaign_id", flat=True)[:10]
         )
         debug["rep_campaign_ids_sample"] = rep_campaigns
-        print(request, "MASTER_ASSIGNMENT not found", **debug)
+        _smdbg(request, "MASTER_ASSIGNMENT not found", **debug)
         return False, None, debug
 
     except Exception as e:
-        print(request, "MASTER_ASSIGNMENT exception", error=str(e), alias=alias, field_rep_id=master_fieldrep_id)
+        _smdbg(request, "MASTER_ASSIGNMENT exception", error=str(e), alias=alias, field_rep_id=master_fieldrep_id)
         return False, None, {"error": str(e), **debug}
 
 
@@ -1824,7 +1824,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     )
 
     if not field_rep_id:
-        print("No session field_rep_id -> redirect to fieldrep_login")
+        _smdbg("No session field_rep_id -> redirect to fieldrep_login")
         messages.error(request, "Please login first.")
         return redirect("fieldrep_login")
 
@@ -1832,7 +1832,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     try:
         from user_management.models import User as UMUser
     except Exception as e:
-        print(f"ERROR importing UMUser: {e}")
+        _smdbg(f"ERROR importing UMUser: {e}")
         UMUser = None
 
     actual_user = None
@@ -1849,7 +1849,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 except Exception:
                     actual_user = None
         except Exception as e:
-            print(f"ERROR resolving actual_user: {e}")
+            _smdbg(f"ERROR resolving actual_user: {e}")
             actual_user = None
 
     print(
@@ -1897,7 +1897,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         else:
             collaterals = CMCollateral.objects.filter(is_active=True).order_by("-created_at")
 
-        print(f"Collaterals fetched count={len(collaterals)} brand_campaign_id={brand_campaign_id}")
+        _smdbg(f"Collaterals fetched count={len(collaterals)} brand_campaign_id={brand_campaign_id}")
 
         for collateral in collaterals:
             try:
@@ -1912,10 +1912,10 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     "link": request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/"),
                 })
             except Exception as e:
-                print(f"Collateral list build skip collateral_id={getattr(collateral, 'id', None)} err={e}")
+                _smdbg(f"Collateral list build skip collateral_id={getattr(collateral, 'id', None)} err={e}")
                 continue
 
-        print(f"collaterals_list built count={len(collaterals_list)}")
+        _smdbg(f"collaterals_list built count={len(collaterals_list)}")
 
     except Exception as e:
         print(f"ERROR fetching collaterals: {e}")
@@ -1969,7 +1969,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     else:
                         status = "reminder" if share_log.share_timestamp and share_log.share_timestamp < six_days_ago else "sent"
         except Exception as e:
-            print(f"Doctor status calc error doctor_id={doctor.id} err={e}")
+            _smdbg(f"Doctor status calc error doctor_id={doctor.id} err={e}")
 
         doctors_with_status.append({
             "id": doctor.id,
@@ -1993,7 +1993,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             try:
                 payload = _json.loads((request.body or b"{}").decode("utf-8") or "{}")
             except Exception as e:
-                print(f"ERROR parsing JSON body: {e}")
+                _smdbg(f"ERROR parsing JSON body: {e}")
                 payload = {}
 
         # Pull fields with fallbacks
@@ -2023,7 +2023,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             or ""
         ).strip()
 
-        print(
+        _smdbg(
             "POST received "
             f"is_ajax={is_ajax} "
             f"keys={list(payload.keys()) if hasattr(payload, 'keys') else type(payload)} "
@@ -2039,14 +2039,14 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 if d:
                     doctor_name = doctor_name or (d.name or "")
                     doctor_whatsapp = doctor_whatsapp or (d.phone or "")
-                    print(f"Resolved doctor from doctor_id={did} -> name={doctor_name} phone={doctor_whatsapp}")
+                    _smdbg(f"Resolved doctor from doctor_id={did} -> name={doctor_name} phone={doctor_whatsapp}")
             except Exception as e:
-                print(f"ERROR resolving doctor_id={doctor_id_raw}: {e}")
+                _smdbg(f"ERROR resolving doctor_id={doctor_id_raw}: {e}")
 
         # Validate collateral
         if not collateral_id_str or not str(collateral_id_str).isdigit():
             msg = "Please select a valid collateral (collateral id missing)."
-            print(f"POST validation failed: {msg}")
+            _smdbg(f"POST validation failed: {msg}")
             if is_ajax:
                 return JsonResponse({"success": False, "message": msg}, status=400)
             messages.error(request, msg)
@@ -2057,13 +2057,13 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         # Find selected collateral in list (for name/description)
         selected_collateral = next((c for c in collaterals_list if c["id"] == collateral_id), None)
         if not selected_collateral:
-            print(f"Selected collateral not found in collaterals_list for id={collateral_id}. Will try DB lookup.")
+            _smdbg(f"Selected collateral not found in collaterals_list for id={collateral_id}. Will try DB lookup.")
             selected_collateral = {"id": collateral_id, "name": "Collateral", "description": "", "link": ""}
 
         # Validate doctor details
         if not doctor_name or not doctor_whatsapp:
             msg = "Please fill doctor name and WhatsApp number (or select a doctor)."
-            print(f"POST validation failed: {msg}")
+            _smdbg(f"POST validation failed: {msg}")
             if is_ajax:
                 return JsonResponse({"success": False, "message": msg}, status=400)
             messages.error(request, msg)
@@ -2073,7 +2073,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         phone_e164 = _normalize_phone_e164(doctor_whatsapp)
         if not phone_e164:
             msg = f"Invalid WhatsApp number: {doctor_whatsapp}"
-            print(f"POST validation failed: {msg}")
+            _smdbg(f"POST validation failed: {msg}")
             if is_ajax:
                 return JsonResponse({"success": False, "message": msg}, status=400)
             messages.error(request, "Please enter a valid WhatsApp number.")
@@ -2093,9 +2093,9 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     role="field_rep",
                     field_id=field_rep_field_id or "",
                 )
-                print(f"Created fallback rep_user id={rep_user.id}")
+                _smdbg(f"Created fallback rep_user id={rep_user.id}")
             except Exception as e:
-                print(f"ERROR creating fallback rep_user: {e}")
+                _smdbg(f"ERROR creating fallback rep_user: {e}")
                 msg = "Unable to resolve field rep user for sharing."
                 if is_ajax:
                     return JsonResponse({"success": False, "message": msg}, status=500)
@@ -2110,9 +2110,9 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 phone=phone_last10,
                 defaults={"name": doctor_name},
             )
-            print(f"Doctor upsert ok id={doctor_obj.id} created={created} rep_user_id={rep_user.id} phone_last10={phone_last10}")
+            _smdbg(f"Doctor upsert ok id={doctor_obj.id} created={created} rep_user_id={rep_user.id} phone_last10={phone_last10}")
         except Exception as e:
-            print(f"ERROR saving Doctor: {e}")
+            _smdbg(f"ERROR saving Doctor: {e}")
             if is_ajax:
                 return JsonResponse({"success": False, "message": f"Failed to save doctor: {e}"}, status=500)
             messages.error(request, "Failed to save doctor. Please try again.")
@@ -2123,7 +2123,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             from collateral_management.models import Collateral as PortalCollateral
             collateral_obj = PortalCollateral.objects.get(id=collateral_id, is_active=True)
         except Exception as e:
-            print(f"ERROR loading Collateral id={collateral_id}: {e}")
+            _smdbg(f"ERROR loading Collateral id={collateral_id}: {e}")
             msg = "Selected collateral not found or inactive."
             if is_ajax:
                 return JsonResponse({"success": False, "message": msg}, status=404)
@@ -2134,9 +2134,9 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         try:
             short_link = find_or_create_short_link(collateral_obj, rep_user)
             short_url = request.build_absolute_uri(f"/shortlinks/go/{short_link.short_code}/")
-            print(f"ShortLink ok short_code={short_link.short_code} short_url={short_url}")
+            _smdbg(f"ShortLink ok short_code={short_link.short_code} short_url={short_url}")
         except Exception as e:
-            print(f"ERROR creating short link: {e}")
+            _smdbg(f"ERROR creating short link: {e}")
             msg = "Failed to generate share link."
             if is_ajax:
                 return JsonResponse({"success": False, "message": msg}, status=500)
@@ -2152,9 +2152,9 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 phone_e164=phone_e164,
                 collateral_id=collateral_id,
             )
-            print("log_manual_doctor_share OK")
+            _smdbg("log_manual_doctor_share OK")
         except Exception as e:
-            print(f"log_manual_doctor_share failed (fallback to ShareLog). err={e}")
+            _smdbg(f"log_manual_doctor_share failed (fallback to ShareLog). err={e}")
             try:
                 # ShareLog schema differs across your revisions; keep it defensive
                 kwargs = dict(
@@ -2170,9 +2170,9 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 except Exception:
                     pass
                 ShareLog.objects.create(**kwargs)
-                print("Fallback ShareLog create OK")
+                _smdbg("Fallback ShareLog create OK")
             except Exception as e2:
-                print(f"Fallback ShareLog create FAILED err={e2}")
+                _smdbg(f"Fallback ShareLog create FAILED err={e2}")
 
         # Build WA message
         try:
@@ -2183,12 +2183,12 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 brand_campaign_id=brand_campaign_id,
             )
         except Exception as e:
-            print(f"ERROR building brand message: {e}")
+            _smdbg(f"ERROR building brand message: {e}")
             message = f"Hello Doctor, please check this: {short_url}"
 
         wa_number = _re.sub(r"\D", "", phone_e164)
         wa_url = f"https://wa.me/{wa_number}?text={_up.quote(message)}"
-        print(f"Returning WhatsApp URL: {wa_url[:120]}...")
+        _smdbg(f"Returning WhatsApp URL: {wa_url[:120]}...")
 
         if is_ajax:
             return JsonResponse({
