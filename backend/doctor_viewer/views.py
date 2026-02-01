@@ -91,7 +91,6 @@ def resolve_view(request, code: str):
         return render(request, "doctor_viewer/error.html", {"msg": "Collateral unavailable"})
 
     existing_engagement_id = request.session.get("dv_engagement_id")
-
     if existing_engagement_id:
         engagement = DoctorEngagement.objects.filter(id=existing_engagement_id).first()
     else:
@@ -101,28 +100,61 @@ def resolve_view(request, code: str):
         engagement = DoctorEngagement.objects.create(short_link=short_link)
         request.session["dv_engagement_id"] = engagement.id
 
+    # NOTE: ShareLog model has ghost field(s) like field_rep_email that don't exist in DB.
+    # Using defer() avoids selecting missing columns.
     share_id = request.GET.get("share_id") or request.GET.get("s")
+
     if share_id:
         try:
-            sl = ShareLog.objects.get(id=share_id)
-            mark_viewed(sl, sm_engagement_id=None)
-            request.session["share_id"] = sl.id
-        except ShareLog.DoesNotExist:
-            pass
+            share_id_int = int(share_id)
+        except Exception:
+            share_id_int = None
+
+        if share_id_int:
+            try:
+                qs = ShareLog.objects
+                # Avoid selecting the missing column
+                try:
+                    qs = qs.defer("field_rep_email")
+                except Exception:
+                    pass
+
+                sl = qs.filter(id=share_id_int).first()
+                if sl:
+                    # Prevent any later deferred-load of this missing DB column
+                    try:
+                        sl.__dict__["field_rep_email"] = ""
+                    except Exception:
+                        pass
+
+                    mark_viewed(sl, sm_engagement_id=None)
+                    request.session["share_id"] = sl.id
+            except Exception as e:
+                print("[VIEW DEBUG] ShareLog lookup by id failed:", e)
+
     else:
         try:
+            qs = ShareLog.objects
+            try:
+                qs = qs.defer("field_rep_email")
+            except Exception:
+                pass
+
             sl = (
-                ShareLog.objects
-                .filter(short_link=short_link)
+                qs.filter(short_link=short_link)
                 .order_by("-share_timestamp", "-id")
                 .first()
             )
-
             if sl:
+                try:
+                    sl.__dict__["field_rep_email"] = ""
+                except Exception:
+                    pass
+
                 mark_viewed(sl, sm_engagement_id=None)
                 request.session["share_id"] = sl.id
-        except Exception:
-            pass
+        except Exception as e:
+            print("[VIEW DEBUG] ShareLog lookup by short_link failed:", e)
 
     context = {
         "collateral": collateral,
@@ -132,10 +164,10 @@ def resolve_view(request, code: str):
     }
     return render(request, "doctor_viewer/view.html", context)
 
+
 # ──────────────────────────────────────────────────────────────
 # POST /view/log/        JSON body → update DoctorEngagement
 # ──────────────────────────────────────────────────────────────
-
 @csrf_exempt
 def log_engagement(request):
     if request.method != "POST":
@@ -261,13 +293,39 @@ def log_engagement(request):
             f"(engagement_id={engagement.id}, share_id={share_id})"
         )
 
+    # ---- FIX HERE: never load ShareLog with a plain .get() (it selects ghost column field_rep_email)
     if share_id:
         try:
-            sl = ShareLog.objects.get(id=share_id)
+            try:
+                share_id_int = int(share_id)
+            except Exception:
+                share_id_int = None
 
+            if not share_id_int:
+                print(f"[TRACKING DEBUG] share_id not int: {share_id}")
+                return JsonResponse({"ok": True, "event": event})
+
+            qs = ShareLog.objects
+            # Avoid selecting the missing DB column
+            try:
+                qs = qs.defer("field_rep_email")
+            except Exception:
+                pass
+
+            sl = qs.filter(id=share_id_int).first()
+            if not sl:
+                print(f"[TRACKING DEBUG] ShareLog not found for share_id={share_id_int}")
+                return JsonResponse({"ok": True, "event": event})
+
+            # Prevent any later deferred-fetch from trying to hit missing column
+            try:
+                sl.__dict__["field_rep_email"] = ""
+            except Exception:
+                pass
+
+            # Update CollateralTransaction/dashboard via existing services
             mark_viewed(sl, sm_engagement_id=None)
 
-            # ✅ PDF -> update dashboard (IMPORTANT: total_pages added)
             mark_pdf_progress(
                 sl,
                 last_page=int(engagement.last_page_scrolled or 1),
@@ -281,10 +339,7 @@ def log_engagement(request):
                 mark_downloaded_pdf(sl)
                 print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called for share_id =", sl.id)
 
-            # ✅ VIDEO -> update dashboard
             if event == "video_progress":
-                from sharing_management.services.transactions import mark_video_event
-
                 mark_video_event(
                     sl,
                     status=int(engagement.video_watch_percentage or 0),
@@ -299,12 +354,11 @@ def log_engagement(request):
                     int(engagement.video_watch_percentage or 0),
                 )
 
-        except ShareLog.DoesNotExist:
-            print(f"[TRACKING DEBUG] ShareLog not found for share_id={share_id}")
         except Exception as e:
             print("[TRACKING DEBUG] ERROR updating ShareLog/CollateralTransaction:", e)
 
     return JsonResponse({"ok": True, "event": event})
+
 
 # ──────────────────────────────────────────────────────────────
 # GET  /view/report/<code>/     → JSON report
