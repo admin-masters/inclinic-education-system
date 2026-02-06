@@ -5,6 +5,10 @@
 <div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #f8f9fa;">
   <div class="card shadow" style="width: 100%; max-width: 400px;">
     <div class="card-body p-4">
+      <!-- Back Button -->
+      <a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary mb-3">
+        <i class="bi bi-arrow-left me-1"></i>Back
+      </a>
       <h4 class="text-center mb-4">Field Rep Registration</h4>
       <form method="post" autocomplete="off">
         {% csrf_token %}

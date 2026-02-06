@@ -13,6 +13,10 @@
     </div>
     <div class="card-body">
       <div id="saveStatus" class="alert d-none" role="alert"></div>
+      <!-- Back Button -->
+      <a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary mb-3">
+        <i class="bi bi-arrow-left me-1"></i>Back
+      </a>
       <form method="post" id="editCalendarForm" data-ajax="true" data-editing="{{ editing|yesno:'true,false' }}">
         {% csrf_token %}
         <!-- Brand Campaign ID -->
@@ -55,7 +59,6 @@
           {{ form.end_date }}
         </div>
         <button type="submit" id="updateBtn" class="btn btn-primary">Update Dates</button>
-        <a href="{% url 'fieldrep_dashboard' %}" class="btn btn-secondary ms-2">Cancel</a>
       </form>
     </div>
   </div>

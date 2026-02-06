@@ -10,43 +10,6 @@
     align-items: center;
   }
 
-  .dropdown { position: relative; display: inline-block; }
-  .dropdown-toggle {
-    background-color: #28a745;
-    color: white;
-    padding: 0.5rem 1rem;
-    font-weight: 500;
-    border: none;
-    border-radius: 0.375rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .dropdown-toggle:hover { background-color: #218838; color: white; }
-
-  .dropdown-menu {
-    display: none;
-    position: absolute;
-    background-color: #f9f9f9;
-    min-width: 280px;
-    box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
-    z-index: 1000;
-    border-radius: 0.375rem;
-    border: 1px solid #dee2e6;
-  }
-  .dropdown:hover .dropdown-menu { display: block; }
-
-  .dropdown-item {
-    color: #333;
-    padding: 0.75rem 1rem;
-    text-decoration: none;
-    display: block;
-    border-bottom: 1px solid #eee;
-    transition: background-color 0.2s;
-  }
-  .dropdown-item:last-child { border-bottom: none; }
-  .dropdown-item:hover { background-color: #007bff; color: white; text-decoration: none; }
 
   .campaigns-table {
     width: 100%;
@@ -129,34 +92,31 @@
 
 <div class="btn-group-wrap">
   {% if campaign_filter %}
-    <a href="{% url 'collaterals_add_branded' campaign_filter %}" class="btn btn-primary">Add Collaterals</a>
+    <a href="{% url 'collaterals_add_branded' campaign_filter %}" class="btn btn-primary" target="_blank">Add Collaterals</a>
   {% else %}
-    <a href="{% url 'collaterals_add' %}" class="btn btn-primary">Add Collaterals</a>
+    <a href="{% url 'collaterals_add' %}" class="btn btn-primary" target="_blank">Add Collaterals</a>
   {% endif %}
 
   {% if campaign_filter %}
-    <a href="{% url 'edit_campaign_calendar' %}?brand={{ campaign_filter }}" class="btn btn-primary">Edit Calendar</a>
+    <a href="{% url 'edit_campaign_calendar' %}?brand={{ campaign_filter }}" class="btn btn-primary" target="_blank">Edit Calendar</a>
   {% else %}
-    <a href="{% url 'edit_campaign_calendar' %}" class="btn btn-primary">Edit Calendar</a>
+    <a href="{% url 'edit_campaign_calendar' %}" class="btn btn-primary" target="_blank">Edit Calendar</a>
   {% endif %}
 
-  <!-- Field Rep Management Dropdown -->
-  <div class="dropdown">
-    <button class="dropdown-toggle">Field Rep Management ▼</button>
-    <div class="dropdown-menu">
-      <a
-        href="{% url 'fieldrep_email_registration' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
-        class="dropdown-item"
-      >Field Rep Register</a>
+  <!-- Field Rep Direct Buttons -->
+  <a
+    href="{% url 'fieldrep_email_registration' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
+    class="btn btn-primary"
+    target="_blank"
+  >Field Rep Register</a>
 
-      <a
-        href="{% url 'fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
-        class="dropdown-item"
-      >Field Rep Gmail Login</a>
-    </div>
-  </div>
+  <a
+    href="{% url 'fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
+    class="btn btn-primary"
+    target="_blank"
+  >Field Rep Gmail Login</a>
 
-  <a href="{% url 'home' %}" class="btn btn-info">Back to Home</a>
+  <a href="{% url 'home' %}" class="btn btn-info" target="_blank">Back to Home</a>
 </div>
 
 <div class="search-container">
@@ -200,18 +160,18 @@
         <td>{{ collateral.item_name }}</td>
         <td>{{ collateral.description }}</td>
         <td>
-          <a class="btn btn-warning" href="{% url 'collateral_preview' collateral.id %}">Link</a>
+          <a class="btn btn-warning" href="{% url 'collateral_preview' collateral.id %}" target="_blank">Link</a>
         </td>
         <td>
           {% if collateral.campaign_collateral_id %}
-            <a class="btn btn-primary" href="{% url 'edit_campaign_calendar' %}?id={{ collateral.campaign_collateral_id }}">Edit Dates</a>
+            <a class="btn btn-primary" href="{% url 'edit_campaign_calendar' %}?id={{ collateral.campaign_collateral_id }}" target="_blank">Edit Dates</a>
           {% else %}
-            <a class="btn btn-primary" href="{% url 'edit_campaign_calendar' %}?collateral_id={{ collateral.id }}&brand={{ collateral.brand_id }}">Edit Dates</a>
+            <a class="btn btn-primary" href="{% url 'edit_campaign_calendar' %}?collateral_id={{ collateral.id }}&brand={{ collateral.brand_id }}" target="_blank">Edit Dates</a>
           {% endif %}
         </td>
         <td>
           {% if collateral.id %}
-            <a class="btn btn-success" href="{% url 'replace_collateral' collateral.id %}">Replace Collateral</a>
+            <a class="btn btn-success" href="{% url 'replace_collateral' collateral.id %}" target="_blank">Replace Collateral</a>
           {% else %}
             <span class="text-muted">N/A</span>
           {% endif %}
