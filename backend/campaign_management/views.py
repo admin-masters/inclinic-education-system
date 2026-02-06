@@ -704,6 +704,17 @@ def manage_data_panel(request):
             "has_default": bool(dc),
         })
 
+    # 🔍 Apply search filter from query param
+    q = request.GET.get("q", "").strip()
+    if q:
+        q_lower = q.lower()
+        campaigns = [
+            c for c in campaigns
+            if q_lower in str(c.get("brand_campaign_id", "")).lower()
+            or q_lower in str(c.get("brand_name", "")).lower()
+            or q_lower in str(c.get("company_name", "")).lower()
+        ]
+
     return render(request, "campaign_management/manage_data_panel.html", {"campaigns": campaigns})
 
 
