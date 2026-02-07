@@ -323,8 +323,8 @@ def _portal_sync_assignment(portal_user, brand_campaign_id: str, request=None):
     ca, ca_created = CampaignAssignment.objects.get_or_create(
         campaign=campaign_obj,
         field_rep=portal_user,
-        defaults={"assigned_by": None},
     )
+
     frc, frc_created = FieldRepCampaign.objects.get_or_create(
         campaign=campaign_obj,
         field_rep=portal_user,
@@ -714,8 +714,8 @@ def _ensure_portal_user_for_master_fieldrep(master_rep: MasterFieldRep, raw_pass
                 CampaignAssignment.objects.get_or_create(
                     campaign=c,
                     field_rep=user,
-                    defaults={"assigned_by": None},
                 )
+
                 FieldRepCampaign.objects.get_or_create(campaign=c, field_rep=user)
         except Exception:
             # do not hard-fail
