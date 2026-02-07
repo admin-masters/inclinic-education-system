@@ -6,6 +6,9 @@
   <div class="card shadow" style="width: 100%; max-width: 400px;">
     <div class="card-body p-4">
       <h4 class="text-center mb-4">Gmail Login</h4>
+      <div class="mb-3">
+        <a href="javascript:history.back()" class="btn btn-link p-0">&larr; Back</a>
+      </div>
 
       {% if messages %}
       {% for message in messages %}
@@ -27,8 +30,8 @@
         <div class="mb-3">
           <label class="form-label">Gmail ID:</label>
           <input type="email" class="form-control" name="gmail_id" placeholder="example@gmail.com"
-            pattern="^[a-zA-Z0-9._%+-]+@gmail\.com$" required>
-          <small class="form-text text-muted">Only Gmail addresses are allowed (e.g., example@gmail.com).</small>
+            required>
+          <small class="form-text text-muted">Enter a valid email address (e.g., example@domain.com).</small>
         </div>
         {% if brand_campaign_id %}
         <div class="alert alert-info">
