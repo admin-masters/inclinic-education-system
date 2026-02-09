@@ -14,6 +14,8 @@
 
   <div class="mb-3">
     <label class="form-label" for="campaignSelect">Assign to Campaign (optional)</label>
+    <input class="form-control mb-2" type="text" id="campaignSearch" placeholder="Search campaign..." onkeyup="filterCampaigns()">
+
     <select class="form-select" id="campaignSelect" name="campaign">
       <option value="" {% if not campaign_param %}selected{% endif %}>Select campaign</option>
 
@@ -25,6 +27,24 @@
         </option>
       {% endfor %}
     </select>
+
+    <script>
+      function filterCampaigns() {
+        const input = document.getElementById('campaignSearch');
+        const filter = input.value.toLowerCase();
+        const select = document.getElementById('campaignSelect');
+        const options = select.options;
+
+        for (let i = 0; i < options.length; i++) {
+          const txt = options[i].text.toLowerCase();
+          if (txt.includes(filter) || options[i].value === "") {
+            options[i].style.display = "";
+          } else {
+            options[i].style.display = "none";
+          }
+        }
+      }
+    </script>
   </div>
 
   {% if form.non_field_errors %}
