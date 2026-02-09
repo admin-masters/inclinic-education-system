@@ -26,8 +26,11 @@ class CampaignCollateralAdmin(admin.ModelAdmin):
 @admin.register(CollateralMessage)
 class CollateralMessageAdmin(admin.ModelAdmin):
     list_display = ('campaign', 'collateral', 'is_active', 'created_at')
-    list_filter = ('is_active', 'campaign__brand_campaign_id')
-    search_fields = ('campaign__brand_campaign_id', 'collateral__title', 'message')
+    # Do NOT filter/search directly on brand_campaign_id because it is stored as
+    # a varchar UUID string and some legacy rows may not be valid UUID objects.
+    # Filtering/searching on campaign name is safe.
+    list_filter = ('is_active', 'campaign')
+    search_fields = ('campaign__name', 'collateral__title', 'message')
     list_editable = ('is_active',)
     ordering = ['-created_at']
     
