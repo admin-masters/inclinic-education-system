@@ -72,7 +72,7 @@ class CollateralForm(forms.ModelForm):
     # Accept Vimeo embed code instead of direct URL
     vimeo_embed_code = forms.CharField(
         required=False,
-        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': '<iframe src="https://player.vimeo.com/video/123456789" ...></iframe>'}),
+        widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3, 'placeholder': 'Public Vimeo Video link...'}),
         label="Vimeo Embed Code"
     )
 
