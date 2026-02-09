@@ -603,13 +603,33 @@ def dashboard_delete_collateral(request, pk):
 
 
 def preview_collateral(request, pk):
+    print("\n--- preview_collateral START ---")
+    print(f"Requested PK: {pk}")
+
     collateral = get_object_or_404(Collateral, pk=pk)
+    print(f"Collateral loaded: {collateral}")
+
     absolute_pdf_url = None
+
     try:
+        print("Checking if collateral has a file...")
+
         if getattr(collateral, 'file', None):
+            print(f"File found: {collateral.file}")
+
             absolute_pdf_url = request.build_absolute_uri(collateral.file.url)
-    except Exception:
+            print(f"Generated absolute PDF URL: {absolute_pdf_url}")
+
+        else:
+            print("No file attached to collateral.")
+
+    except Exception as e:
+        print("Exception while generating PDF URL:")
+        print(e)
         absolute_pdf_url = None
+
+    print("Rendering template with context...")
+    print("--- preview_collateral END ---\n")
 
     return render(request, 'doctor_viewer/view.html', {
         'verified': True,
@@ -619,4 +639,5 @@ def preview_collateral(request, pk):
         'engagement_id': 0,
         'short_code': '',
     })
+
 

@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Thank You</title>
+</head>
+<body style="font-family: Arial, sans-serif; padding: 24px;">
+
+  <h2>Thank You</h2>
+
+  {% if messages %}
+    {% for m in messages %}
+      <p style="padding: 12px; background: #e7f7ec; border: 1px solid #b6e2c2;">
+        {{ m }}
+      </p>
+    {% endfor %}
+  {% else %}
+    <p style="padding: 12px; background: #e7f7ec; border: 1px solid #b6e2c2;">
+      {{ message }}
+    </p>
+  {% endif %}
+
+  {% if campaign_id %}
+    <p><strong>Brand Campaign ID:</strong> {{ campaign_id }}</p>
+
+    <p>
+      <a href="{% url 'campaign_by_id_update' campaign_id=campaign_id %}">
+        Go back to Campaign Edit
+      </a>
+    </p>
+  {% endif %}
+
+  <p>
+    <a href="{% url 'manage_data_panel' %}">Back to Manage Data Panel</a>
+  </p>
+
+</body>
+</html>

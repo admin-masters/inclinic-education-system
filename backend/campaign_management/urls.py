@@ -28,4 +28,7 @@ urlpatterns = [
     path("<int:pk>/delete/", CampaignDeleteView.as_view(), name="campaign_delete"),
 
     path("manage-data/", views.manage_data_panel, name="manage_data_panel"),
+
+    # ✅ NEW: Thank-you page
+    path("thank-you/", views.campaign_thank_you, name="campaign_thank_you"),
 ]

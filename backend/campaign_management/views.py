@@ -12,6 +12,11 @@ from django.core.paginator import Paginator
 import uuid
 import re
 
+
+from django.contrib import messages
+from django.urls import reverse
+
+
 from .master_models import MasterCampaign, MasterBrand
 
 from django.conf import settings
@@ -371,6 +376,25 @@ class CampaignDetailView(DetailView):
         return context
 
 
+
+def campaign_thank_you(request):
+    """
+    Thank-you landing page shown after a campaign is created/updated.
+    """
+    # If messages middleware is working, message will come from messages.success().
+    # Fallback in case template doesn't render messages:
+    default_message = "Thank you for adding/updating the brand"
+
+    campaign_id = request.GET.get("campaign_id") or ""
+    return render(
+        request,
+        "campaign_management/campaign_thank_you.html",
+        {
+            "campaign_id": campaign_id,
+            "message": default_message,
+        },
+    )
+
 # ------------------------------------------------------------------------
 # Create Campaign (now available to any authenticated user)
 # ------------------------------------------------------------------------
@@ -469,7 +493,12 @@ class CampaignCreateView(CreateView):
         if self.request.user.is_authenticated:
             form.instance.created_by = self.request.user
 
-        return super().form_valid(form)
+
+        response = super().form_valid(form)
+
+        # ✅ success message
+        messages.success(self.request, "Thank you for adding/updating the brand")
+        return response
 
     def get_success_url(self):
         """
@@ -573,6 +602,11 @@ class CampaignUpdateView(UpdateView):
         # Save only editable fields to DEFAULT DB row
         self.object = form.save(commit=False)
         self.object.save(using="default", update_fields=self.EDITABLE_FIELDS)
+
+        # ✅ success message
+        messages.success(self.request, "Thank you for adding/updating the brand")
+
+        # ✅ redirect to thank-you
         return redirect(self.get_success_url())
 
     def get_success_url(self):
