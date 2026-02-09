@@ -1982,6 +1982,23 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         doctor_whatsapp = (request.POST.get("doctor_whatsapp") or "").strip()
         collateral_id_str = (request.POST.get("collateral") or "").strip()
 
+        # ------------------------------------------------------------
+        # Support Assigned Doctors quick-send button
+        # That form submits doctor_id + collateral only.
+        # If doctor_id is present, fetch doctor details automatically.
+        # ------------------------------------------------------------
+        doctor_id = (request.POST.get("doctor_id") or "").strip()
+        if doctor_id and (not doctor_name or not doctor_whatsapp):
+            try:
+                doc_obj = Doctor.objects.filter(id=int(doctor_id), rep=rep_user if 'rep_user' in locals() else actual_user).first()
+                if doc_obj:
+                    doctor_name = doc_obj.name or "Doctor"
+                    # stored phone is last10, normalize to E164
+                    doctor_whatsapp = doc_obj.phone
+                    print(f"[SMDBG] quick-send resolved doctor_id={doctor_id} name={doctor_name} phone={doctor_whatsapp}")
+            except Exception as e:
+                print("[SMDBG] quick-send doctor lookup failed:", e)
+
         print(f"[SMDBG] doctor_name={doctor_name} doctor_whatsapp={doctor_whatsapp} collateral_id_str={collateral_id_str}")
 
         if not collateral_id_str.isdigit():
@@ -1998,11 +2015,11 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             print("[SMDBG] STOP: selected collateral not in collaterals_list")
             return redirect(request.path)
 
-        # Manual entry required
+        # Manual entry required (updated: allow doctor_id-based quick-send)
         if not doctor_name or not doctor_whatsapp:
-            messages.error(request, "Please fill all required fields.")
-            print("[SMDBG] STOP: missing doctor_name/doctor_whatsapp")
-            return redirect(request.path)
+            messages.error(request, "Please select a doctor or fill all required fields.")
+            print("[SMDBG] STOP: missing doctor_name/doctor_whatsapp (no doctor_id resolved)")
+            return redirect(request.path + (f"?brand_campaign_id={brand_campaign_id}&collateral={selected_collateral_id}" if brand_campaign_id else ""))
 
         phone_e164 = _normalize_phone_e164(doctor_whatsapp)
         print(f"[SMDBG] normalized phone_e164={phone_e164}")
