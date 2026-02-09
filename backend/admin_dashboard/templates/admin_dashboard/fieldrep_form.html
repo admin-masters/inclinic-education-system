@@ -14,36 +14,74 @@
 
   <div class="mb-3">
     <label class="form-label" for="campaignSelect">Assign to Campaign (optional)</label>
-    <input class="form-control mb-2" type="text" id="campaignSearch" placeholder="Search campaign..." onkeyup="filterCampaigns()">
+    <div class="dropdown w-100">
+      <button class="btn btn-outline-secondary dropdown-toggle w-100 text-start"
+              type="button"
+              id="campaignDropdownBtn"
+              data-bs-toggle="dropdown"
+              aria-expanded="false">
+        {% if campaign_param %}
+          Selected Campaign: {{ campaign_param }}
+        {% else %}
+          Select campaign
+        {% endif %}
+      </button>
 
-    <select class="form-select" id="campaignSelect" name="campaign">
-      <option value="" {% if not campaign_param %}selected{% endif %}>Select campaign</option>
+      <ul class="dropdown-menu w-100 p-2" aria-labelledby="campaignDropdownBtn" style="max-height: 250px; overflow-y: auto;">
+        <!-- Search box inside dropdown -->
+        <li>
+          <input type="text"
+                 class="form-control"
+                 id="campaignSearchInput"
+                 placeholder="Search campaign..."
+                 onkeyup="filterCampaignDropdown()">
+        </li>
 
-      {% for c in campaigns %}
-        {# campaigns is a list of dicts: {brand_campaign_id: "...", name: "..."} #}
-        <option value="{{ c.brand_campaign_id }}"
-                {% if campaign_param and campaign_param == c.brand_campaign_id %}selected{% endif %}>
-          {{ c.name }} ({{ c.brand_campaign_id }})
-        </option>
-      {% endfor %}
-    </select>
+        <li><hr class="dropdown-divider"></li>
+
+        <!-- Campaign options -->
+        {% for c in campaigns %}
+          <li>
+            <a class="dropdown-item campaign-option"
+               href="#"
+               data-value="{{ c.brand_campaign_id }}">
+              {{ c.name }} ({{ c.brand_campaign_id }})
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+
+      <!-- Hidden input that stores selected campaign id -->
+      <input type="hidden" name="campaign" id="campaignSelect" value="{{ campaign_param|default:'' }}">
+    </div>
 
     <script>
-      function filterCampaigns() {
-        const input = document.getElementById('campaignSearch');
+      function filterCampaignDropdown() {
+        const input = document.getElementById("campaignSearchInput");
         const filter = input.value.toLowerCase();
-        const select = document.getElementById('campaignSelect');
-        const options = select.options;
+        const items = document.querySelectorAll(".campaign-option");
 
-        for (let i = 0; i < options.length; i++) {
-          const txt = options[i].text.toLowerCase();
-          if (txt.includes(filter) || options[i].value === "") {
-            options[i].style.display = "";
-          } else {
-            options[i].style.display = "none";
-          }
-        }
+        items.forEach(item => {
+          const text = item.textContent.toLowerCase();
+          item.parentElement.style.display = text.includes(filter) ? "" : "none";
+        });
       }
+
+      // Handle campaign selection
+      document.querySelectorAll(".campaign-option").forEach(option => {
+        option.addEventListener("click", function(e) {
+          e.preventDefault();
+
+          const selectedValue = this.getAttribute("data-value");
+          const selectedText = this.textContent.trim();
+
+          // Update hidden input
+          document.getElementById("campaignSelect").value = selectedValue;
+
+          // Update button label
+          document.getElementById("campaignDropdownBtn").textContent = selectedText;
+        });
+      });
     </script>
   </div>
 
