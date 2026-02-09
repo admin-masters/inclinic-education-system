@@ -1978,31 +1978,49 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         print(f"[SMDBG] POST keys={list(request.POST.keys())}")
         print(f"[SMDBG] POST={dict(request.POST)}")
 
+        doctor_id_str = (request.POST.get("doctor_id") or "").strip()
         doctor_name = (request.POST.get("doctor_name") or "").strip()
         doctor_whatsapp = (request.POST.get("doctor_whatsapp") or "").strip()
         collateral_id_str = (request.POST.get("collateral") or "").strip()
 
-        print(f"[SMDBG] doctor_name={doctor_name} doctor_whatsapp={doctor_whatsapp} collateral_id_str={collateral_id_str}")
+        print(
+            f"[SMDBG] doctor_id_str={doctor_id_str} doctor_name={doctor_name} doctor_whatsapp={doctor_whatsapp} collateral_id_str={collateral_id_str}")
 
+        # If clicked from Assigned Doctors section, doctor_id will be present.
+        if doctor_id_str:
+            if not doctor_id_str.isdigit():
+                messages.error(request, "Invalid doctor.")
+                print("[SMDBG] STOP: doctor_id not numeric")
+                return redirect(request.get_full_path())
+
+            # Ensure actual_user exists (it should, otherwise no assigned doctors would render)
+            if not actual_user:
+                messages.error(request, "Unable to resolve field rep user.")
+                print("[SMDBG] STOP: actual_user missing in assigned-doctor POST")
+                return redirect(request.get_full_path())
+
+            doctor_db = Doctor.objects.filter(id=int(doctor_id_str), rep=actual_user).first()
+            if not doctor_db:
+                messages.error(request, "Doctor not found or not assigned to you.")
+                print("[SMDBG] STOP: doctor not found for rep")
+                return redirect(request.get_full_path())
+
+            # Populate from DB (ignore missing inputs from the small row-form)
+            doctor_name = (doctor_db.name or "").strip()
+            doctor_whatsapp = (doctor_db.phone or "").strip()
+
+            print(f"[SMDBG] assigned doctor resolved -> name={doctor_name} phone={doctor_whatsapp}")
+
+        # Validate collateral
         if not collateral_id_str.isdigit():
             messages.error(request, "Please select a valid collateral.")
             print("[SMDBG] STOP: collateral_id invalid")
-            return redirect(request.path + (f"?brand_campaign_id={brand_campaign_id}&collateral={selected_collateral_id}" if brand_campaign_id else ""))
+            return redirect(request.get_full_path())
 
-        collateral_id = int(collateral_id_str)
-        selected_collateral = next((c for c in collaterals_list if c["id"] == collateral_id), None)
-        print(f"[SMDBG] selected_collateral found={bool(selected_collateral)}")
-
-        if not selected_collateral:
-            messages.error(request, "Selected collateral not found.")
-            print("[SMDBG] STOP: selected collateral not in collaterals_list")
-            return redirect(request.path)
-
-        # Manual entry required
-        if not doctor_name or not doctor_whatsapp:
-            messages.error(request, "Please fill all required fields.")
-            print("[SMDBG] STOP: missing doctor_name/doctor_whatsapp")
-            return redirect(request.path)
+        # Validate required fields for BOTH flows
+        if doctor_id_str and not doctor_whatsapp:
+            messages.error(request, "Doctor WhatsApp number is missing for this doctor. Please update it first.")
+            return redirect(request.get_full_path())
 
         phone_e164 = _normalize_phone_e164(doctor_whatsapp)
         print(f"[SMDBG] normalized phone_e164={phone_e164}")

@@ -443,19 +443,42 @@ def log_engagement(request):
                 return JsonResponse({"ok": True, "event": event})
 
             # Now safe to call transaction updaters
-            mark_viewed(sl, sm_engagement_id=None)
+            # NOTE: upsert_from_sharelog requires transaction_date in DB.
+            # Ensure we always provide a timestamp.
+            when = timezone.now()
 
-            mark_pdf_progress(
-                sl,
-                last_page=int(engagement.last_page_scrolled or 0),
-                completed=bool(engagement.pdf_completed),
-                dv_engagement_id=engagement.id,
-                total_pages=pdf_total_pages,
-            )
+            try:
+                mark_viewed(sl, sm_engagement_id=None, when=when)
+            except TypeError:
+                # backward compatible if signature doesn't accept `when`
+                mark_viewed(sl, sm_engagement_id=None)
+
+            try:
+                mark_pdf_progress(
+                    sl,
+                    last_page=int(engagement.last_page_scrolled or 0),
+                    completed=bool(engagement.pdf_completed),
+                    dv_engagement_id=engagement.id,
+                    total_pages=pdf_total_pages,
+                    when=when,
+                )
+            except TypeError:
+                # backward compatible if signature doesn't accept `when`
+                mark_pdf_progress(
+                    sl,
+                    last_page=int(engagement.last_page_scrolled or 0),
+                    completed=bool(engagement.pdf_completed),
+                    dv_engagement_id=engagement.id,
+                    total_pages=pdf_total_pages,
+                )
+
             print("[TRACKING DEBUG] ✅ mark_pdf_progress called share_id =", sl.id)
 
             if engagement.pdf_completed:
-                mark_downloaded_pdf(sl)
+                try:
+                    mark_downloaded_pdf(sl, when=when)
+                except TypeError:
+                    mark_downloaded_pdf(sl)
                 print("[TRACKING DEBUG] ✅ mark_downloaded_pdf called share_id =", sl.id)
 
             if event == "video_progress":
