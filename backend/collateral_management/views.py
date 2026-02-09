@@ -161,7 +161,37 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
                     collateral.campaign = selected_campaign
                 
                 collateral.save()
-                
+
+                # --------------------------------------------------
+                # Auto-create a default WhatsApp message template
+                # for this collateral + campaign combination.
+                # This prevents admin UUID filter crashes and ensures
+                # every collateral has a message entry.
+                # --------------------------------------------------
+                from .models import CollateralMessage
+
+                # Use custom WhatsApp message if provided in the form
+                custom_message = (request.POST.get("whatsapp_message") or "").strip()
+
+                if custom_message:
+                    default_message = custom_message
+                else:
+                    default_message = (
+                        "Hello Doctor 👋\n\n"
+                        "Please review the following material:\n"
+                        "$collateralLinks\n\n"
+                        "Thank you."
+                    )
+
+                CollateralMessage.objects.update_or_create(
+                    campaign=collateral.campaign,
+                    collateral=collateral,
+                    defaults={
+                        "message": default_message,
+                        "is_active": True,
+                    },
+                )
+
                 # Create the campaign collateral link
                 CampaignCollateral.objects.create(
                     campaign=collateral.campaign,
