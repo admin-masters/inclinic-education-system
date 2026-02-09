@@ -12,7 +12,16 @@ class CollateralAdmin(admin.ModelAdmin):
 @admin.register(CampaignCollateral)
 class CampaignCollateralAdmin(admin.ModelAdmin):
     list_display = ('campaign', 'collateral', 'start_date', 'end_date')
-    search_fields = ('campaign__name', 'collateral__title')
+
+    # Avoid searching on fields that may be UUID typed but stored as varchar.
+    # Searching by campaign name/title is safe.
+    search_fields = (
+        'campaign__name',
+        'collateral__title',
+    )
+
+    # Disable problematic list filters that can trigger UUID parsing.
+    list_filter = ()
 
 @admin.register(CollateralMessage)
 class CollateralMessageAdmin(admin.ModelAdmin):
