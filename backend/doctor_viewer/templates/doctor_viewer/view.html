@@ -3,9 +3,71 @@
 
 {% block content %}
 
-<div class="container mt-4">
-  <div class="card mx-auto shadow-sm" style="max-width: 900px">
+<style>
+  /* Prevent accidental horizontal scroll from any embedded content */
+  .collateral-page,
+  .collateral-page .card,
+  .collateral-page .card-body,
+  .collateral-page img,
+  .collateral-page iframe {
+    max-width: 100%;
+  }
 
+  /* Buttons in Bootstrap often default to nowrap -> can cause overflow on small screens */
+  .btn-wrap {
+    white-space: normal !important;
+    word-break: break-word;
+  }
+
+  /* PDF container: flex column so controls + viewer always fit without calc() */
+  .pdf-container {
+    border: 1px solid #ccc;
+    background: #f8f9fa;
+    border-radius: 8px;
+
+    /* Responsive height (better than fixed 600px on small devices) */
+    height: 70vh;
+    max-height: 600px;
+    min-height: 420px;
+
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .pdf-controls {
+    background: #fff;
+    padding: 10px;
+    border-bottom: 1px solid #ddd;
+  }
+
+  /* Only vertical scrolling; no horizontal scrolling */
+  .pdf-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* iframe width trick: prevents some mobile browsers from creating extra width */
+  .pdf-frame {
+    display: block;
+    width: 1px;
+    min-width: 100%;
+    height: 100%;
+    border: 0;
+  }
+
+  @media (max-width: 576px) {
+    .pdf-container {
+      min-height: 360px;
+      height: 65vh;
+    }
+  }
+</style>
+
+<div class="container mt-4 collateral-page">
+  <div class="card mx-auto shadow-sm" style="max-width: 900px; width: 100%;">
     <div class="card-body text-center">
 
       <!-- ✅ 1) Banner 1 -->
@@ -49,44 +111,27 @@
 
       <!-- ✅ 5) PDF -->
       {% if collateral.file %}
-        <a
-          href="{{ absolute_pdf_url|default:'#' }}"
-          class="btn btn-primary mb-3"
-          target="_blank"
-          rel="noopener"
-          style="background: #1877f2; border: none"
-        >
-          CLICK HERE to download the PDF
-        </a>
+        <!-- On small screens this becomes stacked (grid), on larger screens centered inline (flex) -->
+        <div class="d-grid gap-2 d-sm-flex justify-content-sm-center mb-3">
+          <a
+            href="{{ absolute_pdf_url|default:'#' }}"
+            class="btn btn-primary btn-wrap"
+            target="_blank"
+            rel="noopener"
+            style="background: #1877f2; border: none"
+          >
+            CLICK HERE to download the PDF
+          </a>
+        </div>
 
         <p class="text-muted">If you are not able to see the PDF, please refresh the page!</p>
 
-        <div
-          class="pdf-container mb-4"
-          style="
-            border: 1px solid #ccc;
-            height: 600px;
-            overflow: hidden;
-            position: relative;
-            background: #f8f9fa;
-            border-radius: 8px;
-          "
-        >
-          <div
-            class="pdf-controls"
-            style="
-              background: white;
-              padding: 10px;
-              border-bottom: 1px solid #ddd;
-              display: flex;
-              gap: 10px;
-              align-items: center;
-              justify-content: center;
-            "
-          >
+        <div class="pdf-container mb-4">
+          <!-- Controls: stack on xs, row on sm+ -->
+          <div class="pdf-controls d-grid gap-2 d-sm-flex justify-content-sm-center align-items-center">
             <a
               href="{{ absolute_pdf_url|default:'#' }}"
-              class="btn btn-outline-secondary btn-sm"
+              class="btn btn-outline-secondary btn-sm btn-wrap"
               target="_blank"
               rel="noopener"
             >
@@ -95,19 +140,18 @@
 
             <a
               href="{{ absolute_pdf_url|default:'#' }}"
-              class="btn btn-outline-success btn-sm"
+              class="btn btn-outline-success btn-sm btn-wrap"
               download
             >
               Download
             </a>
           </div>
 
-          <div style="height: calc(100% - 50px); overflow: auto;">
+          <div class="pdf-scroll">
             <iframe
-              src="{{ absolute_pdf_url|default:'about:blank' }}"
-              width="100%"
-              height="100%"
-              style="border: none;"
+              class="pdf-frame"
+              title="PDF Viewer"
+              src="{{ absolute_pdf_url|default:'about:blank' }}#view=FitH&zoom=page-width"
             ></iframe>
           </div>
         </div>
@@ -121,7 +165,7 @@
 
           <a
             href="{{ collateral.archive_file.url }}"
-            class="btn btn-outline-dark"
+            class="btn btn-outline-dark btn-wrap"
             target="_blank"
             rel="noopener"
           >
@@ -138,7 +182,7 @@
 
           <div class="card">
             <div class="card-body">
-              <div class="d-flex justify-content-between align-items-start">
+              <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
                 <div>
                   <h6 class="mb-1">
                     {{ collateral.webinar_title|default:"Learning Webinar" }}
@@ -157,7 +201,7 @@
 
                 {% if collateral.webinar_url %}
                   <a
-                    class="btn btn-outline-primary"
+                    class="btn btn-outline-primary btn-wrap"
                     href="{{ collateral.webinar_url }}"
                     target="_blank"
                     rel="noopener"
