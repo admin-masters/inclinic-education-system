@@ -4,7 +4,6 @@ Cron :  0 */3 * * *  /path/venv/bin/python /app/manage.py run_etl   # every 3 h
 Celery: see tasks.py below
 """
 import importlib, itertools
-import uuid
 from django.core.management.base import BaseCommand
 from django.db import transaction, connections
 from django.utils import timezone
@@ -49,14 +48,7 @@ class Command(BaseCommand):
             # In production, you might want to track creation dates or use other timestamps
             filter_kwargs = {}  # This will get all records, which is inefficient but works
 
-        # Fetch raw rows to avoid Django UUID auto-conversion crash
-        field_names = [f.name for f in model._meta.fields]
-
-        qs = (
-            model.objects.using('default')
-            .filter(**filter_kwargs)
-            .values(*field_names)
-        )
+        qs = model.objects.using('default').filter(**filter_kwargs)
 
         if not qs.exists():
             return
@@ -64,56 +56,17 @@ class Command(BaseCommand):
         self.stdout.write(f"  → cloning {qs.count()} {model_name} rows …")
 
         objs_to_insert = []
-
-        for row in qs.iterator():
-            try:
-                data = {}
-
-                for f in model._meta.fields:
-                    value = row.get(f.name)
-
-                    if f.get_internal_type() == "UUIDField" and value:
-                        try:
-                            value = uuid.UUID(str(value))
-                        except ValueError:
-                            try:
-                                value = uuid.UUID(hex=str(value))
-                            except Exception:
-                                self.stdout.write(
-                                    self.style.WARNING(
-                                        f"⚠ Skipping bad UUID in {model_name} id={row.get('id')}"
-                                    )
-                                )
-                                raise
-
-                    data[f.name] = value
-
-                objs_to_insert.append(model(**data))
-
-            except Exception as e:
-                self.stdout.write(
-                    self.style.WARNING(
-                        f"⚠ Skipping corrupt {model_name} row id={row.get('id')}: {e}"
-                    )
-                )
+        for obj in qs:
+            # Clone field values (excluding PK to allow upsert)
+            data = {f.name: getattr(obj, f.name) for f in obj._meta.fields if f.name != 'id'}
+            data['id'] = obj.id          # keep same PK
+            objs_to_insert.append(model(**data))
 
         with transaction.atomic(using='reporting'):
-
-            # delete by PK
+            # delete any PKs we're about to insert (acts like UPSERT)
             pks = [o.id for o in objs_to_insert]
             model.objects.using('reporting').filter(id__in=pks).delete()
-
-            # delete by unique username (User model only)
-            if model_name == "User":
-                usernames = [o.username for o in objs_to_insert]
-                model.objects.using('reporting').filter(
-                    username__in=usernames
-                ).delete()
-
-            model.objects.using('reporting').bulk_create(
-                objs_to_insert,
-                batch_size=1000
-            )
+            model.objects.using('reporting').bulk_create(objs_to_insert, batch_size=1000)
 
         # update ETL state
         state.last_synced = now_ts
