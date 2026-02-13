@@ -11,18 +11,19 @@ from django.utils import timezone
 
 from reporting_etl.models import EtlState
 
+# Order matters: parents first (prevents FK insert failures)
 MODEL_PATHS = [
     "user_management.models.User",
     "campaign_management.models.Campaign",
     "collateral_management.models.Collateral",
     "shortlink_management.models.ShortLink",
-    "sharing_management.models.ShareLog",
     "doctor_viewer.models.Doctor",
+    "sharing_management.models.ShareLog",
     "doctor_viewer.models.DoctorEngagement",
 ]
 
 DEFAULT_BATCH_SIZE = 1000
-IN_CHUNK = 500  # for IN(...) deletes
+IN_CHUNK = 500  # for IN(...) selects/updates
 
 
 def _chunks(seq, n):
@@ -44,8 +45,34 @@ def _safe_mysql_ts(ts):
     return ts
 
 
+def _make_conflict_value(orig, pk, max_len=None):
+    """
+    Create a deterministic "moved aside" value for unique-field conflicts.
+    We do NOT delete rows (avoids FK constraint issues).
+    """
+    base = str(orig or "").strip()
+    suffix = f"__old__{pk}"
+
+    if not base:
+        base = "old"
+
+    if max_len is None:
+        return base + suffix
+
+    # If suffix alone doesn't fit, fallback to something pk-based.
+    if max_len <= len(suffix):
+        v = f"old{pk}"
+        return v[-max_len:] if len(v) > max_len else v
+
+    prefix_len = max_len - len(suffix)
+    return base[:prefix_len] + suffix
+
+
 class Command(BaseCommand):
-    help = "Incrementally copy updated rows from default DB → reporting DB (raw SQL copy; UUID-safe)."
+    help = (
+        "Incrementally copy updated rows from default DB → reporting DB.\n"
+        "Uses raw SQL fetch (UUID-safe) + MySQL UPSERT (FK-safe) + unique-conflict mitigation."
+    )
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -57,7 +84,7 @@ class Command(BaseCommand):
             "--batch-size",
             type=int,
             default=DEFAULT_BATCH_SIZE,
-            help="Insert batch size (default: 1000).",
+            help="Fetch/insert batch size (default: 1000).",
         )
 
     def handle(self, *args, **options):
@@ -101,6 +128,7 @@ class Command(BaseCommand):
 
         src = connections["default"]
         dst = connections["reporting"]
+
         qn_src = src.ops.quote_name
         qn_dst = dst.ops.quote_name
 
@@ -144,67 +172,142 @@ class Command(BaseCommand):
                 where_sql = f" WHERE {qn_src(inc_col)} > %s"
                 params.append(ts_param)
 
-        select_sql = f"SELECT {', '.join(qn_src(c) for c in cols)} FROM {qn_src(table)}{where_sql}"
-
-        # RAW FETCH: avoids Django UUID conversion completely
+        # Count first (for logging)
+        count_sql = f"SELECT COUNT(*) FROM {qn_src(table)}{where_sql}"
         with src.cursor() as cur:
-            cur.execute(select_sql, params)
-            rows = cur.fetchall()
+            cur.execute(count_sql, params)
+            total = int(cur.fetchone()[0] or 0)
 
-        if not rows:
+        if total <= 0:
             return
 
-        self.stdout.write(f"  → cloning {len(rows)} {model_name} rows …")
+        self.stdout.write(f"  → cloning {total} {model_name} rows …")
 
-        # Pre-clean unique conflicts (single-column unique=True fields)
+        # Build SELECT (raw fetch avoids UUID conversion issues)
+        select_sql = (
+            f"SELECT {', '.join(qn_src(c) for c in cols)} "
+            f"FROM {qn_src(table)}{where_sql} "
+            f"ORDER BY {qn_src(pk_col)}"
+        )
+
+        # Detect single-column unique fields (best-effort)
+        col_to_field = {f.column: f for f in model._meta.fields}
         unique_cols = []
         for f in model._meta.fields:
             if getattr(f, "unique", False) and not getattr(f, "primary_key", False):
                 if f.column in cols:
                     unique_cols.append(f.column)
 
+        # Build UPSERT SQL (FK-safe: no deletes)
         placeholders = ", ".join(["%s"] * len(cols))
         cols_sql = ", ".join(qn_dst(c) for c in cols)
-        insert_sql = f"INSERT INTO {qn_dst(table)} ({cols_sql}) VALUES ({placeholders})"
+
+        update_cols = [c for c in cols if c != pk_col]
+        if update_cols:
+            update_sql = ", ".join(
+                f"{qn_dst(c)}=VALUES({qn_dst(c)})" for c in update_cols
+            )
+        else:
+            # No-op update to satisfy syntax
+            update_sql = f"{qn_dst(pk_col)}={qn_dst(pk_col)}"
+
+        upsert_sql = (
+            f"INSERT INTO {qn_dst(table)} ({cols_sql}) "
+            f"VALUES ({placeholders}) "
+            f"ON DUPLICATE KEY UPDATE {update_sql}"
+        )
 
         pk_idx = cols.index(pk_col)
-        pks = [r[pk_idx] for r in rows]
 
         with transaction.atomic(using="reporting"):
-            with dst.cursor() as cur:
-                # 1) delete by unique columns to avoid 1062 collisions (e.g., username)
-                for ucol in unique_cols:
-                    uidx = cols.index(ucol)
-                    uvals = [r[uidx] for r in rows if r[uidx] not in (None, "")]
-                    if not uvals:
-                        continue
-                    # de-dupe
-                    seen = set()
-                    uuniq = []
-                    for v in uvals:
-                        if v in seen:
+            with src.cursor() as src_cur, dst.cursor() as dst_cur:
+                src_cur.execute(select_sql, params)
+
+                processed = 0
+                while True:
+                    batch = src_cur.fetchmany(batch_size)
+                    if not batch:
+                        break
+
+                    processed += len(batch)
+
+                    # --------------------------
+                    # 1) Resolve UNIQUE conflicts (without deleting rows)
+                    # --------------------------
+                    # For each unique column, if reporting has same value on a different PK,
+                    # rename the old row's unique value so we can insert the correct row.
+                    for ucol in unique_cols:
+                        uidx = cols.index(ucol)
+                        field = col_to_field.get(ucol)
+                        max_len = getattr(field, "max_length", None)
+                        can_null = bool(getattr(field, "null", False))
+
+                        # map unique_value -> incoming_pk (unique values should be unique in source)
+                        incoming_map = {}
+                        incoming_vals = []
+                        for r in batch:
+                            v = r[uidx]
+                            if v in (None, ""):
+                                continue
+                            # keep first mapping
+                            if v not in incoming_map:
+                                incoming_map[v] = r[pk_idx]
+                                incoming_vals.append(v)
+
+                        if not incoming_vals:
                             continue
-                        seen.add(v)
-                        uuniq.append(v)
 
-                    for chunk in _chunks(uuniq, IN_CHUNK):
-                        ph = ", ".join(["%s"] * len(chunk))
-                        cur.execute(
-                            f"DELETE FROM {qn_dst(table)} WHERE {qn_dst(ucol)} IN ({ph})",
-                            chunk,
-                        )
+                        # find existing rows in reporting that have any of these unique values
+                        for val_chunk in _chunks(incoming_vals, IN_CHUNK):
+                            ph = ", ".join(["%s"] * len(val_chunk))
+                            sel = (
+                                f"SELECT {qn_dst(pk_col)}, {qn_dst(ucol)} "
+                                f"FROM {qn_dst(table)} "
+                                f"WHERE {qn_dst(ucol)} IN ({ph})"
+                            )
+                            dst_cur.execute(sel, val_chunk)
+                            existing = dst_cur.fetchall()
 
-                # 2) delete by PK (classic upsert-by-pk via delete+insert)
-                for chunk in _chunks(pks, IN_CHUNK):
-                    ph = ", ".join(["%s"] * len(chunk))
-                    cur.execute(
-                        f"DELETE FROM {qn_dst(table)} WHERE {qn_dst(pk_col)} IN ({ph})",
-                        chunk,
-                    )
+                            updates = []
+                            for row_pk, row_val in existing:
+                                expected_pk = incoming_map.get(row_val)
+                                if expected_pk is None:
+                                    continue
+                                if row_pk == expected_pk:
+                                    continue  # same row, safe
 
-                # 3) insert rows in batches
-                for chunk in _chunks(rows, batch_size):
-                    cur.executemany(insert_sql, chunk)
+                                # conflict: move aside old value on the old row
+                                if isinstance(row_val, (bytes, bytearray)):
+                                    # If a unique column is bytes (rare), we cannot safely "rename".
+                                    # Best effort: NULL it if allowed; otherwise skip and let insert fail.
+                                    if can_null:
+                                        new_val = None
+                                    else:
+                                        continue
+                                else:
+                                    if isinstance(row_val, str):
+                                        new_val = _make_conflict_value(row_val, row_pk, max_len=max_len)
+                                    else:
+                                        # numeric unique: NULL if possible, else set to row_pk (best effort)
+                                        if can_null:
+                                            new_val = None
+                                        else:
+                                            new_val = row_pk
+
+                                updates.append((new_val, row_pk))
+
+                            if updates:
+                                upd = (
+                                    f"UPDATE {qn_dst(table)} "
+                                    f"SET {qn_dst(ucol)}=%s "
+                                    f"WHERE {qn_dst(pk_col)}=%s"
+                                )
+                                dst_cur.executemany(upd, updates)
+
+                    # --------------------------
+                    # 2) UPSERT batch
+                    # --------------------------
+                    dst_cur.executemany(upsert_sql, batch)
 
         # update state only if successful
         state.last_synced = now_ts
