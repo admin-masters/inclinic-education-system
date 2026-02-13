@@ -63,15 +63,21 @@ class Command(BaseCommand):
             objs_to_insert.append(model(**data))
 
         with transaction.atomic(using='reporting'):
-            # delete any PKs we're about to insert (acts like UPSERT)
+
+            # delete by PK
             pks = [o.id for o in objs_to_insert]
             model.objects.using('reporting').filter(id__in=pks).delete()
+
+            # delete by unique username (User model only)
+            if model_name == "User":
+                usernames = [o.username for o in objs_to_insert]
+                model.objects.using('reporting').filter(
+                    username__in=usernames
+                ).delete()
+
             model.objects.using('reporting').bulk_create(
                 objs_to_insert,
-                batch_size=1000,
-                update_conflicts=True,
-                update_fields=[f.name for f in model._meta.fields if f.name != 'id'],
-                unique_fields=['username']  # adjust per model
+                batch_size=1000
             )
 
         # update ETL state
