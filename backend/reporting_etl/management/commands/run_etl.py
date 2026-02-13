@@ -4,6 +4,7 @@ Cron :  0 */3 * * *  /path/venv/bin/python /app/manage.py run_etl   # every 3 h
 Celery: see tasks.py below
 """
 import importlib, itertools
+import uuid
 from django.core.management.base import BaseCommand
 from django.db import transaction, connections
 from django.utils import timezone
@@ -56,11 +57,43 @@ class Command(BaseCommand):
         self.stdout.write(f"  → cloning {qs.count()} {model_name} rows …")
 
         objs_to_insert = []
-        for obj in qs:
-            # Clone field values (excluding PK to allow upsert)
-            data = {f.name: getattr(obj, f.name) for f in obj._meta.fields if f.name != 'id'}
-            data['id'] = obj.id          # keep same PK
-            objs_to_insert.append(model(**data))
+
+        for obj in qs.iterator():
+            try:
+                data = {}
+
+                for f in obj._meta.fields:
+                    if f.name == "id":
+                        continue
+
+                    value = getattr(obj, f.name)
+
+                    # Normalize UUID fields safely
+                    if f.get_internal_type() == "UUIDField" and value:
+                        try:
+                            value = uuid.UUID(str(value))
+                        except ValueError:
+                            try:
+                                value = uuid.UUID(hex=str(value))
+                            except Exception:
+                                self.stdout.write(
+                                    self.style.WARNING(
+                                        f"⚠ Skipping bad UUID in {model_name} id={obj.pk}"
+                                    )
+                                )
+                                raise  # skip entire object
+
+                    data[f.name] = value
+
+                data["id"] = obj.id
+                objs_to_insert.append(model(**data))
+
+            except Exception as e:
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"⚠ Skipping corrupt {model_name} row id={obj.pk}: {e}"
+                    )
+                )
 
         with transaction.atomic(using='reporting'):
 
