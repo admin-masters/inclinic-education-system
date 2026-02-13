@@ -48,8 +48,15 @@ class Command(BaseCommand):
             # For models without updated_at, use a simple approach for now
             # In production, you might want to track creation dates or use other timestamps
             filter_kwargs = {}  # This will get all records, which is inefficient but works
-        
-        qs = model.objects.using('default').filter(**filter_kwargs)
+
+        # Fetch raw rows to avoid Django UUID auto-conversion crash
+        field_names = [f.name for f in model._meta.fields]
+
+        qs = (
+            model.objects.using('default')
+            .filter(**filter_kwargs)
+            .values(*field_names)
+        )
 
         if not qs.exists():
             return
@@ -58,17 +65,13 @@ class Command(BaseCommand):
 
         objs_to_insert = []
 
-        for obj in qs.iterator():
+        for row in qs.iterator():
             try:
                 data = {}
 
-                for f in obj._meta.fields:
-                    if f.name == "id":
-                        continue
+                for f in model._meta.fields:
+                    value = row.get(f.name)
 
-                    value = getattr(obj, f.name)
-
-                    # Normalize UUID fields safely
                     if f.get_internal_type() == "UUIDField" and value:
                         try:
                             value = uuid.UUID(str(value))
@@ -78,20 +81,19 @@ class Command(BaseCommand):
                             except Exception:
                                 self.stdout.write(
                                     self.style.WARNING(
-                                        f"⚠ Skipping bad UUID in {model_name} id={obj.pk}"
+                                        f"⚠ Skipping bad UUID in {model_name} id={row.get('id')}"
                                     )
                                 )
-                                raise  # skip entire object
+                                raise
 
                     data[f.name] = value
 
-                data["id"] = obj.id
                 objs_to_insert.append(model(**data))
 
             except Exception as e:
                 self.stdout.write(
                     self.style.WARNING(
-                        f"⚠ Skipping corrupt {model_name} row id={obj.pk}: {e}"
+                        f"⚠ Skipping corrupt {model_name} row id={row.get('id')}: {e}"
                     )
                 )
 
