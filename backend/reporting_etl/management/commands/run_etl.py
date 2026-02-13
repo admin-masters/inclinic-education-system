@@ -66,7 +66,13 @@ class Command(BaseCommand):
             # delete any PKs we're about to insert (acts like UPSERT)
             pks = [o.id for o in objs_to_insert]
             model.objects.using('reporting').filter(id__in=pks).delete()
-            model.objects.using('reporting').bulk_create(objs_to_insert, batch_size=1000)
+            model.objects.using('reporting').bulk_create(
+                objs_to_insert,
+                batch_size=1000,
+                update_conflicts=True,
+                update_fields=[f.name for f in model._meta.fields if f.name != 'id'],
+                unique_fields=['username']  # adjust per model
+            )
 
         # update ETL state
         state.last_synced = now_ts

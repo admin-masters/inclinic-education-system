@@ -1,3 +1,4 @@
+# reporting_etl/models.py
 from django.db import models
 from django.utils import timezone
 
