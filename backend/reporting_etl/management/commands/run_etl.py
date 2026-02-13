@@ -1,16 +1,11 @@
-"""
-Usage:  python manage.py run_etl          # one‑off
-Cron :  0 */3 * * *  /path/venv/bin/python /app/manage.py run_etl   # every 3 h
-Celery: see tasks.py below
-"""
-import importlib, itertools
+# reporting_etl/management/commands/run_etl.py
+import importlib
 from django.core.management.base import BaseCommand
-from django.db import transaction, connections
+from django.db import transaction
 from django.utils import timezone
 
 from reporting_etl.models import EtlState
 
-# List the models you want to replicate
 MODEL_PATHS = [
     'user_management.models.User',
     'campaign_management.models.Campaign',
@@ -21,6 +16,10 @@ MODEL_PATHS = [
     'doctor_viewer.models.DoctorEngagement',
 ]
 
+# Optional: fully resync these each run (good for small tables, and fixes delete-sync issues)
+FULL_SYNC_MODEL_NAMES = {"User"}  # add others if they are small enough
+
+
 class Command(BaseCommand):
     help = "Incrementally copy updated rows from default DB → reporting DB"
 
@@ -30,44 +29,98 @@ class Command(BaseCommand):
             self.clone_model(path)
         self.stdout.write(self.style.SUCCESS("ETL finished."))
 
-    # ------------------------------------------------------------
     def clone_model(self, dotted_path: str):
         module_path, model_name = dotted_path.rsplit('.', 1)
         model = getattr(importlib.import_module(module_path), model_name)
 
         state, _ = EtlState.objects.get_or_create(model_name=model_name)
-        last_ts  = state.last_synced
-        now_ts   = timezone.now()
+        last_ts = state.last_synced
+        now_ts = timezone.now()
 
-        # rows changed since last sync - check if model has updated_at field
-        filter_kwargs = {}
-        if hasattr(model, 'updated_at'):
-            filter_kwargs['updated_at__gt'] = last_ts
+        # Choose rows
+        if model_name in FULL_SYNC_MODEL_NAMES:
+            qs = model.objects.using("default").all()
         else:
-            # For models without updated_at, use a simple approach for now
-            # In production, you might want to track creation dates or use other timestamps
-            filter_kwargs = {}  # This will get all records, which is inefficient but works
+            if hasattr(model, "updated_at"):
+                qs = model.objects.using("default").filter(updated_at__gt=last_ts)
+            else:
+                # Warning: this copies ALL rows every run for models w/o updated_at
+                qs = model.objects.using("default").all()
 
-        qs = model.objects.using('default').filter(**filter_kwargs)
-
-        if not qs.exists():
+        src_rows = list(qs)
+        if not src_rows:
             return
 
-        self.stdout.write(f"  → cloning {qs.count()} {model_name} rows …")
+        self.stdout.write(f"  → cloning {len(src_rows)} {model_name} rows …")
 
-        objs_to_insert = []
-        for obj in qs:
-            # Clone field values (excluding PK to allow upsert)
-            data = {f.name: getattr(obj, f.name) for f in obj._meta.fields if f.name != 'id'}
-            data['id'] = obj.id          # keep same PK
-            objs_to_insert.append(model(**data))
+        # Build clones using concrete field attname (FKs become *_id)
+        clones = []
+        for obj in src_rows:
+            data = {}
+            for f in model._meta.fields:
+                data[f.attname] = getattr(obj, f.attname)
+            clones.append(model(**data))
 
-        with transaction.atomic(using='reporting'):
-            # delete any PKs we're about to insert (acts like UPSERT)
-            pks = [o.id for o in objs_to_insert]
-            model.objects.using('reporting').filter(id__in=pks).delete()
-            model.objects.using('reporting').bulk_create(objs_to_insert, batch_size=1000)
+        pks = [o.pk for o in clones if o.pk is not None]
+        if not pks:
+            return
 
-        # update ETL state
+        # Fields to update (bulk_update expects FIELD NAMES, not attnames)
+        update_fields = [f.name for f in model._meta.fields if not f.primary_key]
+
+        # Unique fields (for conflict cleanup)
+        unique_fields = [f for f in model._meta.fields if getattr(f, "unique", False) and not f.primary_key]
+
+        with transaction.atomic(using="reporting"):
+            # 1) Delete rows in reporting that would violate UNIQUE constraints for incoming rows
+            #    (example: username already exists on a different id)
+            for f in unique_fields:
+                att = f.attname  # e.g. "username" or "email" or "user_id"
+                vals = []
+                for o in clones:
+                    v = getattr(o, att, None)
+                    if v is None:
+                        continue
+                    vals.append(v)
+
+                if not vals:
+                    continue
+
+                (
+                    model.objects.using("reporting")
+                    .filter(**{f"{att}__in": vals})
+                    .exclude(pk__in=pks)
+                    .delete()
+                )
+
+            # 2) Upsert by PK without delete+insert (prevents cascades & is safer)
+            existing_ids = set(
+                model.objects.using("reporting")
+                .filter(pk__in=pks)
+                .values_list("pk", flat=True)
+            )
+
+            to_update = [o for o in clones if o.pk in existing_ids]
+            to_create = [o for o in clones if o.pk not in existing_ids]
+
+            if to_update:
+                model.objects.using("reporting").bulk_update(
+                    to_update,
+                    update_fields,
+                    batch_size=1000,
+                )
+
+            if to_create:
+                model.objects.using("reporting").bulk_create(
+                    to_create,
+                    batch_size=1000,
+                )
+
+            # 3) If FULL sync model: delete rows in reporting that no longer exist in default
+            if model_name in FULL_SYNC_MODEL_NAMES:
+                src_ids = set(pks)
+                model.objects.using("reporting").exclude(pk__in=src_ids).delete()
+
+        # Update ETL state only after success
         state.last_synced = now_ts
-        state.save(update_fields=['last_synced'])
+        state.save(update_fields=["last_synced"])
