@@ -112,26 +112,30 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": "myproject_dev",
-        "USER": "user_root",
-        "PASSWORD": "6k9I7Lz-|[h",
+        "NAME": "inclinic_local",
+        "USER": "django_root",
+        "PASSWORD": "d/x*6R5]D[9.@12",
         "HOST": "localhost",
         "PORT": "3306",
     },
     "reporting": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": "myproject_reporting",
-        "USER": "user_root",
-        "PASSWORD": "6k9I7Lz-|[h",
-        "HOST": "localhost",
+        "NAME": "healthcare_reports_2",
+        "USER": "admin",
+        "PASSWORD": "kodwyb-6Muqdo-cudxew",
+        "HOST": "reporting-server-live.cbnobb8kfeuq.ap-south-1.rds.amazonaws.com",
         "PORT": "3306",
+        "OPTIONS": {
+            'charset': 'utf8mb4',
+            'init_command': "SET sql_mode='STRICT_TRANS_TABLES'",
+        },
     },
     'master': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'healthcare_forms',    # Your DB name
+        'NAME': 'healthcare_forms_2',    # Your DB name
         'USER': 'admin',                # Username shown in your screenshot
-        'PASSWORD': 'Hemsod-vytsew-7qypxa',    # Enter the correct root password
-        'HOST': 'new-forms-rds.cbnobb8kfeuq.ap-south-1.rds.amazonaws.com',
+        'PASSWORD': 'fizxyZ-rovpat-memri5',    # Enter the correct root password
+        'HOST': 'master-db-new-system.cbnobb8kfeuq.ap-south-1.rds.amazonaws.com',
         'PORT': '3306',
         'OPTIONS': {
             'charset': 'utf8mb4',
