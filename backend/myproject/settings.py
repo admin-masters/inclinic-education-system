@@ -113,7 +113,7 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": "inclinic_local",
+        "NAME": "myproject_dev",
         "USER": "django_root",
         "PASSWORD": "d/x*6R5]D[9.@12",
         "HOST": "localhost",
