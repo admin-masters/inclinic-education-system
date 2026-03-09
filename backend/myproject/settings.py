@@ -109,6 +109,7 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 # ──────────────────────────────────────────────────────────────
 # 6   Database
 # ──────────────────────────────────────────────────────────────
+# ──────────────────────────────────────────────────────────────
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
@@ -143,7 +144,6 @@ DATABASES = {
         },
     },
 }
-
 
 AUTH_USER_MODEL = "user_management.User"
 
