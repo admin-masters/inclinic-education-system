@@ -588,6 +588,11 @@ class CampaignUpdateView(UpdateView):
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
         snap = self._get_master_snapshot()
+        field_rep_redirect_base_url = getattr(
+            settings,
+            "FIELD_REP_REDIRECT_BASE_URL",
+            "https://red-flag-alerts.co.in",
+        ).rstrip("/")
 
         context["master_fields"] = {
             "Brand–Campaign ID": self.object.brand_campaign_id,
@@ -597,6 +602,7 @@ class CampaignUpdateView(UpdateView):
             "Incharge contact": snap.get("incharge_contact"),
             "Num doctors": snap.get("num_doctors"),
         }
+        context["field_rep_redirect_base_url"] = field_rep_redirect_base_url
         return context
 
     def form_valid(self, form):
