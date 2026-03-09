@@ -16,9 +16,9 @@ jobs:
       - name: Deploy to EC2 via SSH
         uses: appleboy/ssh-action@v1.0.0
         with:
-          host: ${{ secrets.EC2_HOST }}
+          host: ${{ secrets.EC2_HOST_PRO }}
           username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
+          key: ${{ secrets.EC2_SSH_KEY_PRO }}
           script: |
             set -e
 
@@ -43,7 +43,7 @@ jobs:
             python manage.py collectstatic --noinput
 
             echo "Restarting Gunicorn..."
-            sudo systemctl restart gunicorn-inclinic.service
+            sudo systemctl restart django.service 
 
             echo "Restarting Nginx..."
             sudo systemctl restart nginx
