@@ -2,7 +2,10 @@
 {% load static %}
 
 {% block content %}
-<div class="d-flex justify-content-center align-items-center" style="min-height: 80vh; background: #f8f9fa;">
+<div
+  class="d-flex justify-content-center align-items-center"
+  style="min-height: 80vh; background-color: #fff; {% if fieldrep_background_image_url %}background-image: url('{{ fieldrep_background_image_url }}'); background-size: cover; background-position: center; background-repeat: no-repeat;{% endif %}"
+>
   <div class="card shadow" style="width: 100%; max-width: 400px;">
     <div class="card-body p-4">
       <!-- Back Button -->

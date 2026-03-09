@@ -530,6 +530,7 @@ class CampaignUpdateView(UpdateView):
         "contract",
         "brand_logo",
         "company_logo",
+        "fieldrep_login_background_image",
         "printing_required",
         "description",
         "status",

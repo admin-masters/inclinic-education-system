@@ -48,6 +48,11 @@ class Campaign(models.Model):
     contract = models.FileField(upload_to="campaigns/contracts/", blank=True, null=True)
     brand_logo = models.ImageField(upload_to="campaigns/logos/brand/", blank=True, null=True)
     company_logo = models.ImageField(upload_to="campaigns/logos/company/", blank=True, null=True)
+    fieldrep_login_background_image = models.ImageField(
+        upload_to="campaigns/fieldrep/backgrounds/",
+        blank=True,
+        null=True,
+    )
     printing_required = models.BooleanField(default=False)
     printing_excel = models.FileField(upload_to="campaigns/printing/", blank=True, null=True)
 

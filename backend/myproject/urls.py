@@ -15,16 +15,15 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 from django.contrib import admin
-from django.urls import path, include, re_path
+from django.urls import path, include
 from .views import home_view
-from django.views.generic import RedirectView
 from django.contrib.auth import views as auth_views
 from django.conf.urls.static import static
 from django.conf import settings
 from user_management.views_custom import CustomAdminLoginView
 from sharing_management.views_transactions_page import collateral_transactions_dashboard
-from django.conf import settings
-from django.conf.urls.static import static
+from admin_dashboard import views as admin_dashboard_views
+
 urlpatterns = [
     path('', home_view, name='home'),
     path('admin/', admin.site.urls),
@@ -39,6 +38,18 @@ urlpatterns = [
     path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('shortlinks/', include('shortlink_management.urls')),
     path("reports/collateral-transactions/<str:brand_campaign_id>/", collateral_transactions_dashboard, name="collateral_transactions_dashboard"),
+
+    # Publisher campaign-scoped Field Rep routes
+    path(
+        "publisher/campaigns/<str:campaign_id>/field-reps/",
+        admin_dashboard_views.FieldRepListView.as_view(),
+        name="publisher_campaign_fieldrep_list",
+    ),
+    path(
+        "publisher/campaigns/<str:campaign_id>/field-reps/add/",
+        admin_dashboard_views.FieldRepCreateView.as_view(),
+        name="publisher_campaign_fieldrep_add",
+    ),
     
     # Custom admin login with campaign support
     path('admin/login/', CustomAdminLoginView.as_view(), name='admin_login'),

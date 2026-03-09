@@ -132,6 +132,77 @@ def _normalize_campaign_id(raw: str) -> str:
         return s2
     return s.replace("-", "")
 
+
+def _campaign_id_variants(raw: str) -> list[str]:
+    """
+    Return campaign-id lookup variants (dashed + dashless when possible).
+    """
+    value = (raw or "").strip()
+    if not value:
+        return []
+
+    variants: list[str] = []
+
+    def _add(v: str):
+        v = (v or "").strip()
+        if v and v not in variants:
+            variants.append(v)
+
+    _add(value)
+    norm = _normalize_campaign_id(value)
+    _add(norm)
+
+    if norm and len(norm) == 32 and _CAMPAIGN_HEX32_RE.match(norm):
+        try:
+            _add(str(uuid.UUID(norm)))
+        except Exception:
+            pass
+    else:
+        try:
+            _add(str(uuid.UUID(value)))
+        except Exception:
+            pass
+
+    return variants
+
+
+def _fieldrep_background_image_url(brand_campaign_id: str | None) -> str:
+    """
+    Resolve campaign-specific background image URL for fieldrep auth/registration pages.
+    """
+    campaign_id = (brand_campaign_id or "").strip()
+    if not campaign_id:
+        return ""
+
+    try:
+        from campaign_management.models import Campaign
+
+        variants = _campaign_id_variants(campaign_id)
+        if not variants:
+            return ""
+
+        campaign = (
+            Campaign.objects.using("default")
+            .filter(brand_campaign_id__in=variants)
+            .order_by("-updated_at")
+            .first()
+        )
+        if campaign and getattr(campaign, "fieldrep_login_background_image", None):
+            return campaign.fieldrep_login_background_image.url
+    except Exception:
+        return ""
+
+    return ""
+
+
+def _fieldrep_page_context(brand_campaign_id: str | None, **extra):
+    ctx = {
+        "brand_campaign_id": (brand_campaign_id or "").strip(),
+        "fieldrep_background_image_url": _fieldrep_background_image_url(brand_campaign_id),
+    }
+    ctx.update(extra)
+    return ctx
+
 def _get_security_questions_safe(request=None):
     """
     Fix for: (1054) Unknown column sharing_management_securityquestion.is_active
@@ -1097,7 +1168,11 @@ def fieldrep_email_registration(request):
         return redirect(redirect_url)
 
     brand_campaign_id = request.GET.get("campaign")
-    return render(request, "sharing_management/fieldrep_email_registration.html", {"brand_campaign_id": brand_campaign_id})
+    return render(
+        request,
+        "sharing_management/fieldrep_email_registration.html",
+        _fieldrep_page_context(brand_campaign_id),
+    )
 
 
 def _master_upsert_auth_user(*, email: str, first_name: str = "", last_name: str = "", raw_password: str = "") -> MasterAuthUser:
@@ -1246,16 +1321,16 @@ def fieldrep_create_password(request):
             return render(request, "sharing_management/fieldrep_create_password.html", {
                 "email": email,
                 "security_questions": security_questions,
-                "brand_campaign_id": brand_campaign_id,
                 "error": "Please enter a valid WhatsApp number (10-15 digits).",
+                **_fieldrep_page_context(brand_campaign_id),
             })
 
         if password != confirm_password:
             return render(request, "sharing_management/fieldrep_create_password.html", {
                 "email": email,
                 "security_questions": security_questions,
-                "brand_campaign_id": brand_campaign_id,
                 "error": "Passwords do not match.",
+                **_fieldrep_page_context(brand_campaign_id),
             })
 
         # Keep your existing registration (default DB) behavior
@@ -1277,8 +1352,8 @@ def fieldrep_create_password(request):
             return render(request, "sharing_management/fieldrep_create_password.html", {
                 "email": email,
                 "security_questions": security_questions,
-                "brand_campaign_id": brand_campaign_id,
                 "error": "Registration failed. Please try again.",
+                **_fieldrep_page_context(brand_campaign_id),
             })
 
         # BEST-EFFORT: also ensure portal user exists (needed later)
@@ -1305,7 +1380,7 @@ def fieldrep_create_password(request):
     return render(request, "sharing_management/fieldrep_create_password.html", {
         "email": email,
         "security_questions": security_questions,
-        "brand_campaign_id": brand_campaign_id,
+        **_fieldrep_page_context(brand_campaign_id),
     })
 
 
@@ -1712,7 +1787,11 @@ def fieldrep_gmail_login(request):
     if request.method == "POST":
         if "register" in request.POST:
             messages.error(request, "Registration is not allowed from this login link. Please use the registration link.")
-            return render(request, "sharing_management/fieldrep_gmail_login.html", {"brand_campaign_id": brand_campaign_id})
+            return render(
+                request,
+                "sharing_management/fieldrep_gmail_login.html",
+                _fieldrep_page_context(brand_campaign_id),
+            )
 
         field_id = (request.POST.get("field_id") or "").strip()
         gmail_id = (request.POST.get("gmail_id") or "").strip()
@@ -1722,7 +1801,11 @@ def fieldrep_gmail_login(request):
 
         if not field_id or not gmail_id:
             messages.error(request, "Please provide both Field ID and Gmail ID.")
-            return render(request, "sharing_management/fieldrep_gmail_login.html", {"brand_campaign_id": brand_campaign_id})
+            return render(
+                request,
+                "sharing_management/fieldrep_gmail_login.html",
+                _fieldrep_page_context(brand_campaign_id),
+            )
 
         # 1) Resolve rep from MASTER DB first (preferred)
         master_rep = None
@@ -1738,7 +1821,11 @@ def fieldrep_gmail_login(request):
             if not assigned:
                 messages.error(request, "You are not assigned to this campaign.")
                 _dbg(request, "BLOCKED: master assignment missing", master_fieldrep_id=master_rep.pk, campaign=brand_campaign_id)
-                return render(request, "sharing_management/fieldrep_gmail_login.html", {"brand_campaign_id": brand_campaign_id})
+                return render(
+                    request,
+                    "sharing_management/fieldrep_gmail_login.html",
+                    _fieldrep_page_context(brand_campaign_id),
+                )
 
         # 3) Ensure portal user exists (needed for shortlinks & other portal models)
         portal_user = _ensure_portal_fieldrep_user(email=gmail_id, field_id=field_id, request=request)
@@ -1776,7 +1863,11 @@ def fieldrep_gmail_login(request):
             return redirect(f"/share/fieldrep-gmail-share-collateral/?brand_campaign_id={brand_campaign_id}")
         return redirect("fieldrep_gmail_share_collateral")
 
-    return render(request, "sharing_management/fieldrep_gmail_login.html", {"brand_campaign_id": brand_campaign_id})
+    return render(
+        request,
+        "sharing_management/fieldrep_gmail_login.html",
+        _fieldrep_page_context(brand_campaign_id),
+    )
 
 
 # ===========================
