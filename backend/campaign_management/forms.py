@@ -67,6 +67,7 @@ class CampaignForm(forms.ModelForm):
             "contract",
             "brand_logo",
             "company_logo",
+            "fieldrep_login_background_image",
             "printing_required",
             "description",
             "status",
@@ -77,6 +78,9 @@ class CampaignForm(forms.ModelForm):
             "items_per_clinic_per_year": forms.NumberInput(attrs={"class": "form-control"}),
             "description": forms.Textarea(attrs={"class": "form-control", "rows": 4}),
             "status": forms.Select(attrs={"class": "form-control"}),
+        }
+        labels = {
+            "fieldrep_login_background_image": "Field rep login page background image",
         }
 
     def __init__(self, *args, **kwargs):

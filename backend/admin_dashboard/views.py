@@ -64,6 +64,18 @@ def _get_campaign_param_any(request):
             or request.GET.get("brand_campaign_id")
         )
 
+    # Allow campaign context from URL kwargs
+    if not v:
+        try:
+            resolver_kwargs = getattr(getattr(request, "resolver_match", None), "kwargs", {}) or {}
+            v = (
+                resolver_kwargs.get("campaign_id")
+                or resolver_kwargs.get("campaign")
+                or resolver_kwargs.get("brand_campaign_id")
+            )
+        except Exception:
+            v = None
+
     if not v and hasattr(request, "session"):
         v = request.session.get("brand_campaign_id")
 
