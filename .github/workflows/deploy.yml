@@ -27,7 +27,7 @@ jobs:
 
             echo "Force syncing code with GitHub..."
             git fetch origin
-            git reset --hard origin/main
+            git reset --hard origin/production
 
             echo "Activating virtual environment..."
             source /var/www/venv/bin/activate
