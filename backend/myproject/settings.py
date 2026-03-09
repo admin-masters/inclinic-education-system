@@ -34,6 +34,7 @@ ALLOWED_HOSTS = [
     "13.200.145.110",
     "127.0.0.1",
     "localhost",
+    "inclinic.inditech.co.in"
 ]
 
 CSRF_TRUSTED_ORIGINS   = ["https://*.cpdinclinic.co.in"]
