@@ -9,6 +9,25 @@
     <i class="bi bi-arrow-left me-1"></i>Back
   </a>
 
+  <div class="mb-3 d-flex flex-wrap gap-2">
+    <a
+      href="{{ field_rep_redirect_base_url }}/publisher/campaigns/{{ campaign.brand_campaign_id }}/field-reps/add/"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="btn btn-sm btn-success"
+    >
+      Add Field Rep
+    </a>
+    <a
+      href="{{ field_rep_redirect_base_url }}/publisher/campaigns/{{ campaign.brand_campaign_id }}/field-reps/"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="btn btn-sm btn-outline-primary"
+    >
+      Edit Field Rep
+    </a>
+  </div>
+
   <h4>Master system fields (read-only)</h4>
   <table class="table table-sm">
     <tbody>
