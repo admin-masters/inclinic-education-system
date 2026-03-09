@@ -199,6 +199,7 @@ SOCIAL_AUTH_URL_NAMESPACE = "social"
 
 ADMIN_DASHBOARD_LINK = "/admin/dashboard/"
 SHORTLINK_REDIRECT_DOMAIN = 'https://new.cpdinclinic.co.in'
+FIELD_REP_REDIRECT_BASE_URL = "https://red-flag-alerts.co.in"
 # ──────────────────────────────────────────────────────────────
 # 11  Django REST framework
 # ──────────────────────────────────────────────────────────────

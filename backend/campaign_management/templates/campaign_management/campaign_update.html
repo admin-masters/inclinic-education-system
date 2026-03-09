@@ -11,13 +11,17 @@
 
   <div class="mb-3 d-flex flex-wrap gap-2">
     <a
-      href="/publisher/campaigns/{{ campaign.brand_campaign_id }}/field-reps/add/"
+      href="{{ field_rep_redirect_base_url }}/publisher/campaigns/{{ campaign.brand_campaign_id }}/field-reps/add/"
+      target="_blank"
+      rel="noopener noreferrer"
       class="btn btn-sm btn-success"
     >
       Add Field Rep
     </a>
     <a
-      href="/publisher/campaigns/{{ campaign.brand_campaign_id }}/field-reps/"
+      href="{{ field_rep_redirect_base_url }}/publisher/campaigns/{{ campaign.brand_campaign_id }}/field-reps/"
+      target="_blank"
+      rel="noopener noreferrer"
       class="btn btn-sm btn-outline-primary"
     >
       Edit Field Rep
