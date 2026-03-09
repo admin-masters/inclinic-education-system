@@ -5,9 +5,20 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2 class="mb-0">Field Reps</h2>
-  <a href="{% url 'admin_dashboard:fieldrep_add' %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-success">
-     Add Field Rep
-  </a>
+  {% if campaign_filter %}
+    <a
+      href="{{ field_rep_redirect_base_url }}/publisher/campaigns/{{ campaign_filter }}/field-reps/add/"
+      target="_blank"
+      rel="noopener noreferrer"
+      class="btn btn-success"
+    >
+      Add Field Rep
+    </a>
+  {% else %}
+    <a href="{% url 'admin_dashboard:fieldrep_add' %}" class="btn btn-success">
+      Add Field Rep
+    </a>
+  {% endif %}
 </div>
 
 {% if campaign_filter %}
@@ -47,7 +58,18 @@
       <td>{{ r.phone_number|default_if_none:"—" }}</td>
       <td>{{ r.brand_campaigns }}</td>
       <td>
-        <a href="{% url 'admin_dashboard:fieldrep_edit' r.id %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" class="btn btn-sm btn-primary">Edit</a>
+        {% if campaign_filter %}
+          <a
+            href="{{ field_rep_redirect_base_url }}/publisher/campaigns/{{ campaign_filter }}/field-reps/"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="btn btn-sm btn-primary"
+          >
+            Edit
+          </a>
+        {% else %}
+          <a href="{% url 'admin_dashboard:fieldrep_edit' r.id %}" class="btn btn-sm btn-primary">Edit</a>
+        {% endif %}
 
         <form action="{% url 'admin_dashboard:fieldrep_delete' r.id %}{% if campaign_filter %}?campaign={{ campaign_filter }}{% endif %}" method="post" style="display:inline">
           {% csrf_token %}
