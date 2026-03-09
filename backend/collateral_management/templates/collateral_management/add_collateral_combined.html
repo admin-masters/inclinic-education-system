@@ -256,7 +256,7 @@
           class="form-control"
           rows="4"
           placeholder="Enter WhatsApp message... Use $collateralLinks for the link"
-        ></textarea>
+        >{{ whatsapp_message|default_if_none:'' }}</textarea>
         <small class="text-muted">
           This message will be saved for this Campaign + Collateral.
           Use <code>$collateralLinks</code> as placeholder.

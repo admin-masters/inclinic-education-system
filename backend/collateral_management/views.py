@@ -142,6 +142,8 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
             messages.error(request, f"Campaign with Brand Campaign ID '{brand_campaign_id}' not found.")
             return redirect("collateral_list")
     
+    whatsapp_message = (request.POST.get("whatsapp_message") or "").strip() if request.method == "POST" else ""
+
     if request.method == "POST":
         form = CollateralForm(
             request.POST, 
@@ -149,6 +151,19 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
             brand_campaign_id=brand_campaign_id
         )
         if form.is_valid():
+            if whatsapp_message and "$collateralLinks" not in whatsapp_message:
+                form.add_error(None, "$collateralLinks variable is missing in the WhatsApp message.")
+                return render(
+                    request,
+                    "collateral_management/add_collateral_combined.html",
+                    {
+                        "collateral_form": form,
+                        "selected_campaign": selected_campaign,
+                        "brand_campaign_id": brand_campaign_id,
+                        "whatsapp_message": whatsapp_message,
+                    },
+                )
+
             with transaction.atomic():
                 collateral = form.save(commit=False)
                 collateral.created_by = request.user
@@ -171,7 +186,7 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
                 from .models import CollateralMessage
 
                 # Use custom WhatsApp message if provided in the form
-                custom_message = (request.POST.get("whatsapp_message") or "").strip()
+                custom_message = whatsapp_message
 
                 if custom_message:
                     default_message = custom_message
@@ -220,6 +235,7 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
             "collateral_form": form,
             "selected_campaign": selected_campaign,
             "brand_campaign_id": brand_campaign_id,
+            "whatsapp_message": whatsapp_message,
         },
     )
 def edit_campaign_collateral_dates(request, pk):
@@ -671,5 +687,4 @@ def preview_collateral(request, pk):
         'engagement_id': 0,
         'short_code': '',
     })
-
 
