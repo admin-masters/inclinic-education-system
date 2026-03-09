@@ -698,6 +698,11 @@ class FieldRepListView(StaffRequiredMixin, ListView):
 
         ctx["q"] = (self.request.GET.get("q") or "").strip()
         ctx["campaign_filter"] = campaign_param
+        ctx["field_rep_redirect_base_url"] = getattr(
+            settings,
+            "FIELD_REP_REDIRECT_BASE_URL",
+            "https://red-flag-alerts.co.in",
+        ).rstrip("/")
         return ctx
 
 
