@@ -39,6 +39,8 @@ urlpatterns = [
     path("dashboard/", views.fieldrep_dashboard, name="fieldrep_dashboard"),
     path("dashboard/campaign/<int:campaign_id>/", views.fieldrep_campaign_detail, name="fieldrep_campaign_detail"),
     path("dashboard/doctors/", views.doctor_list, name="doctor_list"),
+    path("dashboard/doctors/bulk-upload/", views.doctor_bulk_upload, name="doctor_bulk_upload"),
+    path("dashboard/doctors/bulk-upload/sample/", views.doctor_bulk_upload_sample, name="doctor_bulk_upload_sample"),
     path("dashboard/campaign/<int:campaign_id>/doctors/", views.doctor_list, name="campaign_doctor_list"),
     path("dashboard/collateral/<int:pk>/delete/", views.dashboard_delete_collateral, name="dashboard_delete_collateral"),
 

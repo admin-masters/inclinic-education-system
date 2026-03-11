@@ -23,7 +23,7 @@ from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 
 from .decorators import field_rep_required
-from .forms import CollateralForm, ShareForm
+from .forms import CollateralForm, DoctorBulkUploadForm, ShareForm
 from sharing_management.forms import CalendarCampaignCollateralForm
 
 from .models import (
@@ -2348,6 +2348,66 @@ def fieldrep_dashboard(request):
     )
     response["Cache-Control"] = "no-store, no-cache, max-age=0, must-revalidate"
     response["Pragma"] = "no-cache"
+    return response
+
+
+@field_rep_required
+@never_cache
+def doctor_bulk_upload(request):
+    from campaign_management.models import Campaign
+
+    campaign_filter = (request.GET.get("campaign") or request.POST.get("campaign") or "").strip()
+    if not campaign_filter:
+        messages.error(request, "Brand Campaign ID is required for doctor bulk upload.")
+        return redirect("fieldrep_dashboard")
+
+    campaign = (
+        Campaign.objects.filter(brand_campaign_id__in=_campaign_id_variants(campaign_filter))
+        .order_by("-updated_at")
+        .first()
+    )
+    if not campaign:
+        messages.error(request, f'Campaign with Brand Campaign ID "{campaign_filter}" not found.')
+        return redirect(f"{reverse('fieldrep_dashboard')}?campaign={campaign_filter}")
+
+    form = DoctorBulkUploadForm()
+    ingestion_errors = []
+    created_count = 0
+    upload_completed = False
+
+    if request.method == "POST":
+        form = DoctorBulkUploadForm(request.POST, request.FILES)
+        if form.is_valid():
+            cleaned_rows, ingestion_errors = form.validate_rows(campaign=campaign)
+            if not ingestion_errors and not cleaned_rows:
+                ingestion_errors = ["No doctor rows found in the uploaded CSV."]
+            elif not ingestion_errors:
+                created_count = form.save_validated_rows(cleaned_rows)
+                upload_completed = True
+                form = DoctorBulkUploadForm()
+
+    return render(
+        request,
+        "sharing_management/doctor_bulk_upload.html",
+        {
+            "form": form,
+            "campaign_filter": campaign_filter,
+            "campaign": campaign,
+            "ingestion_errors": ingestion_errors,
+            "created_count": created_count,
+            "upload_completed": upload_completed,
+        },
+    )
+
+
+@field_rep_required
+@never_cache
+def doctor_bulk_upload_sample(request):
+    response = HttpResponse(
+        DoctorBulkUploadForm.build_sample_csv(),
+        content_type="text/csv",
+    )
+    response["Content-Disposition"] = 'attachment; filename="doctor_bulk_upload_sample.csv"'
     return response
 
 
