@@ -1303,3 +1303,175 @@ class CollateralForm(forms.ModelForm):
             'description',
             'is_active'
         ]
+
+
+class DoctorBulkUploadForm(forms.Form):
+    csv_file = forms.FileField(
+        label="Choose CSV file",
+        help_text="Columns: Doctor Name, Doctor Number, Field Rep Number, Field Rep Mail",
+    )
+
+    MAX_SIZE = 2 * 1024 * 1024
+    REQUIRED_COLUMNS = [
+        "Doctor Name",
+        "Doctor Number",
+        "Field Rep Number",
+        "Field Rep Mail",
+    ]
+    SAMPLE_ROWS = [
+        {
+            "Doctor Name": "Dr Rajesh Kumar",
+            "Doctor Number": "9876543210",
+            "Field Rep Number": "9123456789",
+            "Field Rep Mail": "rep.one@example.com",
+        },
+        {
+            "Doctor Name": "Dr Anita Sharma",
+            "Doctor Number": "9988776655",
+            "Field Rep Number": "9234567890",
+            "Field Rep Mail": "rep.two@example.com",
+        },
+    ]
+
+    def clean_csv_file(self):
+        f = self.cleaned_data["csv_file"]
+        if f.size > self.MAX_SIZE:
+            raise ValidationError("CSV larger than 2 MB.")
+        if not f.name.lower().endswith(".csv"):
+            raise ValidationError("Only .csv files are accepted.")
+        return f
+
+    @staticmethod
+    def _normalize_phone(value: str) -> str:
+        return "".join(ch for ch in (value or "") if ch.isdigit())
+
+    @classmethod
+    def build_sample_csv(cls) -> str:
+        file_obj = io.StringIO()
+        writer = csv.DictWriter(file_obj, fieldnames=cls.REQUIRED_COLUMNS)
+        writer.writeheader()
+        writer.writerows(cls.SAMPLE_ROWS)
+        return file_obj.getvalue()
+
+    def _resolve_header_map(self, fieldnames):
+        normalized = {(name or "").strip().lower(): name for name in (fieldnames or [])}
+        header_map = {}
+        missing = []
+        for required in self.REQUIRED_COLUMNS:
+            actual = normalized.get(required.lower())
+            if not actual:
+                missing.append(required)
+            else:
+                header_map[required] = actual
+        return header_map, missing
+
+    def validate_rows(self, *, campaign):
+        content = self.cleaned_data["csv_file"].read().decode("utf-8-sig", errors="ignore")
+        self.cleaned_data["csv_file"].seek(0)
+
+        reader = csv.DictReader(io.StringIO(content))
+        if not reader.fieldnames:
+            return [], ["CSV file is empty or missing the header row."]
+
+        header_map, missing_columns = self._resolve_header_map(reader.fieldnames)
+        if missing_columns:
+            return [], [f"Missing required columns: {', '.join(missing_columns)}"]
+
+        assigned_reps = (
+            User.objects.filter(role="field_rep", active=True)
+            .filter(
+                Q(assigned_campaigns__campaign=campaign)
+                | Q(campaign_assignments_campaign_mgmt__campaign=campaign)
+            )
+            .distinct()
+        )
+        all_reps = User.objects.filter(role="field_rep", active=True).distinct()
+
+        def build_map(queryset):
+            rep_map = {}
+            for rep in queryset:
+                key = (
+                    self._normalize_phone(getattr(rep, "phone_number", "")),
+                    (getattr(rep, "email", "") or "").strip().lower(),
+                )
+                if key[0] and key[1]:
+                    rep_map[key] = rep
+            return rep_map
+
+        assigned_rep_map = build_map(assigned_reps)
+        all_rep_map = build_map(all_reps)
+
+        cleaned_rows = []
+        errors = []
+        seen_doctors = set()
+
+        for row_no, row in enumerate(reader, start=2):
+            if not any((value or "").strip() for value in row.values()):
+                continue
+
+            doctor_name = (row.get(header_map["Doctor Name"]) or "").strip()
+            doctor_number_raw = (row.get(header_map["Doctor Number"]) or "").strip()
+            rep_number_raw = (row.get(header_map["Field Rep Number"]) or "").strip()
+            rep_mail = (row.get(header_map["Field Rep Mail"]) or "").strip().lower()
+
+            row_errors = []
+            if not doctor_name:
+                row_errors.append("Doctor Name is required")
+
+            doctor_number = self._normalize_phone(doctor_number_raw)
+            if len(doctor_number) < 8:
+                row_errors.append("Doctor Number is invalid")
+
+            rep_number = self._normalize_phone(rep_number_raw)
+            if len(rep_number) < 8:
+                row_errors.append("Field Rep Number is invalid")
+
+            try:
+                validate_email(rep_mail)
+            except ValidationError:
+                row_errors.append("Field Rep Mail is invalid")
+
+            rep = None
+            if not row_errors:
+                rep = assigned_rep_map.get((rep_number, rep_mail))
+                if not rep:
+                    if all_rep_map.get((rep_number, rep_mail)):
+                        row_errors.append("Field rep is not assigned to the selected campaign")
+                    else:
+                        row_errors.append("Field rep does not exist")
+
+            if rep and not row_errors:
+                duplicate_key = (rep.pk, doctor_number)
+                if duplicate_key in seen_doctors:
+                    row_errors.append("Duplicate doctors for field reps found in uploaded CSV")
+                elif Doctor.objects.filter(rep=rep, phone=doctor_number).exists():
+                    row_errors.append("Doctor already exists for specific field rep")
+                else:
+                    seen_doctors.add(duplicate_key)
+
+            if row_errors:
+                errors.append(f"Row {row_no}: {'; '.join(row_errors)}")
+                continue
+
+            cleaned_rows.append(
+                {
+                    "rep": rep,
+                    "doctor_name": doctor_name,
+                    "doctor_number": doctor_number,
+                }
+            )
+
+        return cleaned_rows, errors
+
+    def save_validated_rows(self, rows):
+        created = 0
+        with transaction.atomic():
+            for row in rows:
+                Doctor.objects.create(
+                    rep=row["rep"],
+                    name=row["doctor_name"],
+                    phone=row["doctor_number"],
+                    source="manual",
+                )
+                created += 1
+        return created
