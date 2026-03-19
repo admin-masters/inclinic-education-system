@@ -114,10 +114,10 @@ WSGI_APPLICATION = 'myproject.wsgi.application'
 DATABASES = {
     "default": {
         "ENGINE": "django.db.backends.mysql",
-        "NAME": "myproject_dev",
-        "USER": "django_root",
-        "PASSWORD": "d/x*6R5]D[9.@12",
-        "HOST": "localhost",
+        "NAME": "inclinic_live",
+        "USER": "inclinic_root",
+        "PASSWORD": "3qkC^I95(l",
+        "HOST": "master-db-new-system.cbnobb8kfeuq.ap-south-1.rds.amazonaws.com",
         "PORT": "3306",
     },
     "reporting": {
