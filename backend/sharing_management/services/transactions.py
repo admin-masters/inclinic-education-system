@@ -11,6 +11,27 @@ from sharing_management.models import CollateralTransaction, ShareLog
 
 
 MASTER_ALIAS = getattr(settings, "MASTER_DB_ALIAS", "master")
+SNAPSHOT_FIELDS = (
+    "field_rep_id",
+    "field_rep_email",
+    "doctor_number",
+    "doctor_name",
+    "collateral_id",
+    "brand_campaign_id",
+    "share_channel",
+    "sent_at",
+    "has_viewed",
+    "first_viewed_at",
+    "last_viewed_at",
+    "pdf_last_page",
+    "pdf_total_pages",
+    "pdf_completed",
+    "downloaded_pdf",
+    "video_watch_percentage",
+    "video_completed",
+    "dv_engagement_id",
+    "sm_engagement_id",
+)
 
 
 def _as_str(v: Any) -> str:
@@ -91,17 +112,12 @@ def _maybe_backfill_field_rep_id(share_log: ShareLog) -> None:
         print("[TXDBG] backfill field_rep_id failed:", e)
 
 
-def upsert_from_sharelog(
+def _base_transaction_values(
     share_log: ShareLog,
     brand_campaign_id: Any = "",
     doctor_name: Optional[str] = None,
-    field_rep_unique_id: Optional[str] = None,  # kept for compatibility; not used
     sent_at=None,
-):
-    """
-    Create/update one CollateralTransaction row for this ShareLog.
-    Primary key mapping is done via sm_engagement_id = ShareLog.id.
-    """
+) -> Optional[dict[str, Any]]:
     if not share_log:
         return None
 
@@ -113,82 +129,104 @@ def upsert_from_sharelog(
         print("[TXDBG] ShareLog.field_rep_id is None; skipping transaction upsert. share_log.id=", getattr(share_log, "id", None))
         return None
 
-    now = timezone.now()
-
-    # ---- CRITICAL FIX: always string-cast before strip() ----
     bc_raw = brand_campaign_id if brand_campaign_id else getattr(share_log, "brand_campaign_id", "")
     bc_id = _as_str(bc_raw).strip()
-
     doctor_number = _as_str(getattr(share_log, "doctor_identifier", "")).strip()
     collateral_id = _resolve_collateral_id(share_log)
 
-    # Build defaults carefully (avoid None -> int field failures)
-    defaults = {
+    values = {
         "field_rep_id": int(field_rep_id),
         "field_rep_email": _as_str(getattr(share_log, "field_rep_email", "")).strip(),
         "brand_campaign_id": bc_id,
         "doctor_number": doctor_number,
         "doctor_name": _as_str(doctor_name).strip() if doctor_name else "",
         "share_channel": _as_str(getattr(share_log, "share_channel", "")).strip(),
-        "sent_at": sent_at or getattr(share_log, "share_timestamp", None) or now,
-        "sm_engagement_id": int(getattr(share_log, "id", 0) or 0),
-        "updated_at": now,
+        "sent_at": sent_at or getattr(share_log, "share_timestamp", None) or timezone.now(),
+        "sm_engagement_id": _as_str(getattr(share_log, "id", "")).strip(),
     }
-
     if collateral_id is not None:
-        defaults["collateral_id"] = int(collateral_id)
+        values["collateral_id"] = int(collateral_id)
 
-    lookup = {"sm_engagement_id": defaults["sm_engagement_id"]}
+    return values
 
+
+def _latest_transaction(base_values: dict[str, Any]) -> Optional[CollateralTransaction]:
+    queryset = CollateralTransaction.objects.filter(sm_engagement_id=base_values["sm_engagement_id"])
+
+    if base_values.get("field_rep_id") is not None:
+        queryset = queryset.filter(field_rep_id=base_values["field_rep_id"])
+    if base_values.get("doctor_number"):
+        queryset = queryset.filter(doctor_number=base_values["doctor_number"])
+    if "collateral_id" in base_values:
+        queryset = queryset.filter(collateral_id=base_values["collateral_id"])
+
+    return queryset.order_by("-updated_at", "-id").first()
+
+
+def _merged_snapshot_values(base_values: dict[str, Any]) -> dict[str, Any]:
+    latest = _latest_transaction(base_values)
+    snapshot_values: dict[str, Any] = {}
+
+    if latest:
+        for field_name in SNAPSHOT_FIELDS:
+            snapshot_values[field_name] = getattr(latest, field_name)
+
+    for key, value in base_values.items():
+        if value is None:
+            continue
+        if isinstance(value, str) and not value.strip() and key in snapshot_values:
+            continue
+        snapshot_values[key] = value
+
+    return snapshot_values
+
+
+def _create_snapshot_row(snapshot_values: dict[str, Any], action_name: str) -> Optional[CollateralTransaction]:
     try:
-        tx, _created = CollateralTransaction.objects.update_or_create(
-            **lookup,
-            defaults=defaults,
-        )
-        return tx
-
-    except CollateralTransaction.MultipleObjectsReturned:
-        # If duplicates exist, update the newest row deterministically.
-        tx = (
-            CollateralTransaction.objects.filter(**lookup)
-            .order_by("-id")
-            .first()
-        )
-        if not tx:
-            return None
-
-        for k, v in defaults.items():
-            setattr(tx, k, v)
-
-        tx.save()
-        return tx
-
+        return CollateralTransaction.objects.create(**snapshot_values)
     except Exception as e:
-        print("[TXDBG] upsert_from_sharelog failed:", e)
+        print(f"[TXDBG] {action_name} failed:", e)
         return None
+
+
+def upsert_from_sharelog(
+    share_log: ShareLog,
+    brand_campaign_id: Any = "",
+    doctor_name: Optional[str] = None,
+    field_rep_unique_id: Optional[str] = None,  # kept for compatibility; not used
+    sent_at=None,
+):
+    """
+    Append one CollateralTransaction snapshot row for this ShareLog.
+    Each engagement event keeps the older rows intact and inserts a fresh row.
+    """
+    base_values = _base_transaction_values(
+        share_log=share_log,
+        brand_campaign_id=brand_campaign_id,
+        doctor_name=doctor_name,
+        sent_at=sent_at,
+    )
+    if not base_values:
+        return None
+
+    snapshot_values = _merged_snapshot_values(base_values)
+    return _create_snapshot_row(snapshot_values, "upsert_from_sharelog")
 
 
 def mark_viewed(share_log: ShareLog, sm_engagement_id=None):
-    tx = upsert_from_sharelog(share_log)
-    if not tx:
+    base_values = _base_transaction_values(share_log)
+    if not base_values:
         return None
 
+    snapshot_values = _merged_snapshot_values(base_values)
     now = timezone.now()
 
-    if not getattr(tx, "has_viewed", False):
-        tx.has_viewed = True
-        if not getattr(tx, "first_viewed_at", None):
-            tx.first_viewed_at = now
+    snapshot_values["has_viewed"] = True
+    if not snapshot_values.get("first_viewed_at"):
+        snapshot_values["first_viewed_at"] = now
+    snapshot_values["last_viewed_at"] = now
 
-    tx.last_viewed_at = now
-    tx.updated_at = now
-
-    try:
-        tx.save(update_fields=["has_viewed", "first_viewed_at", "last_viewed_at", "updated_at"])
-    except Exception:
-        tx.save()
-
-    return tx
+    return _create_snapshot_row(snapshot_values, "mark_viewed")
 
 
 def mark_pdf_progress(
@@ -199,10 +237,11 @@ def mark_pdf_progress(
     total_pages=0,
     sm_engagement_id=None,
 ):
-    tx = upsert_from_sharelog(share_log)
-    if not tx:
+    base_values = _base_transaction_values(share_log)
+    if not base_values:
         return None
 
+    snapshot_values = _merged_snapshot_values(base_values)
     now = timezone.now()
 
     try:
@@ -220,60 +259,40 @@ def mark_pdf_progress(
         total_pages_i = 0
 
     # Mark viewed as soon as we get scroll progress
-    tx.has_viewed = True
-    if not getattr(tx, "first_viewed_at", None):
-        tx.first_viewed_at = now
-    tx.last_viewed_at = now
-
-    tx.pdf_last_page = max(int(getattr(tx, "pdf_last_page", 0) or 0), last_page_i)
+    snapshot_values["has_viewed"] = True
+    if not snapshot_values.get("first_viewed_at"):
+        snapshot_values["first_viewed_at"] = now
+    snapshot_values["last_viewed_at"] = now
+    snapshot_values["pdf_last_page"] = max(int(snapshot_values.get("pdf_last_page", 0) or 0), last_page_i)
 
     if total_pages_i:
-        tx.pdf_total_pages = max(int(getattr(tx, "pdf_total_pages", 0) or 0), total_pages_i)
+        snapshot_values["pdf_total_pages"] = max(
+            int(snapshot_values.get("pdf_total_pages", 0) or 0),
+            total_pages_i,
+        )
 
     if completed:
-        tx.pdf_completed = True
+        snapshot_values["pdf_completed"] = True
 
     if dv_engagement_id is not None:
         try:
-            tx.dv_engagement_id = int(dv_engagement_id)
+            snapshot_values["dv_engagement_id"] = int(dv_engagement_id)
         except Exception:
             pass
 
-    tx.updated_at = now
-
-    try:
-        tx.save(update_fields=[
-            "has_viewed",
-            "first_viewed_at",
-            "last_viewed_at",
-            "pdf_last_page",
-            "pdf_total_pages",
-            "pdf_completed",
-            "dv_engagement_id",
-            "updated_at",
-        ])
-    except Exception:
-        tx.save()
-
-    return tx
+    return _create_snapshot_row(snapshot_values, "mark_pdf_progress")
 
 
 def mark_downloaded_pdf(share_log: ShareLog, sm_engagement_id=None):
-    tx = upsert_from_sharelog(share_log)
-    if not tx:
+    base_values = _base_transaction_values(share_log)
+    if not base_values:
         return None
 
-    now = timezone.now()
-    tx.downloaded_pdf = True
-    tx.pdf_completed = True
-    tx.updated_at = now
+    snapshot_values = _merged_snapshot_values(base_values)
+    snapshot_values["downloaded_pdf"] = True
+    snapshot_values["pdf_completed"] = True
 
-    try:
-        tx.save(update_fields=["downloaded_pdf", "pdf_completed", "updated_at"])
-    except Exception:
-        tx.save()
-
-    return tx
+    return _create_snapshot_row(snapshot_values, "mark_downloaded_pdf")
 
 
 def mark_video_event(
@@ -284,10 +303,11 @@ def mark_video_event(
     when=None,
     sm_engagement_id=None,
 ):
-    tx = upsert_from_sharelog(share_log)
-    if not tx:
+    base_values = _base_transaction_values(share_log)
+    if not base_values:
         return None
 
+    snapshot_values = _merged_snapshot_values(base_values)
     try:
         pct = int(percentage or 0)
     except Exception:
@@ -295,15 +315,11 @@ def mark_video_event(
 
     pct = max(0, min(100, pct))
 
-    tx.video_watch_percentage = max(int(getattr(tx, "video_watch_percentage", 0) or 0), pct)
-    if tx.video_watch_percentage >= 90:
-        tx.video_completed = True
+    snapshot_values["video_watch_percentage"] = max(
+        int(snapshot_values.get("video_watch_percentage", 0) or 0),
+        pct,
+    )
+    if snapshot_values["video_watch_percentage"] >= 90:
+        snapshot_values["video_completed"] = True
 
-    tx.updated_at = when or timezone.now()
-
-    try:
-        tx.save(update_fields=["video_watch_percentage", "video_completed", "updated_at"])
-    except Exception:
-        tx.save()
-
-    return tx
+    return _create_snapshot_row(snapshot_values, "mark_video_event")
