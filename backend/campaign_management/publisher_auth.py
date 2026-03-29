@@ -83,6 +83,34 @@ def validate_publisher_jwt(token: str) -> Dict[str, Any]:
     return payload
 
 
+def validate_fieldrep_jwt(token: str) -> Dict[str, Any]:
+    logger.info("validate_fieldrep_jwt called")
+
+    try:
+        payload = jwt.decode(
+            token,
+            key=(getattr(settings, "PUBLISHER_JWT_PUBLIC_KEY", None)
+                 or getattr(settings, "PUBLISHER_JWT_SECRET", None)),
+            algorithms=getattr(settings, "PUBLISHER_JWT_ALGORITHMS", ["HS256"]),
+            issuer=getattr(settings, "PUBLISHER_JWT_ISSUER", "project1"),
+            audience=getattr(settings, "PUBLISHER_JWT_AUDIENCE", "project2"),
+            options={
+                "require": ["exp", "iat", "iss", "aud", "sub"],
+            },
+            leeway=int(getattr(settings, "PUBLISHER_JWT_LEEWAY_SECONDS", 0) or 0),
+        )
+    except Exception:
+        logger.exception("Field Rep JWT decode failed")
+        raise
+
+    roles = payload.get("roles") or []
+    if "fieldrep" not in roles and "field_rep" not in roles:
+        logger.error("JWT missing fieldrep role")
+        raise InvalidTokenError("fieldrep role required")
+
+    return payload
+
+
 def establish_publisher_session(request: HttpRequest, payload: Dict[str, Any]) -> None:
     # Mitigate session fixation
     try:
