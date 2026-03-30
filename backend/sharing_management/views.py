@@ -40,6 +40,7 @@ from campaign_management.master_models import (
     MasterCampaignFieldRep,
     MasterFieldRep,
 )
+from campaign_management.publisher_auth import extract_jwt_from_request, validate_fieldrep_jwt
 
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
 from collateral_management.models import Collateral
@@ -202,6 +203,287 @@ def _fieldrep_page_context(brand_campaign_id: str | None, **extra):
     }
     ctx.update(extra)
     return ctx
+
+
+def _fieldrep_gmail_login_url(*, brand_campaign_id: str | None = None, gmail_id: str | None = None, field_id: str | None = None) -> str:
+    params = []
+    if brand_campaign_id:
+        params.append(("campaign", (brand_campaign_id or "").strip()))
+    if gmail_id:
+        params.append(("gmail_id", (gmail_id or "").strip()))
+    if field_id:
+        params.append(("field_id", (field_id or "").strip()))
+
+    base = reverse("fieldrep_gmail_login")
+    if not params:
+        return base
+    return f"{base}?{urllib.parse.urlencode(params)}"
+
+
+def _first_non_empty(*values) -> str:
+    for value in values:
+        text = (value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _looks_like_int(value: str) -> bool:
+    return bool(re.fullmatch(r"\d+", (value or "").strip()))
+
+
+def _normalize_email_for_compare(value: str) -> str:
+    return (value or "").strip().lower()
+
+
+def _normalize_fieldrep_id_for_compare(value) -> str:
+    text = _first_non_empty(value)
+    if _looks_like_int(text):
+        try:
+            return str(int(text))
+        except Exception:
+            return text
+    return text
+
+
+def _normalize_campaign_for_compare(value: str) -> str:
+    return _normalize_campaign_id(value)
+
+
+def _sanitize_fieldrep_next_url(request, raw_next: str, campaign_id: str | None = None) -> str:
+    raw_next = (raw_next or "").strip()
+    if raw_next:
+        parsed = urllib.parse.urlsplit(raw_next)
+        if not parsed.scheme and not parsed.netloc and parsed.path.startswith("/"):
+            params = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+            allowed_params = []
+            for key, value in params:
+                if key in {
+                    "jwt", "token", "access_token",
+                    "field_id", "fieldrep_id", "field_rep_id",
+                    "email", "gmail_id", "field_rep_email",
+                    "next",
+                }:
+                    continue
+                if key in {"campaign_id", "campaign", "brand_campaign_id"}:
+                    continue
+                allowed_params.append((key, value))
+
+            if campaign_id:
+                campaign_param_name = "brand_campaign_id" if "fieldrep-gmail-share-collateral" in parsed.path else "campaign"
+                allowed_params.append((campaign_param_name, campaign_id))
+
+            clean_query = urllib.parse.urlencode(allowed_params)
+            return urllib.parse.urlunsplit(("", "", parsed.path, clean_query, ""))
+
+    clean_query = urllib.parse.urlencode({"campaign": campaign_id or ""}) if campaign_id else ""
+    return request.path + (f"?{clean_query}" if clean_query else "")
+
+
+def _fieldrep_sso_claims_match(request, payload: dict | None) -> bool:
+    payload = payload or {}
+
+    query_campaign = _first_non_empty(request.GET.get("campaign"), request.GET.get("brand_campaign_id"))
+    query_campaign_id = _first_non_empty(request.GET.get("campaign_id"))
+    payload_campaign_id = _first_non_empty(payload.get("campaign_id"))
+    if query_campaign and query_campaign_id:
+        if _normalize_campaign_for_compare(query_campaign) != _normalize_campaign_for_compare(query_campaign_id):
+            return False
+    if query_campaign and payload_campaign_id:
+        if _normalize_campaign_for_compare(query_campaign) != _normalize_campaign_for_compare(payload_campaign_id):
+            return False
+    if query_campaign_id or payload_campaign_id:
+        if (
+            not query_campaign_id
+            or not payload_campaign_id
+            or _normalize_campaign_for_compare(query_campaign_id) != _normalize_campaign_for_compare(payload_campaign_id)
+        ):
+            return False
+
+    query_fieldrep_id = _first_non_empty(request.GET.get("field_rep_id"), request.GET.get("fieldrep_id"))
+    payload_fieldrep_id = _first_non_empty(payload.get("field_rep_id"), payload.get("fieldrep_id"))
+    if query_fieldrep_id or payload_fieldrep_id:
+        if (
+            not query_fieldrep_id
+            or not payload_fieldrep_id
+            or _normalize_fieldrep_id_for_compare(query_fieldrep_id) != _normalize_fieldrep_id_for_compare(payload_fieldrep_id)
+        ):
+            return False
+
+    query_email = _first_non_empty(request.GET.get("field_rep_email"))
+    payload_email = _first_non_empty(payload.get("field_rep_email"))
+    if query_email or payload_email:
+        if (
+            not query_email
+            or not payload_email
+            or _normalize_email_for_compare(query_email) != _normalize_email_for_compare(payload_email)
+        ):
+            return False
+
+    return True
+
+
+def _extract_sso_master_fieldrep_id(payload: dict | None, request=None) -> int | None:
+    payload = payload or {}
+    candidates = [
+        request.GET.get("master_fieldrep_id") if request else "",
+        request.GET.get("fieldrep_pk") if request else "",
+        request.GET.get("field_rep_pk") if request else "",
+        payload.get("master_fieldrep_id"),
+        payload.get("fieldrep_pk"),
+        payload.get("field_rep_pk"),
+    ]
+
+    shared_id = _first_non_empty(
+        request.GET.get("field_rep_id") if request else "",
+        request.GET.get("fieldrep_id") if request else "",
+        payload.get("field_rep_id"),
+        payload.get("fieldrep_id"),
+    )
+    if _looks_like_int(shared_id):
+        candidates.append(shared_id)
+
+    sub = _first_non_empty(payload.get("sub"))
+    if sub.lower().startswith("fieldrep_"):
+        sub_id = sub.split("_", 1)[1]
+        if _looks_like_int(sub_id):
+            candidates.append(sub_id)
+
+    for candidate in candidates:
+        if _looks_like_int(candidate):
+            try:
+                return int(candidate)
+            except Exception:
+                pass
+    return None
+
+
+def _resolve_fieldrep_sso_credentials(request, payload: dict | None = None) -> tuple[str, str, int | None]:
+    payload = payload or {}
+
+    gmail_id = _first_non_empty(
+        request.GET.get("field_rep_email"),
+        request.GET.get("gmail_id"),
+        request.GET.get("email"),
+        payload.get("field_rep_email"),
+        payload.get("gmail_id"),
+        payload.get("email"),
+    ).lower()
+
+    explicit_field_id = _first_non_empty(
+        request.GET.get("field_id"),
+        payload.get("field_id"),
+    )
+    shared_id = _first_non_empty(
+        request.GET.get("field_rep_id"),
+        request.GET.get("fieldrep_id"),
+        payload.get("field_rep_id"),
+        payload.get("fieldrep_id"),
+    )
+    field_id = explicit_field_id or (shared_id if not _looks_like_int(shared_id) else "")
+    master_fieldrep_id = _extract_sso_master_fieldrep_id(payload, request=request)
+    return field_id, gmail_id, master_fieldrep_id
+
+
+def _master_get_fieldrep_for_sso(field_id: str, gmail_id: str, master_fieldrep_id: int | None, request=None):
+    master_rep = None
+
+    if field_id or gmail_id:
+        try:
+            master_rep = _master_get_fieldrep(field_id=field_id, gmail_id=gmail_id, request=request)
+        except Exception as e:
+            _dbg(request, "MASTER SSO lookup exception", err=str(e))
+            master_rep = None
+
+    if not master_rep and master_fieldrep_id:
+        try:
+            qs = (
+                MasterFieldRep.objects.using(_master_db_alias())
+                .select_related("user")
+                .filter(pk=master_fieldrep_id, is_active=True)
+            )
+            if gmail_id:
+                qs = qs.filter(user__email__iexact=gmail_id)
+            master_rep = qs.first()
+        except Exception as e:
+            _dbg(request, "MASTER SSO lookup by pk exception", err=str(e), master_fieldrep_id=master_fieldrep_id)
+            master_rep = None
+
+    return master_rep
+
+
+def _complete_fieldrep_gmail_login(
+    request,
+    *,
+    field_id: str,
+    gmail_id: str,
+    brand_campaign_id: str | None,
+    master_rep=None,
+    require_master_rep: bool = False,
+    assignment_error_message: str = "Please Login to continue",
+    success_redirect_url: str | None = None,
+):
+    field_id = (field_id or "").strip()
+    gmail_id = (gmail_id or "").strip().lower()
+    brand_campaign_id = (brand_campaign_id or "").strip()
+
+    if not master_rep:
+        try:
+            master_rep = _master_get_fieldrep(field_id=field_id, gmail_id=gmail_id, request=request)
+        except Exception as e:
+            _dbg(request, "MASTER lookup exception", err=str(e))
+            master_rep = None
+
+    if not master_rep and require_master_rep:
+        return None, "Please Login to continue"
+
+    if not field_id:
+        field_id = _first_non_empty(
+            getattr(master_rep, "brand_supplied_field_rep_id", ""),
+            getattr(getattr(master_rep, "user", None), "username", ""),
+            str(getattr(master_rep, "pk", "") or ""),
+        )
+
+    if not gmail_id:
+        gmail_id = _first_non_empty(getattr(getattr(master_rep, "user", None), "email", "")).lower()
+
+    if brand_campaign_id and master_rep:
+        assigned = _master_is_assigned(master_rep, brand_campaign_id, request=request)
+        if not assigned:
+            _dbg(request, "BLOCKED: master assignment missing", master_fieldrep_id=master_rep.pk, campaign=brand_campaign_id)
+            return None, assignment_error_message
+
+    portal_user = _ensure_portal_fieldrep_user(email=gmail_id, field_id=field_id, request=request)
+
+    if brand_campaign_id:
+        _portal_sync_assignment(portal_user, brand_campaign_id, request=request)
+
+    google_session_keys = [
+        "_auth_user_id", "_auth_user_backend", "_auth_user_hash",
+        "user_id", "username", "email", "first_name", "last_name",
+    ]
+    for key in google_session_keys:
+        request.session.pop(key, None)
+
+    request.session["field_rep_id"] = str(getattr(master_rep, "user_id", "")) or str(portal_user.id)
+    request.session["field_rep_email"] = gmail_id
+    request.session["field_rep_field_id"] = field_id
+    request.session["master_fieldrep_id"] = str(getattr(master_rep, "pk", "")) if master_rep else ""
+    request.session["brand_campaign_id"] = brand_campaign_id or ""
+
+    _dbg(request, "LOGIN SUCCESS",
+         portal_user_id=portal_user.id,
+         session_field_rep_id=request.session.get("field_rep_id"),
+         session_master_fieldrep_id=request.session.get("master_fieldrep_id"),
+         campaign=brand_campaign_id)
+
+    messages.success(request, f"Welcome back, {field_id}!")
+
+    if success_redirect_url:
+        return redirect(success_redirect_url), None
+    if brand_campaign_id:
+        return redirect(f"/share/fieldrep-gmail-share-collateral/?brand_campaign_id={brand_campaign_id}"), None
+    return redirect("fieldrep_gmail_share_collateral"), None
 
 def _get_security_questions_safe(request=None):
     """
@@ -1159,20 +1441,15 @@ def list_share_logs(request):
 # Field Rep Registration (MASTER DB)
 # -----------------------------------------------------------------------------
 def fieldrep_email_registration(request):
-    if request.method == "POST":
-        email = (request.POST.get("email") or "").strip()
-        brand_campaign_id = (request.POST.get("brand_campaign_id") or request.GET.get("campaign") or "").strip()
-        redirect_url = f"/share/fieldrep-create-password/?email={urllib.parse.quote(email)}"
-        if brand_campaign_id:
-            redirect_url += f"&campaign={urllib.parse.quote(brand_campaign_id)}"
-        return redirect(redirect_url)
-
-    brand_campaign_id = request.GET.get("campaign")
-    return render(
-        request,
-        "sharing_management/fieldrep_email_registration.html",
-        _fieldrep_page_context(brand_campaign_id),
-    )
+    email = (request.POST.get("email") or request.GET.get("email") or "").strip()
+    brand_campaign_id = (
+        request.POST.get("brand_campaign_id")
+        or request.GET.get("campaign")
+        or request.GET.get("brand_campaign_id")
+        or ""
+    ).strip()
+    messages.info(request, "Field Rep registration is no longer required. Please log in to continue.")
+    return redirect(_fieldrep_gmail_login_url(brand_campaign_id=brand_campaign_id, gmail_id=email))
 
 
 def _master_upsert_auth_user(*, email: str, first_name: str = "", last_name: str = "", raw_password: str = "") -> MasterAuthUser:
@@ -1295,93 +1572,24 @@ def _master_upsert_fieldrep(
 # DROP-IN REPLACEMENT: fieldrep_create_password
 # ===========================
 def fieldrep_create_password(request):
-    email = request.GET.get("email") or request.POST.get("email")
-    brand_campaign_id = request.GET.get("campaign") or request.POST.get("campaign")
+    email = (request.GET.get("email") or request.POST.get("email") or "").strip()
+    field_id = (request.GET.get("field_id") or request.POST.get("field_id") or "").strip()
+    brand_campaign_id = (
+        request.GET.get("campaign")
+        or request.POST.get("campaign")
+        or request.GET.get("brand_campaign_id")
+        or ""
+    ).strip()
 
-    _dbg(request, "fieldrep_create_password ENTER", method=request.method, email=email, campaign=brand_campaign_id)
-
-    security_questions = _get_security_questions_safe(request=request)
-
-    if request.method == "POST":
-        field_id = (request.POST.get("field_id") or "").strip()
-        first_name = (request.POST.get("first_name") or "").strip()
-        last_name = (request.POST.get("last_name") or "").strip()
-        whatsapp_number = (request.POST.get("whatsapp_number", "") or "").strip()
-        password = request.POST.get("password") or ""
-        confirm_password = request.POST.get("confirm_password") or ""
-        security_question_id = request.POST.get("security_question")
-        security_answer = request.POST.get("security_answer")
-
-        _dbg(request, "fieldrep_create_password POST",
-             field_id=field_id, whatsapp_number=whatsapp_number,
-             security_question_id=security_question_id,
-             campaign=brand_campaign_id)
-
-        if whatsapp_number and (not whatsapp_number.isdigit() or len(whatsapp_number) < 10 or len(whatsapp_number) > 15):
-            return render(request, "sharing_management/fieldrep_create_password.html", {
-                "email": email,
-                "security_questions": security_questions,
-                "error": "Please enter a valid WhatsApp number (10-15 digits).",
-                **_fieldrep_page_context(brand_campaign_id),
-            })
-
-        if password != confirm_password:
-            return render(request, "sharing_management/fieldrep_create_password.html", {
-                "email": email,
-                "security_questions": security_questions,
-                "error": "Passwords do not match.",
-                **_fieldrep_page_context(brand_campaign_id),
-            })
-
-        # Keep your existing registration (default DB) behavior
-        try:
-            success = register_field_representative(
-                field_id=field_id,
-                email=email,
-                whatsapp_number=whatsapp_number,
-                password=password,
-                security_question_id=security_question_id,
-                security_answer=security_answer,
-            )
-            _dbg(request, "register_field_representative result", success=success)
-        except Exception as e:
-            _dbg(request, "register_field_representative EXCEPTION", err=str(e))
-            success = False
-
-        if not success:
-            return render(request, "sharing_management/fieldrep_create_password.html", {
-                "email": email,
-                "security_questions": security_questions,
-                "error": "Registration failed. Please try again.",
-                **_fieldrep_page_context(brand_campaign_id),
-            })
-
-        # BEST-EFFORT: also ensure portal user exists (needed later)
-        try:
-            _ensure_portal_fieldrep_user(email=email, field_id=field_id, request=request)
-        except Exception as e:
-            _dbg(request, "PORTAL user ensure failed", err=str(e))
-
-        # BEST-EFFORT: sync portal assignment
-        if brand_campaign_id:
-            try:
-                portal_user = _ensure_portal_fieldrep_user(email=email, field_id=field_id, request=request)
-                _portal_sync_assignment(portal_user, brand_campaign_id, request=request)
-            except Exception as e:
-                _dbg(request, "PORTAL assignment sync failed", err=str(e))
-
-        # Redirect to login
-        redirect_url = "/share/fieldrep-login/"
-        if brand_campaign_id:
-            redirect_url += f"?campaign={brand_campaign_id}"
-        _dbg(request, "fieldrep_create_password SUCCESS redirect", redirect_url=redirect_url)
-        return redirect(redirect_url)
-
-    return render(request, "sharing_management/fieldrep_create_password.html", {
-        "email": email,
-        "security_questions": security_questions,
-        **_fieldrep_page_context(brand_campaign_id),
-    })
+    _dbg(request, "fieldrep_create_password redirecting to direct login", email=email, field_id=field_id, campaign=brand_campaign_id)
+    messages.info(request, "Field Rep registration is no longer required. Please log in to continue.")
+    return redirect(
+        _fieldrep_gmail_login_url(
+            brand_campaign_id=brand_campaign_id,
+            gmail_id=email,
+            field_id=field_id,
+        )
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -1780,17 +1988,141 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
 # DROP-IN REPLACEMENT: fieldrep_gmail_login
 # ===========================
 def fieldrep_gmail_login(request):
-    brand_campaign_id = request.GET.get("brand_campaign_id") or request.GET.get("campaign")
+    brand_campaign_id = (
+        request.GET.get("brand_campaign_id")
+        or request.GET.get("campaign")
+        or request.GET.get("campaign_id")
+    )
+    prefill_field_id = (request.POST.get("field_id") or request.GET.get("field_id") or "").strip()
+    prefill_gmail_id = (
+        request.POST.get("gmail_id")
+        or request.GET.get("gmail_id")
+        or request.GET.get("field_rep_email")
+        or request.GET.get("email")
+        or ""
+    ).strip()
+
+    def _login_page_context():
+        return _fieldrep_page_context(
+            brand_campaign_id,
+            prefill_field_id=prefill_field_id,
+            prefill_gmail_id=prefill_gmail_id,
+        )
 
     _dbg(request, "fieldrep_gmail_login ENTER", method=request.method, campaign=brand_campaign_id, get_params=dict(request.GET))
 
-    if request.method == "POST":
-        if "register" in request.POST:
-            messages.error(request, "Registration is not allowed from this login link. Please use the registration link.")
+    sso_keys = (
+        "jwt", "token", "access_token",
+        "field_id", "field_rep_id", "fieldrep_id",
+        "email", "gmail_id", "field_rep_email",
+    )
+    sso_attempted = request.method == "GET" and any(_first_non_empty(request.GET.get(key)) for key in sso_keys)
+    existing_session = bool(request.session.get("field_rep_email") and request.session.get("field_rep_id"))
+
+    if request.method == "GET" and not sso_attempted and existing_session and brand_campaign_id:
+        return redirect(f"/share/fieldrep-gmail-share-collateral/?brand_campaign_id={brand_campaign_id}")
+
+    if request.method == "GET" and sso_attempted:
+        token, source = extract_jwt_from_request(request)
+        payload = None
+
+        if not token:
+            _dbg(request, "FIELDREP SSO missing token")
+            messages.error(request, "Please Login to continue")
             return render(
                 request,
                 "sharing_management/fieldrep_gmail_login.html",
-                _fieldrep_page_context(brand_campaign_id),
+                _login_page_context(),
+            )
+
+        try:
+            payload = validate_fieldrep_jwt(token)
+            _dbg(
+                request,
+                "FIELDREP SSO token valid",
+                source=source,
+                sub=payload.get("sub"),
+                roles=payload.get("roles"),
+                campaign_claim=payload.get("campaign_id"),
+            )
+        except Exception as e:
+            _dbg(request, "FIELDREP SSO token invalid", err=str(e))
+            messages.error(request, "Please Login to continue")
+            return render(
+                request,
+                "sharing_management/fieldrep_gmail_login.html",
+                _login_page_context(),
+            )
+
+        if not _fieldrep_sso_claims_match(request, payload):
+            _dbg(
+                request,
+                "FIELDREP SSO claim mismatch",
+                query_campaign_id=request.GET.get("campaign_id"),
+                payload_campaign_id=(payload or {}).get("campaign_id"),
+                query_fieldrep_id=_first_non_empty(request.GET.get("field_rep_id"), request.GET.get("fieldrep_id")),
+                payload_fieldrep_id=_first_non_empty((payload or {}).get("field_rep_id"), (payload or {}).get("fieldrep_id")),
+                query_fieldrep_email=request.GET.get("field_rep_email"),
+                payload_fieldrep_email=(payload or {}).get("field_rep_email"),
+            )
+            messages.error(request, "Please Login to continue")
+            return render(
+                request,
+                "sharing_management/fieldrep_gmail_login.html",
+                _login_page_context(),
+            )
+
+        field_id, gmail_id, master_fieldrep_id = _resolve_fieldrep_sso_credentials(request, payload)
+        claim_campaign_id = _first_non_empty((payload or {}).get("campaign_id"))
+        effective_campaign_id = _first_non_empty(brand_campaign_id, request.GET.get("campaign_id"), claim_campaign_id)
+        success_next_url = _sanitize_fieldrep_next_url(
+            request,
+            request.GET.get("next"),
+            campaign_id=effective_campaign_id,
+        )
+
+        master_rep = _master_get_fieldrep_for_sso(
+            field_id=field_id,
+            gmail_id=gmail_id,
+            master_fieldrep_id=master_fieldrep_id,
+            request=request,
+        )
+
+        response, error_message = _complete_fieldrep_gmail_login(
+            request,
+            field_id=field_id,
+            gmail_id=gmail_id,
+            brand_campaign_id=effective_campaign_id,
+            master_rep=master_rep,
+            require_master_rep=True,
+            success_redirect_url=success_next_url,
+        )
+        if response:
+            return response
+
+        _dbg(
+            request,
+            "FIELDREP SSO login failed",
+            field_id=field_id,
+            gmail_id=gmail_id,
+            master_fieldrep_id=master_fieldrep_id,
+            campaign=effective_campaign_id,
+            error=error_message,
+        )
+        messages.error(request, "Please Login to continue")
+        return render(
+            request,
+            "sharing_management/fieldrep_gmail_login.html",
+            _login_page_context(),
+        )
+
+    if request.method == "POST":
+        if "register" in request.POST:
+            messages.info(request, "Field Rep registration is no longer required. Please log in to continue.")
+            return render(
+                request,
+                "sharing_management/fieldrep_gmail_login.html",
+                _login_page_context(),
             )
 
         field_id = (request.POST.get("field_id") or "").strip()
@@ -1804,69 +2136,30 @@ def fieldrep_gmail_login(request):
             return render(
                 request,
                 "sharing_management/fieldrep_gmail_login.html",
-                _fieldrep_page_context(brand_campaign_id),
+                _login_page_context(),
             )
 
-        # 1) Resolve rep from MASTER DB first (preferred)
-        master_rep = None
-        try:
-            master_rep = _master_get_fieldrep(field_id=field_id, gmail_id=gmail_id, request=request)
-        except Exception as e:
-            _dbg(request, "MASTER lookup exception", err=str(e))
-            master_rep = None
+        response, error_message = _complete_fieldrep_gmail_login(
+            request,
+            field_id=field_id,
+            gmail_id=gmail_id,
+            brand_campaign_id=brand_campaign_id,
+            assignment_error_message="You are not assigned to this campaign.",
+        )
+        if response:
+            return response
 
-        # 2) If campaign provided, check assignment in MASTER DB (handles hyphen vs dashless)
-        if brand_campaign_id and master_rep:
-            assigned = _master_is_assigned(master_rep, brand_campaign_id, request=request)
-            if not assigned:
-                messages.error(request, "You are not assigned to this campaign.")
-                _dbg(request, "BLOCKED: master assignment missing", master_fieldrep_id=master_rep.pk, campaign=brand_campaign_id)
-                return render(
-                    request,
-                    "sharing_management/fieldrep_gmail_login.html",
-                    _fieldrep_page_context(brand_campaign_id),
-                )
-
-        # 3) Ensure portal user exists (needed for shortlinks & other portal models)
-        portal_user = _ensure_portal_fieldrep_user(email=gmail_id, field_id=field_id, request=request)
-
-        # 4) Best-effort: sync portal assignment tables too (if portal Campaign exists)
-        if brand_campaign_id:
-            _portal_sync_assignment(portal_user, brand_campaign_id, request=request)
-
-        # 5) Clear google/auth keys (kept behavior)
-        google_session_keys = [
-            "_auth_user_id", "_auth_user_backend", "_auth_user_hash",
-            "user_id", "username", "email", "first_name", "last_name",
-        ]
-        for key in google_session_keys:
-            request.session.pop(key, None)
-
-        # 6) Session values (keep same keys your other views use)
-        request.session["field_rep_id"] = str(getattr(master_rep, "user_id", "")) or str(portal_user.id)
-        request.session["field_rep_email"] = gmail_id
-        request.session["field_rep_field_id"] = field_id
-
-        # helpful extra debug session keys
-        request.session["master_fieldrep_id"] = str(getattr(master_rep, "pk", "")) if master_rep else ""
-        request.session["brand_campaign_id"] = brand_campaign_id or ""
-
-        _dbg(request, "LOGIN SUCCESS",
-             portal_user_id=portal_user.id,
-             session_field_rep_id=request.session.get("field_rep_id"),
-             session_master_fieldrep_id=request.session.get("master_fieldrep_id"),
-             campaign=brand_campaign_id)
-
-        messages.success(request, f"Welcome back, {field_id}!")
-
-        if brand_campaign_id:
-            return redirect(f"/share/fieldrep-gmail-share-collateral/?brand_campaign_id={brand_campaign_id}")
-        return redirect("fieldrep_gmail_share_collateral")
+        messages.error(request, error_message or "Please Login to continue")
+        return render(
+            request,
+            "sharing_management/fieldrep_gmail_login.html",
+            _login_page_context(),
+        )
 
     return render(
         request,
         "sharing_management/fieldrep_gmail_login.html",
-        _fieldrep_page_context(brand_campaign_id),
+        _login_page_context(),
     )
 
 

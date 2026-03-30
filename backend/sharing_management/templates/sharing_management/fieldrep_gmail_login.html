@@ -8,7 +8,7 @@
 >
   <div class="card shadow" style="width: 100%; max-width: 400px;">
     <div class="card-body p-4">
-      <h4 class="text-center mb-4">Gmail Login</h4>
+      <h4 class="text-center mb-4">Field Rep Login</h4>
 
       {% if messages %}
       {% for message in messages %}
@@ -25,11 +25,11 @@
         {% endif %}
         <div class="mb-3">
           <label class="form-label">Field ID:</label>
-          <input type="text" class="form-control" name="field_id" placeholder="Enter your Field ID" required>
+          <input type="text" class="form-control" name="field_id" placeholder="Enter your Field ID" value="{{ prefill_field_id }}" required>
         </div>
         <div class="mb-3">
           <label class="form-label">Email ID:</label>
-          <input type="email" class="form-control" name="gmail_id" placeholder="example@example.com"
+          <input type="email" class="form-control" name="gmail_id" placeholder="example@example.com" value="{{ prefill_gmail_id }}"
             required>
           <small class="form-text text-muted">Enter a valid email address (e.g., example@domain.com).</small>
         </div>

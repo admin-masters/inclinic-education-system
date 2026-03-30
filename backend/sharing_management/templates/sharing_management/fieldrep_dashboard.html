@@ -107,18 +107,11 @@
     <a href="{% url 'doctor_bulk_upload' %}?campaign={{ campaign_filter }}" class="btn btn-primary" target="_blank">Doctor Bulk Upload</a>
   {% endif %}
 
-  <!-- Field Rep Direct Buttons -->
-  <a
-    href="{% url 'fieldrep_email_registration' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
-    class="btn btn-primary"
-    target="_blank"
-  >Field Rep Register</a>
-
   <a
     href="{% url 'fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
     class="btn btn-primary"
     target="_blank"
-  >Field Rep Gmail Login</a>
+  >Field Rep Login</a>
 
   <a href="{% url 'home' %}" class="btn btn-info" target="_blank">Back to Home</a>
 </div>
