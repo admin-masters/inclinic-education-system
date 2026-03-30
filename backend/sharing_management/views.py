@@ -205,6 +205,21 @@ def _fieldrep_page_context(brand_campaign_id: str | None, **extra):
     return ctx
 
 
+def _fieldrep_gmail_login_url(*, brand_campaign_id: str | None = None, gmail_id: str | None = None, field_id: str | None = None) -> str:
+    params = []
+    if brand_campaign_id:
+        params.append(("campaign", (brand_campaign_id or "").strip()))
+    if gmail_id:
+        params.append(("gmail_id", (gmail_id or "").strip()))
+    if field_id:
+        params.append(("field_id", (field_id or "").strip()))
+
+    base = reverse("fieldrep_gmail_login")
+    if not params:
+        return base
+    return f"{base}?{urllib.parse.urlencode(params)}"
+
+
 def _first_non_empty(*values) -> str:
     for value in values:
         text = (value or "").strip()
@@ -1426,20 +1441,15 @@ def list_share_logs(request):
 # Field Rep Registration (MASTER DB)
 # -----------------------------------------------------------------------------
 def fieldrep_email_registration(request):
-    if request.method == "POST":
-        email = (request.POST.get("email") or "").strip()
-        brand_campaign_id = (request.POST.get("brand_campaign_id") or request.GET.get("campaign") or "").strip()
-        redirect_url = f"/share/fieldrep-create-password/?email={urllib.parse.quote(email)}"
-        if brand_campaign_id:
-            redirect_url += f"&campaign={urllib.parse.quote(brand_campaign_id)}"
-        return redirect(redirect_url)
-
-    brand_campaign_id = request.GET.get("campaign")
-    return render(
-        request,
-        "sharing_management/fieldrep_email_registration.html",
-        _fieldrep_page_context(brand_campaign_id),
-    )
+    email = (request.POST.get("email") or request.GET.get("email") or "").strip()
+    brand_campaign_id = (
+        request.POST.get("brand_campaign_id")
+        or request.GET.get("campaign")
+        or request.GET.get("brand_campaign_id")
+        or ""
+    ).strip()
+    messages.info(request, "Field Rep registration is no longer required. Please log in to continue.")
+    return redirect(_fieldrep_gmail_login_url(brand_campaign_id=brand_campaign_id, gmail_id=email))
 
 
 def _master_upsert_auth_user(*, email: str, first_name: str = "", last_name: str = "", raw_password: str = "") -> MasterAuthUser:
@@ -1562,93 +1572,24 @@ def _master_upsert_fieldrep(
 # DROP-IN REPLACEMENT: fieldrep_create_password
 # ===========================
 def fieldrep_create_password(request):
-    email = request.GET.get("email") or request.POST.get("email")
-    brand_campaign_id = request.GET.get("campaign") or request.POST.get("campaign")
+    email = (request.GET.get("email") or request.POST.get("email") or "").strip()
+    field_id = (request.GET.get("field_id") or request.POST.get("field_id") or "").strip()
+    brand_campaign_id = (
+        request.GET.get("campaign")
+        or request.POST.get("campaign")
+        or request.GET.get("brand_campaign_id")
+        or ""
+    ).strip()
 
-    _dbg(request, "fieldrep_create_password ENTER", method=request.method, email=email, campaign=brand_campaign_id)
-
-    security_questions = _get_security_questions_safe(request=request)
-
-    if request.method == "POST":
-        field_id = (request.POST.get("field_id") or "").strip()
-        first_name = (request.POST.get("first_name") or "").strip()
-        last_name = (request.POST.get("last_name") or "").strip()
-        whatsapp_number = (request.POST.get("whatsapp_number", "") or "").strip()
-        password = request.POST.get("password") or ""
-        confirm_password = request.POST.get("confirm_password") or ""
-        security_question_id = request.POST.get("security_question")
-        security_answer = request.POST.get("security_answer")
-
-        _dbg(request, "fieldrep_create_password POST",
-             field_id=field_id, whatsapp_number=whatsapp_number,
-             security_question_id=security_question_id,
-             campaign=brand_campaign_id)
-
-        if whatsapp_number and (not whatsapp_number.isdigit() or len(whatsapp_number) < 10 or len(whatsapp_number) > 15):
-            return render(request, "sharing_management/fieldrep_create_password.html", {
-                "email": email,
-                "security_questions": security_questions,
-                "error": "Please enter a valid WhatsApp number (10-15 digits).",
-                **_fieldrep_page_context(brand_campaign_id),
-            })
-
-        if password != confirm_password:
-            return render(request, "sharing_management/fieldrep_create_password.html", {
-                "email": email,
-                "security_questions": security_questions,
-                "error": "Passwords do not match.",
-                **_fieldrep_page_context(brand_campaign_id),
-            })
-
-        # Keep your existing registration (default DB) behavior
-        try:
-            success = register_field_representative(
-                field_id=field_id,
-                email=email,
-                whatsapp_number=whatsapp_number,
-                password=password,
-                security_question_id=security_question_id,
-                security_answer=security_answer,
-            )
-            _dbg(request, "register_field_representative result", success=success)
-        except Exception as e:
-            _dbg(request, "register_field_representative EXCEPTION", err=str(e))
-            success = False
-
-        if not success:
-            return render(request, "sharing_management/fieldrep_create_password.html", {
-                "email": email,
-                "security_questions": security_questions,
-                "error": "Registration failed. Please try again.",
-                **_fieldrep_page_context(brand_campaign_id),
-            })
-
-        # BEST-EFFORT: also ensure portal user exists (needed later)
-        try:
-            _ensure_portal_fieldrep_user(email=email, field_id=field_id, request=request)
-        except Exception as e:
-            _dbg(request, "PORTAL user ensure failed", err=str(e))
-
-        # BEST-EFFORT: sync portal assignment
-        if brand_campaign_id:
-            try:
-                portal_user = _ensure_portal_fieldrep_user(email=email, field_id=field_id, request=request)
-                _portal_sync_assignment(portal_user, brand_campaign_id, request=request)
-            except Exception as e:
-                _dbg(request, "PORTAL assignment sync failed", err=str(e))
-
-        # Redirect to login
-        redirect_url = "/share/fieldrep-login/"
-        if brand_campaign_id:
-            redirect_url += f"?campaign={brand_campaign_id}"
-        _dbg(request, "fieldrep_create_password SUCCESS redirect", redirect_url=redirect_url)
-        return redirect(redirect_url)
-
-    return render(request, "sharing_management/fieldrep_create_password.html", {
-        "email": email,
-        "security_questions": security_questions,
-        **_fieldrep_page_context(brand_campaign_id),
-    })
+    _dbg(request, "fieldrep_create_password redirecting to direct login", email=email, field_id=field_id, campaign=brand_campaign_id)
+    messages.info(request, "Field Rep registration is no longer required. Please log in to continue.")
+    return redirect(
+        _fieldrep_gmail_login_url(
+            brand_campaign_id=brand_campaign_id,
+            gmail_id=email,
+            field_id=field_id,
+        )
+    )
 
 
 # -----------------------------------------------------------------------------
@@ -2052,6 +1993,21 @@ def fieldrep_gmail_login(request):
         or request.GET.get("campaign")
         or request.GET.get("campaign_id")
     )
+    prefill_field_id = (request.POST.get("field_id") or request.GET.get("field_id") or "").strip()
+    prefill_gmail_id = (
+        request.POST.get("gmail_id")
+        or request.GET.get("gmail_id")
+        or request.GET.get("field_rep_email")
+        or request.GET.get("email")
+        or ""
+    ).strip()
+
+    def _login_page_context():
+        return _fieldrep_page_context(
+            brand_campaign_id,
+            prefill_field_id=prefill_field_id,
+            prefill_gmail_id=prefill_gmail_id,
+        )
 
     _dbg(request, "fieldrep_gmail_login ENTER", method=request.method, campaign=brand_campaign_id, get_params=dict(request.GET))
 
@@ -2076,7 +2032,7 @@ def fieldrep_gmail_login(request):
             return render(
                 request,
                 "sharing_management/fieldrep_gmail_login.html",
-                _fieldrep_page_context(brand_campaign_id),
+                _login_page_context(),
             )
 
         try:
@@ -2095,7 +2051,7 @@ def fieldrep_gmail_login(request):
             return render(
                 request,
                 "sharing_management/fieldrep_gmail_login.html",
-                _fieldrep_page_context(brand_campaign_id),
+                _login_page_context(),
             )
 
         if not _fieldrep_sso_claims_match(request, payload):
@@ -2113,7 +2069,7 @@ def fieldrep_gmail_login(request):
             return render(
                 request,
                 "sharing_management/fieldrep_gmail_login.html",
-                _fieldrep_page_context(brand_campaign_id),
+                _login_page_context(),
             )
 
         field_id, gmail_id, master_fieldrep_id = _resolve_fieldrep_sso_credentials(request, payload)
@@ -2157,16 +2113,16 @@ def fieldrep_gmail_login(request):
         return render(
             request,
             "sharing_management/fieldrep_gmail_login.html",
-            _fieldrep_page_context(brand_campaign_id),
+            _login_page_context(),
         )
 
     if request.method == "POST":
         if "register" in request.POST:
-            messages.error(request, "Registration is not allowed from this login link. Please use the registration link.")
+            messages.info(request, "Field Rep registration is no longer required. Please log in to continue.")
             return render(
                 request,
                 "sharing_management/fieldrep_gmail_login.html",
-                _fieldrep_page_context(brand_campaign_id),
+                _login_page_context(),
             )
 
         field_id = (request.POST.get("field_id") or "").strip()
@@ -2180,7 +2136,7 @@ def fieldrep_gmail_login(request):
             return render(
                 request,
                 "sharing_management/fieldrep_gmail_login.html",
-                _fieldrep_page_context(brand_campaign_id),
+                _login_page_context(),
             )
 
         response, error_message = _complete_fieldrep_gmail_login(
@@ -2197,13 +2153,13 @@ def fieldrep_gmail_login(request):
         return render(
             request,
             "sharing_management/fieldrep_gmail_login.html",
-            _fieldrep_page_context(brand_campaign_id),
+            _login_page_context(),
         )
 
     return render(
         request,
         "sharing_management/fieldrep_gmail_login.html",
-        _fieldrep_page_context(brand_campaign_id),
+        _login_page_context(),
     )
 
 
