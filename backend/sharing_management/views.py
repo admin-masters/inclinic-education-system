@@ -22,7 +22,7 @@ from django.utils import timezone
 from django.views.decorators.cache import never_cache
 from django.views.decorators.csrf import csrf_exempt
 
-from .decorators import field_rep_required
+from .decorators import dashboard_access_required, field_rep_required
 from .forms import CollateralForm, DoctorBulkUploadForm, ShareForm
 from sharing_management.forms import CalendarCampaignCollateralForm
 
@@ -2582,7 +2582,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
 # -----------------------------------------------------------------------------
 # Dashboard (Manage Collateral Panel) (DEFAULT DB collaterals)
 # -----------------------------------------------------------------------------
-@field_rep_required
+@dashboard_access_required
 @never_cache
 def fieldrep_dashboard(request):
     campaign_filter = (request.GET.get("campaign") or "").strip()
@@ -2644,7 +2644,7 @@ def fieldrep_dashboard(request):
     return response
 
 
-@field_rep_required
+@dashboard_access_required
 @never_cache
 def doctor_bulk_upload(request):
     from campaign_management.models import Campaign
@@ -2693,7 +2693,7 @@ def doctor_bulk_upload(request):
     )
 
 
-@field_rep_required
+@dashboard_access_required
 @never_cache
 def doctor_bulk_upload_sample(request):
     response = HttpResponse(
@@ -3090,7 +3090,7 @@ def debug_collaterals(request):
     return HttpResponse(html)
 
 
-@field_rep_required
+@dashboard_access_required
 def dashboard_delete_collateral(request, pk):
     if request.method == "POST":
         try:
