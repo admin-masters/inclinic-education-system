@@ -128,7 +128,7 @@ DATABASES = {
     },
     'master': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'healthcare_forms',    # Your DB name
+        'NAME': 'healthcare_forms_2',    # Your DB name
         'USER': 'admin',                # Username shown in your screenshot
         'PASSWORD': 'Hemsod-vytsew-7qypxa',    # Enter the correct root password
         'HOST': 'new-forms-rds.cbnobb8kfeuq.ap-south-1.rds.amazonaws.com',
