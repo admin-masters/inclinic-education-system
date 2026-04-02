@@ -220,6 +220,15 @@ def _fieldrep_gmail_login_url(*, brand_campaign_id: str | None = None, gmail_id:
     return f"{base}?{urllib.parse.urlencode(params)}"
 
 
+def _live_or_ended_collateral_q(current_value):
+    """
+    Include collaterals that are already live or already ended.
+    Exclude collaterals that are only scheduled for a future start date, and
+    exclude fully unscheduled rows where both start/end are null.
+    """
+    return Q(start_date__lte=current_value) | (Q(start_date__isnull=True) & Q(end_date__isnull=False))
+
+
 def _first_non_empty(*values) -> str:
     for value in values:
         text = (value or "").strip()
@@ -1819,17 +1828,12 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
     # Collaterals filtered by campaign dates + is_active (DEFAULT DB)
     collaterals_list: list[dict] = []
     try:
-        from django.db.models import Q as _Q
-
-        current_date = timezone.now().date()
+        current_dt = timezone.now()
         if campaign_ids_to_use:
             cc_links = (
                 CMCampaignCollateral.objects.filter(campaign__brand_campaign_id__in=campaign_ids_to_use)
                 .filter(collateral__is_active=True)
-                .filter(
-                    _Q(start_date__lte=current_date, end_date__gte=current_date)
-                    | _Q(start_date__isnull=True, end_date__isnull=True)
-                )
+                .filter(_live_or_ended_collateral_q(current_dt))
                 .select_related("collateral")
             )
             collaterals = [x.collateral for x in cc_links if x.collateral]
@@ -2178,7 +2182,6 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
 
     from django.contrib import messages
     from django.db import connection
-    from django.db.models import Q as _Q
     from django.shortcuts import redirect, render
     from django.utils import timezone
 
@@ -2248,7 +2251,8 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     # Build collateral list
     collaterals_list = []
     try:
-        current_date = timezone.now().date()
+        current_dt = timezone.now()
+        current_date = timezone.localdate()
 
         collaterals = []
         if brand_campaign_id and brand_campaign_id != "all":
@@ -2256,8 +2260,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             cc1 = CampaignMgmtCC.objects.filter(
                 campaign__brand_campaign_id=brand_campaign_id
             ).filter(
-                _Q(start_date__lte=current_date, end_date__gte=current_date) |
-                _Q(start_date__isnull=True, end_date__isnull=True)
+                _live_or_ended_collateral_q(current_date)
             ).select_related("collateral", "campaign")
             campaign_collaterals = [x.collateral for x in cc1 if x.collateral]
 
@@ -2266,8 +2269,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                 campaign__brand_campaign_id=brand_campaign_id,
                 collateral__is_active=True,
             ).filter(
-                _Q(start_date__lte=current_date, end_date__gte=current_date) |
-                _Q(start_date__isnull=True, end_date__isnull=True)
+                _live_or_ended_collateral_q(current_dt)
             ).select_related("collateral", "campaign")
             collateral_collaterals = [x.collateral for x in cc2 if x.collateral]
 
