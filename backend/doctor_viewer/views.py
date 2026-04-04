@@ -2,10 +2,12 @@
 import json
 import math
 import os
+import re
 
 from django.conf import settings
 from django.http import HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 
@@ -79,6 +81,136 @@ def _safe_absolute_file_url(request, file_field):
         return request.build_absolute_uri(file_field.url)
     except Exception:
         return None
+
+
+def _last10_digits(value: str | None) -> str:
+    digits = re.sub(r"\D", "", value or "")
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def _collateral_campaign_id(collateral: Collateral) -> int | None:
+    campaign_id = getattr(collateral, "campaign_id", None)
+    if campaign_id:
+        return campaign_id
+
+    link = (
+        CollateralCampaignLink.objects
+        .filter(collateral=collateral)
+        .select_related("campaign")
+        .first()
+    )
+    return link.campaign_id if link else None
+
+
+def _archive_cutoff_for_collateral(collateral: Collateral, campaign_id: int | None, share_timestamp=None):
+    if share_timestamp:
+        return share_timestamp
+
+    if campaign_id:
+        link = (
+            CollateralCampaignLink.objects
+            .filter(campaign_id=campaign_id, collateral=collateral)
+            .order_by("-start_date", "-end_date", "-id")
+            .first()
+        )
+        if link:
+            return link.start_date or link.end_date or collateral.upload_date
+
+    return collateral.upload_date
+
+
+def _archive_open_url(share_log: ShareLog) -> str | None:
+    short_link = getattr(share_log, "short_link", None)
+    short_code = getattr(short_link, "short_code", None)
+
+    if not short_code:
+        short_link = (
+            ShortLink.objects.filter(
+                resource_type="collateral",
+                resource_id=share_log.collateral_id,
+                is_active=True,
+            )
+            .order_by("-date_created")
+            .first()
+        )
+        short_code = getattr(short_link, "short_code", None)
+
+    if not short_code:
+        return None
+
+    return f"{reverse('resolve_shortlink', args=[short_code])}?share_id={share_log.id}"
+
+
+def _doctor_archive_items(*, current_collateral: Collateral, matched_sharelog_id: int | None = None, doctor_identifier: str | None = None, limit: int = 3):
+    campaign_id = _collateral_campaign_id(current_collateral)
+    if not campaign_id:
+        return []
+
+    current_share_log = None
+    if matched_sharelog_id:
+        current_share_log = (
+            ShareLog.objects.select_related("short_link")
+            .filter(id=matched_sharelog_id)
+            .first()
+        )
+
+    doctor_last10 = _last10_digits(doctor_identifier)
+    if not doctor_last10 and current_share_log:
+        doctor_last10 = _last10_digits(getattr(current_share_log, "doctor_identifier", ""))
+    if not doctor_last10:
+        return []
+
+    campaign_collateral_ids = set(
+        Collateral.objects.filter(campaign_id=campaign_id).values_list("id", flat=True)
+    )
+    campaign_collateral_ids.update(
+        CollateralCampaignLink.objects.filter(campaign_id=campaign_id).values_list("collateral_id", flat=True)
+    )
+    campaign_collateral_ids.discard(current_collateral.id)
+    if not campaign_collateral_ids:
+        return []
+
+    cutoff = _archive_cutoff_for_collateral(
+        current_collateral,
+        campaign_id,
+        getattr(current_share_log, "share_timestamp", None),
+    )
+
+    share_logs = (
+        ShareLog.objects
+        .select_related("short_link", "collateral")
+        .filter(collateral_id__in=campaign_collateral_ids)
+        .order_by("-share_timestamp", "-id")
+    )
+
+    archives = []
+    seen_collateral_ids = set()
+
+    for share_log in share_logs:
+        if _last10_digits(getattr(share_log, "doctor_identifier", "")) != doctor_last10:
+            continue
+
+        if cutoff and getattr(share_log, "share_timestamp", None) and share_log.share_timestamp >= cutoff:
+            continue
+
+        collateral = getattr(share_log, "collateral", None)
+        if not collateral or not getattr(collateral, "is_active", False):
+            continue
+
+        if share_log.collateral_id in seen_collateral_ids:
+            continue
+
+        archives.append({
+            "obj": collateral,
+            "open_url": _archive_open_url(share_log),
+            "shared_at": getattr(share_log, "share_timestamp", None),
+        })
+        seen_collateral_ids.add(share_log.collateral_id)
+
+        if len(archives) >= limit:
+            break
+
+    return archives
 
 
 # ──────────────────────────────────────────────────────────────
@@ -518,11 +650,6 @@ def doctor_report(request, code: str):
 
 def doctor_collateral_verify(request):
     from django.contrib import messages
-    import re
-
-    def last10(phone):
-        digits = re.sub(r"\D", "", phone or "")
-        return digits[-10:] if len(digits) >= 10 else digits
 
     # ─────────────────────────────────────────
     # GET: Render verification page with preview
@@ -626,7 +753,7 @@ def doctor_collateral_verify(request):
             messages.error(request, "Please provide WhatsApp number.")
             return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
-        input_last10 = last10(whatsapp_number)
+        input_last10 = _last10_digits(whatsapp_number)
         print("[VERIFYDBG] input_last10 =", input_last10)
 
         matched = False
@@ -644,11 +771,11 @@ def doctor_collateral_verify(request):
             # Print up to 10 rows as last10 only (safe + useful)
             for row in logs[:10]:
                 stored = row.get("doctor_identifier") or ""
-                print(f"[VERIFYDBG] row id={row.get('id')} stored_last10={last10(stored)} stored_raw='{stored}'")
+                print(f"[VERIFYDBG] row id={row.get('id')} stored_last10={_last10_digits(stored)} stored_raw='{stored}'")
 
             for row in logs:
                 stored = row.get("doctor_identifier") or ""
-                if last10(stored) == input_last10:
+                if _last10_digits(stored) == input_last10:
                     matched = True
                     matched_sharelog_id = row["id"]
                     break
@@ -661,8 +788,8 @@ def doctor_collateral_verify(request):
         if not matched:
             messages.error(
                 request,
-                "WhatsApp number not found in our records. "
-                "Please use the same number used to share this content."
+                "The number you have entered is incorrect. "
+                "Please use the same number with which the message was shared."
             )
             return redirect(request.path + f"?short_link_id={short_link_id}")
 
@@ -679,40 +806,11 @@ def doctor_collateral_verify(request):
         request.session["share_id"] = matched_sharelog_id
 
         # (keep the rest of your existing “archives + engagement” logic unchanged)
-        campaign_id = getattr(collateral, "campaign_id", None)
-        if not campaign_id:
-            link = (
-                CollateralCampaignLink.objects
-                .filter(collateral=collateral)
-                .select_related("campaign")
-                .first()
-            )
-            if link:
-                campaign_id = link.campaign_id
-
-        archives = []
-        if campaign_id:
-            older = (
-                Collateral.objects.filter(
-                    campaign_id=campaign_id,
-                    is_active=True,
-                    upload_date__lt=collateral.upload_date,
-                )
-                .exclude(pk=collateral.pk)
-                .order_by("-upload_date")[:3]
-            )
-
-            for c in older:
-                sl = (
-                    ShortLink.objects.filter(
-                        resource_type="collateral",
-                        resource_id=c.id,
-                        is_active=True,
-                    )
-                    .order_by("-date_created")
-                    .first()
-                )
-                archives.append({"obj": c, "short_code": sl.short_code if sl else None})
+        archives = _doctor_archive_items(
+            current_collateral=collateral,
+            matched_sharelog_id=matched_sharelog_id,
+            doctor_identifier=whatsapp_number,
+        )
 
         absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
 
@@ -744,7 +842,6 @@ def doctor_collateral_view(request):
     OTP-based verification flow (existing behavior preserved).
     """
     from django.contrib import messages
-    import re
 
     if request.method == "POST":
         whatsapp_number = request.POST.get("whatsapp_number")
@@ -771,6 +868,8 @@ def doctor_collateral_view(request):
                 if not collateral:
                     messages.error(request, "Collateral not found.")
                     return render(request, "doctor_viewer/doctor_collateral_verify.html")
+
+                request.session["share_id"] = row_id
 
                 # best-effort mark download in ShareLog (RAW, avoid ghost fields)
                 try:
@@ -801,41 +900,11 @@ def doctor_collateral_view(request):
                 except Exception as e:
                     print("[OTP VIEW DEBUG] mark_downloaded_pdf failed:", e)
 
-                # Archives (keep existing logic)
-                campaign_id = None
-                if getattr(collateral, "campaign_id", None):
-                    campaign_id = collateral.campaign_id
-                else:
-                    link = (
-                        CollateralCampaignLink.objects.filter(collateral=collateral)
-                        .select_related("campaign")
-                        .first()
-                    )
-                    if link:
-                        campaign_id = link.campaign_id
-
-                archives = []
-                if campaign_id:
-                    older_qs = (
-                        Collateral.objects.filter(
-                            campaign_id=campaign_id,
-                            is_active=True,
-                            upload_date__lt=collateral.upload_date,
-                        )
-                        .exclude(pk=collateral.pk)
-                        .order_by("-upload_date")[:3]
-                    )
-                    for c in older_qs:
-                        sl2 = (
-                            ShortLink.objects.filter(
-                                resource_type="collateral",
-                                resource_id=c.id,
-                                is_active=True,
-                            )
-                            .order_by("-date_created")
-                            .first()
-                        )
-                        archives.append({"obj": c, "short_code": sl2.short_code if sl2 else None})
+                archives = _doctor_archive_items(
+                    current_collateral=collateral,
+                    matched_sharelog_id=row_id,
+                    doctor_identifier=whatsapp_number,
+                )
 
                 absolute_pdf_url = _safe_absolute_file_url(request, collateral.file)
 
