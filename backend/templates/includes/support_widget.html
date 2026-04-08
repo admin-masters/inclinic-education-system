@@ -1,4 +1,4 @@
-{% if support_widget_enabled and support_widget_url %}
+{% if support_widget_enabled and support_widget_proxy_url %}
 <style>
   .support-widget {
     position: fixed;
@@ -7,9 +7,10 @@
     z-index: 1200;
   }
 
-  .support-widget__link {
-    width: 58px;
-    height: 58px;
+  .support-widget__trigger {
+    border: 0;
+    width: 60px;
+    height: 60px;
     border-radius: 999px;
     background: linear-gradient(135deg, #0d6efd, #36a2ff);
     color: #fff;
@@ -18,20 +19,20 @@
     align-items: center;
     justify-content: center;
     font-size: 24px;
-    text-decoration: none;
+    cursor: pointer;
+    transition: transform 0.18s ease, box-shadow 0.18s ease;
     position: relative;
   }
 
-  .support-widget__link:hover {
+  .support-widget__trigger:hover {
     transform: translateY(-2px);
-    color: #fff;
-    text-decoration: none;
+    box-shadow: 0 22px 48px rgba(13, 110, 253, 0.34);
   }
 
-  .support-widget__badge {
+  .support-widget__pill {
     position: absolute;
-    right: 64px;
-    bottom: 8px;
+    right: 72px;
+    bottom: 10px;
     background: rgba(15, 23, 42, 0.92);
     color: #fff;
     border-radius: 999px;
@@ -42,26 +43,114 @@
     box-shadow: 0 10px 30px rgba(15, 23, 42, 0.16);
   }
 
-  .support-widget__note {
-    position: absolute;
-    right: 0;
-    bottom: 74px;
-    width: min(260px, calc(100vw - 32px));
-    background: #fff;
-    border: 1px solid rgba(15, 23, 42, 0.08);
-    border-radius: 16px;
-    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
-    padding: 12px 14px;
-    color: #475569;
-    font-size: 12px;
-    line-height: 1.45;
+  .support-widget__backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.18s ease;
+    z-index: 1198;
   }
 
-  .support-widget__note strong {
+  .support-widget__modal {
+    position: fixed;
+    right: 24px;
+    bottom: 96px;
+    width: min(420px, calc(100vw - 32px));
+    height: min(700px, calc(100vh - 140px));
+    background: #fff;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 28px 70px rgba(15, 23, 42, 0.28);
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+    pointer-events: none;
+    transition: opacity 0.18s ease, transform 0.18s ease;
+    z-index: 1199;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .support-widget__modal.is-open,
+  .support-widget__backdrop.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .support-widget__modal.is-open {
+    transform: translateY(0) scale(1);
+  }
+
+  .support-widget__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px 16px;
+    background: linear-gradient(135deg, #0d6efd, #36a2ff);
+    color: #fff;
+  }
+
+  .support-widget__title {
+    min-width: 0;
+  }
+
+  .support-widget__title strong,
+  .support-widget__title small {
     display: block;
-    color: #0f172a;
-    font-size: 13px;
-    margin-bottom: 4px;
+    color: inherit;
+  }
+
+  .support-widget__title small {
+    opacity: 0.86;
+    margin-top: 2px;
+  }
+
+  .support-widget__header-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .support-widget__link,
+  .support-widget__close {
+    border: 0;
+    background: rgba(255, 255, 255, 0.16);
+    color: #fff;
+    width: 36px;
+    height: 36px;
+    border-radius: 999px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  .support-widget__link:hover,
+  .support-widget__close:hover {
+    color: #fff;
+    background: rgba(255, 255, 255, 0.24);
+    text-decoration: none;
+  }
+
+  .support-widget__frame-wrap {
+    flex: 1;
+    min-height: 0;
+    background: #f8fafc;
+  }
+
+  .support-widget__frame {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    background: #fff;
+  }
+
+  body.support-widget-open {
+    overflow: hidden;
   }
 
   @media (max-width: 575.98px) {
@@ -70,32 +159,124 @@
       bottom: 16px;
     }
 
-    .support-widget__badge {
+    .support-widget__pill {
       display: none;
     }
 
-    .support-widget__note {
-      width: min(240px, calc(100vw - 24px));
+    .support-widget__modal {
+      right: 12px;
+      left: 12px;
+      bottom: 84px;
+      width: auto;
+      height: min(78vh, 680px);
+      border-radius: 18px;
     }
   }
 </style>
 
-<div class="support-widget">
-  <div class="support-widget__note">
-    <strong>{{ support_widget_label }}</strong>
-    Opens support in a new tab because the support site is served over HTTP and cannot be embedded in this HTTPS page.
-  </div>
-
-  <a
-    href="{{ support_widget_url }}"
-    target="_blank"
-    rel="noopener noreferrer"
-    class="support-widget__link"
-    aria-label="Open {{ support_widget_label }} in a new tab"
-    title="Open {{ support_widget_label }} in a new tab"
+<div class="support-widget" data-support-widget>
+  <button
+    type="button"
+    class="support-widget__trigger"
+    data-support-open
+    aria-label="Open {{ support_widget_label }}"
+    title="Open {{ support_widget_label }}"
   >
-    <span class="support-widget__badge">Open Support</span>
-    <span aria-hidden="true">💬</span>
-  </a>
+    <span class="support-widget__pill">{{ support_widget_label }}</span>
+    <span aria-hidden="true">
+      <i class="bi bi-chat-dots-fill"></i>
+    </span>
+  </button>
 </div>
+
+<div class="support-widget__backdrop" data-support-backdrop></div>
+
+<section
+  class="support-widget__modal"
+  data-support-modal
+  role="dialog"
+  aria-modal="true"
+  aria-labelledby="support-widget-title"
+  aria-hidden="true"
+>
+  <header class="support-widget__header">
+    <div class="support-widget__title">
+      <strong id="support-widget-title">{{ support_widget_label }}</strong>
+      <small>Quick help for this page</small>
+    </div>
+    <div class="support-widget__header-actions">
+      <a
+        href="{{ support_widget_url }}"
+        target="_blank"
+        rel="noopener noreferrer"
+        class="support-widget__link"
+        aria-label="Open support in a new tab"
+        title="Open support in a new tab"
+      >
+        <i class="bi bi-box-arrow-up-right"></i>
+      </a>
+      <button
+        type="button"
+        class="support-widget__close"
+        data-support-close
+        aria-label="Close support"
+        title="Close support"
+      >
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+  </header>
+  <div class="support-widget__frame-wrap">
+    <iframe
+      class="support-widget__frame"
+      data-support-iframe
+      data-src="{{ support_widget_proxy_url }}"
+      loading="lazy"
+      referrerpolicy="strict-origin-when-cross-origin"
+      title="{{ support_widget_label }}"
+    ></iframe>
+  </div>
+</section>
+
+<script>
+  (() => {
+    const trigger = document.querySelector("[data-support-open]");
+    const modal = document.querySelector("[data-support-modal]");
+    const backdrop = document.querySelector("[data-support-backdrop]");
+    const iframe = document.querySelector("[data-support-iframe]");
+    const closeButtons = document.querySelectorAll("[data-support-close]");
+
+    if (!trigger || !modal || !backdrop || !iframe || modal.dataset.supportBound === "1") {
+      return;
+    }
+
+    modal.dataset.supportBound = "1";
+
+    const openModal = () => {
+      if (!iframe.getAttribute("src")) {
+        iframe.setAttribute("src", iframe.dataset.src || "");
+      }
+      modal.classList.add("is-open");
+      backdrop.classList.add("is-open");
+      modal.setAttribute("aria-hidden", "false");
+      document.body.classList.add("support-widget-open");
+    };
+
+    const closeModal = () => {
+      modal.classList.remove("is-open");
+      backdrop.classList.remove("is-open");
+      modal.setAttribute("aria-hidden", "true");
+      document.body.classList.remove("support-widget-open");
+    };
+
+    trigger.addEventListener("click", openModal);
+    backdrop.addEventListener("click", closeModal);
+    closeButtons.forEach((button) => button.addEventListener("click", closeModal));
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && modal.classList.contains("is-open")) {
+        closeModal();
+      }
+    });
+  })();
+</script>
 {% endif %}
