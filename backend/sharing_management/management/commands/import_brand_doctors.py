@@ -88,6 +88,11 @@ class Command(BaseCommand):
             action="store_true",
             help="Validate and report what would be created without writing doctors",
         )
+        parser.add_argument(
+            "--report-path",
+            dest="report_path",
+            help="Optional path for the execution report CSV. Defaults next to the source CSV.",
+        )
 
     @staticmethod
     def _normalize_phone(value: str | None) -> str:
@@ -201,7 +206,31 @@ class Command(BaseCommand):
 
         return headers, rows
 
-    def _validate_rows(
+    def _initial_report_row(
+        self,
+        *,
+        row_number: int,
+        rep_email: str,
+        rep_field_id: str,
+        rep_phone: str,
+        doctor_name: str,
+        doctor_phone: str,
+    ) -> dict:
+        return {
+            "row_number": row_number,
+            "field_rep_email": rep_email,
+            "field_rep_id": rep_field_id,
+            "field_rep_phone": rep_phone,
+            "doctor_name": doctor_name,
+            "doctor_phone": doctor_phone,
+            "status": "",
+            "message": "",
+            "master_field_rep_id": "",
+            "portal_user_id": "",
+            "doctor_id": "",
+        }
+
+    def _evaluate_rows(
         self,
         *,
         rows,
@@ -209,8 +238,8 @@ class Command(BaseCommand):
         rep_by_email_and_field_id,
         rep_by_email_and_phone,
     ):
-        cleaned_rows = []
-        errors = []
+        ready_rows = []
+        report_rows = []
         seen = set()
 
         for row_number, row in enumerate(rows, start=2):
@@ -223,6 +252,14 @@ class Command(BaseCommand):
             doctor_name = self._normalize_text(row.get(headers["doctor_name"]))
             doctor_phone = self._normalize_phone(row.get(headers["doctor_phone"]))
 
+            report_row = self._initial_report_row(
+                row_number=row_number,
+                rep_email=rep_email,
+                rep_field_id=rep_field_id,
+                rep_phone=rep_phone,
+                doctor_name=doctor_name,
+                doctor_phone=doctor_phone,
+            )
             row_errors = []
 
             try:
@@ -245,6 +282,8 @@ class Command(BaseCommand):
                     master_rep = rep_by_email_and_phone.get((rep_email, rep_phone))
                 if not master_rep:
                     row_errors.append("Field rep not found for the provided brand / campaign scope")
+                else:
+                    report_row["master_field_rep_id"] = str(master_rep.pk)
 
             portal_user = None
             if master_rep:
@@ -256,49 +295,118 @@ class Command(BaseCommand):
                     row_errors.append("Doctor already exists for specific field rep")
                 else:
                     seen.add(duplicate_key)
+                if portal_user:
+                    report_row["portal_user_id"] = str(portal_user.pk)
 
             if row_errors:
-                errors.append(f"Row {row_number}: {'; '.join(row_errors)}")
+                report_row["status"] = "skipped"
+                report_row["message"] = "; ".join(row_errors)
+                report_rows.append(report_row)
                 continue
 
-            cleaned_rows.append(
+            report_row["status"] = "ready"
+            report_row["message"] = "Validated successfully"
+            ready_rows.append(
                 {
+                    "report_row": report_row,
                     "master_rep": master_rep,
                     "rep_email": rep_email,
                     "doctor_name": doctor_name,
                     "doctor_phone": doctor_phone,
                 }
             )
+            report_rows.append(report_row)
 
-        return cleaned_rows, errors
+        return ready_rows, report_rows
 
-    def _save_rows(self, *, rows, source: str) -> int:
+    def _save_rows(self, *, rows, source: str, dry_run: bool) -> tuple[int, int]:
         created = 0
+        skipped = 0
         portal_user_cache = {}
 
-        with transaction.atomic():
-            for row in rows:
-                master_rep = row["master_rep"]
-                portal_user = portal_user_cache.get(master_rep.pk)
-                if portal_user is None:
-                    portal_user = _ensure_portal_user_for_master_rep(master_rep)
-                    portal_user_cache[master_rep.pk] = portal_user
+        for row in rows:
+            report_row = row["report_row"]
+            label = (
+                f"row={report_row['row_number']} rep_email={row['rep_email']} "
+                f"doctor={row['doctor_name']} ({row['doctor_phone']})"
+            )
 
-                Doctor.objects.create(
-                    rep=portal_user,
-                    name=row["doctor_name"],
-                    phone=row["doctor_phone"],
-                    source=source,
-                )
-                created += 1
+            if dry_run:
+                report_row["status"] = "dry_run"
+                report_row["message"] = "Validated successfully; doctor not created because --dry-run was used"
+                self.stdout.write(self.style.WARNING(f"[DRY RUN] {label}"))
+                skipped += 1
+                continue
 
-        return created
+            try:
+                with transaction.atomic():
+                    master_rep = row["master_rep"]
+                    portal_user = portal_user_cache.get(master_rep.pk)
+                    if portal_user is None:
+                        portal_user = _ensure_portal_user_for_master_rep(master_rep)
+                        portal_user_cache[master_rep.pk] = portal_user
+                    report_row["portal_user_id"] = str(portal_user.pk)
+
+                    existing = Doctor.objects.filter(rep=portal_user, phone=row["doctor_phone"]).first()
+                    if existing:
+                        report_row["status"] = "skipped"
+                        report_row["doctor_id"] = str(existing.pk)
+                        report_row["message"] = "Doctor already exists for specific field rep"
+                        self.stdout.write(self.style.WARNING(f"[SKIP] {label} reason={report_row['message']}"))
+                        skipped += 1
+                        continue
+
+                    doctor = Doctor.objects.create(
+                        rep=portal_user,
+                        name=row["doctor_name"],
+                        phone=row["doctor_phone"],
+                        source=source,
+                    )
+                    report_row["status"] = "created"
+                    report_row["doctor_id"] = str(doctor.pk)
+                    report_row["message"] = "Doctor created successfully"
+                    self.stdout.write(self.style.SUCCESS(f"[CREATED] {label} doctor_id={doctor.pk}"))
+                    created += 1
+            except Exception as exc:
+                report_row["status"] = "error"
+                report_row["message"] = str(exc)
+                self.stdout.write(self.style.ERROR(f"[ERROR] {label} reason={exc}"))
+                skipped += 1
+
+        return created, skipped
+
+    def _default_report_path(self, *, csv_path: Path, dry_run: bool) -> Path:
+        suffix = "_doctor_import_dry_run_report.csv" if dry_run else "_doctor_import_report.csv"
+        return csv_path.with_name(f"{csv_path.stem}{suffix}")
+
+    def _write_report(self, *, report_rows: list[dict], report_path: Path) -> None:
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        with report_path.open("w", encoding="utf-8", newline="") as handle:
+            writer = csv.DictWriter(
+                handle,
+                fieldnames=[
+                    "row_number",
+                    "field_rep_email",
+                    "field_rep_id",
+                    "field_rep_phone",
+                    "doctor_name",
+                    "doctor_phone",
+                    "status",
+                    "message",
+                    "master_field_rep_id",
+                    "portal_user_id",
+                    "doctor_id",
+                ],
+            )
+            writer.writeheader()
+            writer.writerows(report_rows)
 
     def handle(self, *args, **options):
         csv_path = Path(options["csv_path"]).expanduser()
         delimiter = options["delimiter"]
         source = options["source"]
         dry_run = bool(options["dry_run"])
+        report_path = Path(options["report_path"]).expanduser() if options.get("report_path") else None
 
         brand_id, master_campaign_id = self._derive_brand_context(
             brand_id=options.get("brand_id"),
@@ -310,35 +418,50 @@ class Command(BaseCommand):
             brand_id=brand_id,
             master_campaign_id=master_campaign_id,
         )
-        cleaned_rows, errors = self._validate_rows(
+        ready_rows, report_rows = self._evaluate_rows(
             rows=rows,
             headers=headers,
             rep_by_email_and_field_id=rep_by_email_and_field_id,
             rep_by_email_and_phone=rep_by_email_and_phone,
         )
+        final_report_path = report_path or self._default_report_path(csv_path=csv_path, dry_run=dry_run)
 
-        if errors:
-            for error in errors:
-                self.stdout.write(self.style.ERROR(error))
-            raise CommandError(
-                f"Import aborted. Found {len(errors)} validation error(s); no doctors were created."
-            )
+        self.stdout.write(
+            f"Starting doctor import: file={csv_path} brand_id={brand_id}"
+            + (f" master_campaign_id={master_campaign_id}" if master_campaign_id else "")
+        )
 
-        if not cleaned_rows:
-            self.stdout.write(self.style.WARNING("No doctor rows found to import."))
+        for report_row in report_rows:
+            if report_row["status"] == "skipped":
+                self.stdout.write(
+                    self.style.WARNING(
+                        f"[SKIP] row={report_row['row_number']} "
+                        f"rep_email={report_row['field_rep_email']} "
+                        f"doctor={report_row['doctor_name']} ({report_row['doctor_phone']}) "
+                        f"reason={report_row['message']}"
+                    )
+                )
+
+        if not report_rows:
+            self.stdout.write(self.style.WARNING("No doctor rows found in the CSV."))
             return
+
+        created, skipped_during_save = self._save_rows(rows=ready_rows, source=source, dry_run=dry_run)
+        skipped_total = sum(1 for row in report_rows if row["status"] in {"skipped", "error", "dry_run"})
+        if skipped_during_save and skipped_total < skipped_during_save:
+            skipped_total = skipped_during_save
+
+        self._write_report(report_rows=report_rows, report_path=final_report_path)
+
+        self.stdout.write("")
+        self.stdout.write(f"Report CSV: {final_report_path}")
+        self.stdout.write(f"Total rows processed: {len(report_rows)}")
+        self.stdout.write(f"Created: {created}")
+        self.stdout.write(f"Not created / skipped: {skipped_total}")
 
         if dry_run:
-            self.stdout.write(
-                self.style.SUCCESS(
-                    f"Dry run successful. {len(cleaned_rows)} doctor row(s) validated for import."
-                )
-            )
-            return
-
-        created = self._save_rows(rows=cleaned_rows, source=source)
-        self.stdout.write(
-            self.style.SUCCESS(
-                f"Imported {created} doctor row(s) for brand_id={brand_id}."
-            )
-        )
+            self.stdout.write(self.style.SUCCESS("Dry run completed. Review the report CSV for details."))
+        elif skipped_total:
+            self.stdout.write(self.style.WARNING("Import completed with skipped rows. Review the report CSV for details."))
+        else:
+            self.stdout.write(self.style.SUCCESS("Import completed successfully with no skipped rows."))
