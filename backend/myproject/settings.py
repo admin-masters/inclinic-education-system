@@ -95,6 +95,7 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "utils.context_processors.recaptcha_site_key",
+                "utils.context_processors.support_widget",
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
@@ -200,6 +201,20 @@ SOCIAL_AUTH_URL_NAMESPACE = "social"
 ADMIN_DASHBOARD_LINK = "/admin/dashboard/"
 SHORTLINK_REDIRECT_DOMAIN = 'https://new.cpdinclinic.co.in'
 FIELD_REP_REDIRECT_BASE_URL = "https://red-flag-alerts.co.in"
+SUPPORT_WIDGET_URLS = {
+    "doctor": "http://65.1.101.252/support/doctor/faq/in-clinic-content-viewing/collateral-viewer-screen/widget/?embed=1",
+    "clinic_staff": "http://65.1.101.252/support/clinic_staff/faq/in-clinic-content-viewing/collateral-viewer-screen/widget/?embed=1",
+    "brand_manager": "http://65.1.101.252/support/brand_manager/faq/in-clinic-content-viewing/collateral-viewer-screen/widget/?embed=1",
+    "field_rep": "http://65.1.101.252/support/field_rep/faq/in-clinic-content-viewing/collateral-viewer-screen/widget/?embed=1",
+    "patient": "http://65.1.101.252/support/patient/faq/in-clinic-content-viewing/collateral-viewer-screen/widget/?embed=1",
+}
+SUPPORT_WIDGET_LABELS = {
+    "doctor": "Doctor Support",
+    "clinic_staff": "Clinic Staff Support",
+    "brand_manager": "Brand Manager Support",
+    "field_rep": "Field Rep Support",
+    "patient": "Patient Support",
+}
 # ──────────────────────────────────────────────────────────────
 # 11  Django REST framework
 # ──────────────────────────────────────────────────────────────
