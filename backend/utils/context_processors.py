@@ -1,8 +1,26 @@
 from django.conf import settings
+from django.urls import reverse
+from urllib.parse import urlsplit
 
 
 def recaptcha_site_key(request):
     return {'RECAPTCHA_SITE_KEY': settings.RECAPTCHA_SITE_KEY}
+
+
+def _support_widget_proxy_url(request, raw_url: str) -> str:
+    value = (raw_url or "").strip()
+    if not value:
+        return ""
+
+    parsed = urlsplit(value)
+    remote_path = (parsed.path or "").lstrip("/")
+    if not remote_path:
+        return ""
+
+    proxy_url = reverse("support_widget_proxy", kwargs={"remote_path": remote_path})
+    if parsed.query:
+        return f"{proxy_url}?{parsed.query}"
+    return proxy_url
 
 
 def _support_widget_target(request):
@@ -99,4 +117,5 @@ def support_widget(request):
         "support_widget_screen": screen,
         "support_widget_label": support_labels.get(role, "Support"),
         "support_widget_url": url,
+        "support_widget_proxy_url": _support_widget_proxy_url(request, url),
     }

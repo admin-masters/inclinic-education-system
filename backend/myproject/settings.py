@@ -207,6 +207,7 @@ SOCIAL_AUTH_URL_NAMESPACE = "social"
 ADMIN_DASHBOARD_LINK = "/admin/dashboard/"
 SHORTLINK_REDIRECT_DOMAIN = 'https://new.cpdinclinic.co.in'
 FIELD_REP_REDIRECT_BASE_URL = "https://red-flag-alerts.co.in"
+SUPPORT_WIDGET_PROXY_BASE_URL = "http://65.1.101.252"
 SUPPORT_WIDGET_URLS = {
     "doctor": "http://65.1.101.252/support/doctor/faq/in-clinic-content-viewing/collateral-viewer-screen/widget/?embed=1",
     "clinic_staff": "http://65.1.101.252/support/clinic_staff/faq/campaign-operations/sharing-activation/widget/?embed=1",
