@@ -16,7 +16,7 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
-from .views import home_view
+from .views import home_view, support_widget_proxy
 from django.contrib.auth import views as auth_views
 from django.conf.urls.static import static
 from django.conf import settings
@@ -37,6 +37,7 @@ urlpatterns = [
     path('admin_dashboard/', include(('admin_dashboard.urls', 'admin_dashboard'), namespace='admin-dashboard')),
     path('auth/logout/', auth_views.LogoutView.as_view(), name='logout'),
     path('shortlinks/', include('shortlink_management.urls')),
+    path("support/chat/proxy/<path:remote_path>", support_widget_proxy, name="support_widget_proxy"),
     path("reports/collateral-transactions/<str:brand_campaign_id>/", collateral_transactions_dashboard, name="collateral_transactions_dashboard"),
 
     # Publisher campaign-scoped Field Rep routes
