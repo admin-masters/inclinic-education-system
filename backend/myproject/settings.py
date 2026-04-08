@@ -96,6 +96,7 @@ TEMPLATES = [
         "OPTIONS": {
             "context_processors": [
                 "utils.context_processors.recaptcha_site_key",
+                "utils.context_processors.support_widget",
                 "django.template.context_processors.debug",
                 "django.template.context_processors.request",
                 "django.contrib.auth.context_processors.auth",
@@ -206,6 +207,36 @@ SOCIAL_AUTH_URL_NAMESPACE = "social"
 ADMIN_DASHBOARD_LINK = "/admin/dashboard/"
 SHORTLINK_REDIRECT_DOMAIN = 'https://new.cpdinclinic.co.in'
 FIELD_REP_REDIRECT_BASE_URL = "https://red-flag-alerts.co.in"
+SUPPORT_WIDGET_URLS = {
+    "doctor": "http://65.1.101.252/support/doctor/faq/in-clinic-content-viewing/collateral-viewer-screen/widget/?embed=1",
+    "clinic_staff": "http://65.1.101.252/support/clinic_staff/faq/campaign-operations/sharing-activation/widget/?embed=1",
+    "brand_manager": "http://65.1.101.252/support/brand_manager/faq/campaign-operations/sharing-activation/widget/?embed=1",
+    "field_rep": "http://65.1.101.252/support/field_rep/faq/in-clinic-collateral-sharing/share-collaterals-form/widget/?embed=1",
+    "patient": "http://65.1.101.252/support/patient/faq/patient-education-patient-education-access/patient-education-video-page/widget/?embed=1",
+}
+SUPPORT_WIDGET_SCREEN_URLS = {
+    "doctor_verify": "http://65.1.101.252/support/doctor/faq/in-clinic-access-verification/doctor-number-verification-screen/widget/?embed=1",
+    "doctor_view": "http://65.1.101.252/support/doctor/faq/in-clinic-content-viewing/collateral-viewer-screen/widget/?embed=1",
+    "doctor_reports": "http://65.1.101.252/support/doctor/faq/reporting-analytics/reports-insights/widget/?embed=1",
+    "clinic_staff_sharing": "http://65.1.101.252/support/clinic_staff/faq/campaign-operations/sharing-activation/widget/?embed=1",
+    "clinic_staff_reports": "http://65.1.101.252/support/clinic_staff/faq/reporting-analytics/reports-insights/widget/?embed=1",
+    "brand_manager_authentication": "http://65.1.101.252/support/brand_manager/faq/access-login/authentication/widget/?embed=1",
+    "brand_manager_campaign_operations": "http://65.1.101.252/support/brand_manager/faq/campaign-operations/sharing-activation/widget/?embed=1",
+    "brand_manager_reports": "http://65.1.101.252/support/brand_manager/faq/reporting-analytics/reports-insights/widget/?embed=1",
+    "field_rep_authentication": "http://65.1.101.252/support/field_rep/faq/access-login/authentication/widget/?embed=1",
+    "field_rep_gmail_login": "http://65.1.101.252/support/field_rep/faq/in-clinic-recruitment-access/field-rep-gmail-login/widget/?embed=1",
+    "field_rep_share_collaterals": "http://65.1.101.252/support/field_rep/faq/in-clinic-collateral-sharing/share-collaterals-form/widget/?embed=1",
+    "field_rep_assigned_doctors": "http://65.1.101.252/support/field_rep/faq/in-clinic-collateral-sharing/assigned-doctors-list/widget/?embed=1",
+    "field_rep_whatsapp_message": "http://65.1.101.252/support/field_rep/faq/in-clinic-whatsapp-handoff-sending/prefilled-whatsapp-message/widget/?embed=1",
+    "patient_video_page": "http://65.1.101.252/support/patient/faq/patient-education-patient-education-access/patient-education-video-page/widget/?embed=1",
+}
+SUPPORT_WIDGET_LABELS = {
+    "doctor": "Doctor Support",
+    "clinic_staff": "Clinic Staff Support",
+    "brand_manager": "Brand Manager Support",
+    "field_rep": "Field Rep Support",
+    "patient": "Patient Support",
+}
 # ──────────────────────────────────────────────────────────────
 # 11  Django REST framework
 # ──────────────────────────────────────────────────────────────

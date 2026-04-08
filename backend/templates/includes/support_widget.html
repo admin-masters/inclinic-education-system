@@ -1,0 +1,101 @@
+{% if support_widget_enabled and support_widget_url %}
+<style>
+  .support-widget {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 1200;
+  }
+
+  .support-widget__link {
+    width: 58px;
+    height: 58px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #0d6efd, #36a2ff);
+    color: #fff;
+    box-shadow: 0 18px 40px rgba(13, 110, 253, 0.28);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+    text-decoration: none;
+    position: relative;
+  }
+
+  .support-widget__link:hover {
+    transform: translateY(-2px);
+    color: #fff;
+    text-decoration: none;
+  }
+
+  .support-widget__badge {
+    position: absolute;
+    right: 64px;
+    bottom: 8px;
+    background: rgba(15, 23, 42, 0.92);
+    color: #fff;
+    border-radius: 999px;
+    padding: 8px 12px;
+    font-size: 12px;
+    line-height: 1;
+    white-space: nowrap;
+    box-shadow: 0 10px 30px rgba(15, 23, 42, 0.16);
+  }
+
+  .support-widget__note {
+    position: absolute;
+    right: 0;
+    bottom: 74px;
+    width: min(260px, calc(100vw - 32px));
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 16px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.18);
+    padding: 12px 14px;
+    color: #475569;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
+  .support-widget__note strong {
+    display: block;
+    color: #0f172a;
+    font-size: 13px;
+    margin-bottom: 4px;
+  }
+
+  @media (max-width: 575.98px) {
+    .support-widget {
+      right: 16px;
+      bottom: 16px;
+    }
+
+    .support-widget__badge {
+      display: none;
+    }
+
+    .support-widget__note {
+      width: min(240px, calc(100vw - 24px));
+    }
+  }
+</style>
+
+<div class="support-widget">
+  <div class="support-widget__note">
+    <strong>{{ support_widget_label }}</strong>
+    Opens support in a new tab because the support site is served over HTTP and cannot be embedded in this HTTPS page.
+  </div>
+
+  <a
+    href="{{ support_widget_url }}"
+    target="_blank"
+    rel="noopener noreferrer"
+    class="support-widget__link"
+    aria-label="Open {{ support_widget_label }} in a new tab"
+    title="Open {{ support_widget_label }} in a new tab"
+  >
+    <span class="support-widget__badge">Open Support</span>
+    <span aria-hidden="true">💬</span>
+  </a>
+</div>
+{% endif %}
