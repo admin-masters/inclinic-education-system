@@ -1,0 +1,170 @@
+{% if support_widget_enabled and support_widget_url %}
+<style>
+  .support-widget {
+    position: fixed;
+    right: 24px;
+    bottom: 24px;
+    z-index: 1200;
+  }
+
+  .support-widget__toggle {
+    width: 58px;
+    height: 58px;
+    border: none;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #0d6efd, #36a2ff);
+    color: #fff;
+    box-shadow: 0 18px 40px rgba(13, 110, 253, 0.28);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 24px;
+  }
+
+  .support-widget__toggle:hover {
+    transform: translateY(-2px);
+  }
+
+  .support-widget__panel {
+    position: absolute;
+    right: 0;
+    bottom: 74px;
+    width: min(380px, calc(100vw - 32px));
+    height: min(600px, 72vh);
+    background: #fff;
+    border: 1px solid rgba(15, 23, 42, 0.08);
+    border-radius: 18px;
+    box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+    overflow: hidden;
+  }
+
+  .support-widget__header {
+    padding: 12px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #f8fbff;
+    border-bottom: 1px solid #e9eef5;
+  }
+
+  .support-widget__title {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .support-widget__title strong {
+    font-size: 14px;
+    line-height: 1.2;
+    color: #0f172a;
+  }
+
+  .support-widget__title span {
+    font-size: 12px;
+    color: #64748b;
+  }
+
+  .support-widget__close {
+    border: none;
+    background: transparent;
+    color: #475569;
+    font-size: 24px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .support-widget__frame {
+    width: 100%;
+    height: calc(100% - 55px);
+    border: 0;
+    background: #fff;
+  }
+
+  @media (max-width: 575.98px) {
+    .support-widget {
+      right: 16px;
+      bottom: 16px;
+    }
+
+    .support-widget__panel {
+      width: min(100vw - 24px, 380px);
+      height: min(72vh, 520px);
+      bottom: 70px;
+    }
+  }
+</style>
+
+<div class="support-widget" data-support-widget>
+  <button
+    type="button"
+    class="support-widget__toggle"
+    aria-label="Open support chat"
+    aria-expanded="false"
+    aria-controls="support-widget-panel"
+  >
+    <span aria-hidden="true">💬</span>
+  </button>
+
+  <div class="support-widget__panel" id="support-widget-panel" hidden>
+    <div class="support-widget__header">
+      <div class="support-widget__title">
+        <strong>Support Chat</strong>
+        <span>{{ support_widget_label }}</span>
+      </div>
+      <button type="button" class="support-widget__close" aria-label="Close support chat">&times;</button>
+    </div>
+    <iframe
+      class="support-widget__frame"
+      title="{{ support_widget_label }}"
+      loading="lazy"
+      referrerpolicy="origin-when-cross-origin"
+      data-src="{{ support_widget_url }}"
+    ></iframe>
+  </div>
+</div>
+
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const widget = document.querySelector("[data-support-widget]");
+    if (!widget) return;
+
+    const toggle = widget.querySelector(".support-widget__toggle");
+    const panel = widget.querySelector(".support-widget__panel");
+    const closeButton = widget.querySelector(".support-widget__close");
+    const frame = widget.querySelector(".support-widget__frame");
+
+    function openWidget() {
+      if (frame && !frame.src) {
+        frame.src = frame.dataset.src || "";
+      }
+      panel.hidden = false;
+      toggle.setAttribute("aria-expanded", "true");
+      widget.classList.add("is-open");
+    }
+
+    function closeWidget() {
+      panel.hidden = true;
+      toggle.setAttribute("aria-expanded", "false");
+      widget.classList.remove("is-open");
+    }
+
+    toggle.addEventListener("click", function () {
+      if (panel.hidden) {
+        openWidget();
+      } else {
+        closeWidget();
+      }
+    });
+
+    closeButton.addEventListener("click", closeWidget);
+
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !panel.hidden) {
+        closeWidget();
+      }
+    });
+  });
+</script>
+{% endif %}
