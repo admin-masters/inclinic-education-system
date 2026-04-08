@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import string
+from collections import defaultdict
 from pathlib import Path
 
 from django.conf import settings
@@ -9,6 +10,7 @@ from django.core.exceptions import ValidationError
 from django.core.management.base import BaseCommand, CommandError
 from django.core.validators import validate_email
 from django.db import transaction
+from django.db.models import Q
 
 from admin_dashboard.views import _ensure_portal_user_for_master_rep
 from campaign_management.master_models import MasterCampaign, MasterFieldRep
@@ -139,24 +141,37 @@ class Command(BaseCommand):
 
         return str(campaign.brand_id), master_campaign_id
 
-    def _build_rep_lookups(self, *, brand_id: str, master_campaign_id: str | None):
-        qs = (
-            MasterFieldRep.objects.using(MASTER_DB_ALIAS)
-            .select_related("user")
-            .filter(brand_id=str(brand_id), is_active=True)
-        )
-        if master_campaign_id:
-            qs = qs.filter(campaign_links__campaign_id=master_campaign_id).distinct()
+    def _collect_rep_identifiers(self, *, rows, headers) -> tuple[set[str], set[str], set[str]]:
+        emails = set()
+        field_ids = set()
+        phones = set()
 
-        reps = list(qs)
-        if not reps:
-            scope = f'brand "{brand_id}"'
-            if master_campaign_id:
-                scope += f' and campaign "{master_campaign_id}"'
-            raise CommandError(f"No active field reps found for {scope}.")
+        for row in rows:
+            rep_email = self._normalize_text(row.get(headers["rep_email"])).lower()
+            rep_field_id = self._normalize_text(row.get(headers["rep_field_id"])) if headers["rep_field_id"] else ""
+            rep_phone = self._normalize_phone(row.get(headers["rep_phone"])) if headers["rep_phone"] else ""
 
-        by_email_and_field_id = {}
-        by_email_and_phone = {}
+            if rep_email:
+                emails.add(rep_email)
+            if rep_field_id:
+                field_ids.add(rep_field_id)
+            if rep_phone:
+                phones.add(rep_phone)
+
+        return emails, field_ids, phones
+
+    @staticmethod
+    def _new_rep_lookup_bucket() -> dict[str, defaultdict]:
+        return {
+            "email_and_field_id": defaultdict(list),
+            "email_and_phone": defaultdict(list),
+            "field_id_only": defaultdict(list),
+            "phone_only": defaultdict(list),
+            "email_only": defaultdict(list),
+        }
+
+    def _index_reps(self, reps) -> dict[str, defaultdict]:
+        buckets = self._new_rep_lookup_bucket()
 
         for rep in reps:
             email = (getattr(getattr(rep, "user", None), "email", "") or "").strip().lower()
@@ -164,11 +179,108 @@ class Command(BaseCommand):
             phone = self._normalize_phone(getattr(rep, "phone_number", ""))
 
             if email and field_id:
-                by_email_and_field_id[(email, field_id)] = rep
+                buckets["email_and_field_id"][(email, field_id)].append(rep)
             if email and phone:
-                by_email_and_phone[(email, phone)] = rep
+                buckets["email_and_phone"][(email, phone)].append(rep)
+            if field_id:
+                buckets["field_id_only"][field_id].append(rep)
+            if phone:
+                buckets["phone_only"][phone].append(rep)
+            if email:
+                buckets["email_only"][email].append(rep)
 
-        return reps, by_email_and_field_id, by_email_and_phone
+        return buckets
+
+    def _build_rep_lookups(
+        self,
+        *,
+        brand_id: str,
+        master_campaign_id: str | None,
+        rep_emails: set[str],
+        rep_field_ids: set[str],
+        rep_phones: set[str],
+    ):
+        base_qs = MasterFieldRep.objects.using(MASTER_DB_ALIAS).select_related("user").filter(is_active=True)
+
+        identifier_filter = Q()
+        if rep_emails:
+            identifier_filter |= Q(user__email__in=sorted(rep_emails))
+        if rep_field_ids:
+            identifier_filter |= Q(brand_supplied_field_rep_id__in=sorted(rep_field_ids))
+        if identifier_filter:
+            base_qs = base_qs.filter(identifier_filter)
+
+        scoped_qs = base_qs.filter(brand_id=str(brand_id))
+        if master_campaign_id:
+            scoped_qs = scoped_qs.filter(campaign_links__campaign_id=master_campaign_id).distinct()
+
+        scoped_reps = list(scoped_qs.distinct())
+        global_reps = list(base_qs.distinct())
+
+        if not global_reps:
+            scope = f'brand "{brand_id}"'
+            if master_campaign_id:
+                scope += f' and campaign "{master_campaign_id}"'
+            raise CommandError(f"No master field reps found for the CSV identifiers within {scope}.")
+
+        return {
+            "scoped": self._index_reps(scoped_reps),
+            "global": self._index_reps(global_reps),
+            "scoped_count": len(scoped_reps),
+            "global_count": len(global_reps),
+        }
+
+    @staticmethod
+    def _unique_candidate(candidates):
+        if len(candidates) == 1:
+            return candidates[0], None
+        if len(candidates) > 1:
+            return None, "multiple_matches"
+        return None, None
+
+    def _resolve_master_rep(self, *, rep_email: str, rep_field_id: str, rep_phone: str, lookups):
+        attempts = []
+
+        if rep_email and rep_field_id:
+            attempts.append(
+                ("scoped email+field_id", lookups["scoped"]["email_and_field_id"].get((rep_email, rep_field_id), []))
+            )
+        if rep_email and rep_phone:
+            attempts.append(
+                ("scoped email+phone", lookups["scoped"]["email_and_phone"].get((rep_email, rep_phone), []))
+            )
+        if rep_email and rep_field_id:
+            attempts.append(
+                ("global master email+field_id", lookups["global"]["email_and_field_id"].get((rep_email, rep_field_id), []))
+            )
+        if rep_email and rep_phone:
+            attempts.append(
+                ("global master email+phone", lookups["global"]["email_and_phone"].get((rep_email, rep_phone), []))
+            )
+        if rep_field_id:
+            attempts.append(("scoped field_id", lookups["scoped"]["field_id_only"].get(rep_field_id, [])))
+        if rep_phone:
+            attempts.append(("scoped phone", lookups["scoped"]["phone_only"].get(rep_phone, [])))
+        if rep_field_id:
+            attempts.append(("global master field_id", lookups["global"]["field_id_only"].get(rep_field_id, [])))
+        if rep_phone:
+            attempts.append(("global master phone", lookups["global"]["phone_only"].get(rep_phone, [])))
+        if rep_email:
+            attempts.append(("scoped email", lookups["scoped"]["email_only"].get(rep_email, [])))
+        if rep_email:
+            attempts.append(("global master email", lookups["global"]["email_only"].get(rep_email, [])))
+
+        ambiguous_sources = []
+        for label, candidates in attempts:
+            rep, status = self._unique_candidate(candidates)
+            if rep:
+                return rep, label, None
+            if status == "multiple_matches":
+                ambiguous_sources.append(label)
+
+        if ambiguous_sources:
+            return None, "", "Multiple master field reps matched the provided identifiers"
+        return None, "", "Field rep not found in master DB"
 
     def _load_rows(self, *, csv_path: Path, delimiter: str):
         try:
@@ -226,6 +338,8 @@ class Command(BaseCommand):
             "status": "",
             "message": "",
             "master_field_rep_id": "",
+            "master_brand_id": "",
+            "master_match_source": "",
             "portal_user_id": "",
             "doctor_id": "",
         }
@@ -235,8 +349,7 @@ class Command(BaseCommand):
         *,
         rows,
         headers,
-        rep_by_email_and_field_id,
-        rep_by_email_and_phone,
+        lookups,
     ):
         ready_rows = []
         report_rows = []
@@ -275,15 +388,20 @@ class Command(BaseCommand):
                 row_errors.append("Doctor phone number is invalid")
 
             master_rep = None
+            match_source = ""
             if not row_errors:
-                if rep_field_id:
-                    master_rep = rep_by_email_and_field_id.get((rep_email, rep_field_id))
-                if not master_rep and rep_phone:
-                    master_rep = rep_by_email_and_phone.get((rep_email, rep_phone))
+                master_rep, match_source, lookup_error = self._resolve_master_rep(
+                    rep_email=rep_email,
+                    rep_field_id=rep_field_id,
+                    rep_phone=rep_phone,
+                    lookups=lookups,
+                )
                 if not master_rep:
-                    row_errors.append("Field rep not found for the provided brand / campaign scope")
+                    row_errors.append(lookup_error or "Field rep not found in master DB")
                 else:
                     report_row["master_field_rep_id"] = str(master_rep.pk)
+                    report_row["master_brand_id"] = str(getattr(master_rep, "brand_id", "") or "")
+                    report_row["master_match_source"] = match_source
 
             portal_user = None
             if master_rep:
@@ -311,6 +429,7 @@ class Command(BaseCommand):
                     "report_row": report_row,
                     "master_rep": master_rep,
                     "rep_email": rep_email,
+                    "match_source": match_source,
                     "doctor_name": doctor_name,
                     "doctor_phone": doctor_phone,
                 }
@@ -330,6 +449,8 @@ class Command(BaseCommand):
                 f"row={report_row['row_number']} rep_email={row['rep_email']} "
                 f"doctor={row['doctor_name']} ({row['doctor_phone']})"
             )
+            if row.get("match_source"):
+                label = f"{label} match={row['match_source']}"
 
             if dry_run:
                 report_row["status"] = "dry_run"
@@ -394,6 +515,8 @@ class Command(BaseCommand):
                     "status",
                     "message",
                     "master_field_rep_id",
+                    "master_brand_id",
+                    "master_match_source",
                     "portal_user_id",
                     "doctor_id",
                 ],
@@ -414,15 +537,18 @@ class Command(BaseCommand):
         )
 
         headers, rows = self._load_rows(csv_path=csv_path, delimiter=delimiter)
-        _, rep_by_email_and_field_id, rep_by_email_and_phone = self._build_rep_lookups(
+        rep_emails, rep_field_ids, rep_phones = self._collect_rep_identifiers(rows=rows, headers=headers)
+        lookups = self._build_rep_lookups(
             brand_id=brand_id,
             master_campaign_id=master_campaign_id,
+            rep_emails=rep_emails,
+            rep_field_ids=rep_field_ids,
+            rep_phones=rep_phones,
         )
         ready_rows, report_rows = self._evaluate_rows(
             rows=rows,
             headers=headers,
-            rep_by_email_and_field_id=rep_by_email_and_field_id,
-            rep_by_email_and_phone=rep_by_email_and_phone,
+            lookups=lookups,
         )
         final_report_path = report_path or self._default_report_path(csv_path=csv_path, dry_run=dry_run)
 
@@ -430,14 +556,26 @@ class Command(BaseCommand):
             f"Starting doctor import: file={csv_path} brand_id={brand_id}"
             + (f" master_campaign_id={master_campaign_id}" if master_campaign_id else "")
         )
+        self.stdout.write(
+            "Master field rep lookup: "
+            f"scoped_matches={lookups['scoped_count']} "
+            f"global_master_matches={lookups['global_count']} "
+            f"csv_rep_emails={len(rep_emails)}"
+        )
 
         for report_row in report_rows:
             if report_row["status"] == "skipped":
+                match_segment = (
+                    f"match={report_row['master_match_source']} "
+                    if report_row["master_match_source"]
+                    else ""
+                )
                 self.stdout.write(
                     self.style.WARNING(
                         f"[SKIP] row={report_row['row_number']} "
                         f"rep_email={report_row['field_rep_email']} "
                         f"doctor={report_row['doctor_name']} ({report_row['doctor_phone']}) "
+                        f"{match_segment}"
                         f"reason={report_row['message']}"
                     )
                 )
