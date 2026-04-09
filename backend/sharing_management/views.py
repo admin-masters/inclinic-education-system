@@ -395,30 +395,40 @@ def _resolve_fieldrep_sso_credentials(request, payload: dict | None = None) -> t
 
 
 def _master_get_fieldrep_for_sso(field_id: str, gmail_id: str, master_fieldrep_id: int | None, request=None):
-    master_rep = None
+    """
+    SSO bootstrap must trust the master Field Rep PK from the signed URL/JWT.
+    Manual login continues to use brand_supplied_field_rep_id via _master_get_fieldrep.
+    """
+    if not master_fieldrep_id:
+        _dbg(
+            request,
+            "MASTER SSO lookup skipped: missing master field rep id",
+            field_id=field_id,
+            gmail_id=gmail_id,
+        )
+        return None
 
-    if field_id or gmail_id:
-        try:
-            master_rep = _master_get_fieldrep(field_id=field_id, gmail_id=gmail_id, request=request)
-        except Exception as e:
-            _dbg(request, "MASTER SSO lookup exception", err=str(e))
-            master_rep = None
-
-    if not master_rep and master_fieldrep_id:
-        try:
-            qs = (
-                MasterFieldRep.objects.using(_master_db_alias())
-                .select_related("user")
-                .filter(pk=master_fieldrep_id, is_active=True)
-            )
-            if gmail_id:
-                qs = qs.filter(user__email__iexact=gmail_id)
-            master_rep = qs.first()
-        except Exception as e:
-            _dbg(request, "MASTER SSO lookup by pk exception", err=str(e), master_fieldrep_id=master_fieldrep_id)
-            master_rep = None
-
-    return master_rep
+    try:
+        qs = (
+            MasterFieldRep.objects.using(_master_db_alias())
+            .select_related("user")
+            .filter(pk=master_fieldrep_id, is_active=True)
+        )
+        if gmail_id:
+            qs = qs.filter(user__email__iexact=gmail_id)
+        master_rep = qs.first()
+        _dbg(
+            request,
+            "MASTER SSO lookup by pk",
+            master_fieldrep_id=master_fieldrep_id,
+            gmail_id=gmail_id,
+            found=bool(master_rep),
+            brand_supplied_field_rep_id=getattr(master_rep, "brand_supplied_field_rep_id", None),
+        )
+        return master_rep
+    except Exception as e:
+        _dbg(request, "MASTER SSO lookup by pk exception", err=str(e), master_fieldrep_id=master_fieldrep_id)
+        return None
 
 
 def _complete_fieldrep_gmail_login(
@@ -2136,7 +2146,7 @@ def fieldrep_gmail_login(request):
         _dbg(request, "fieldrep_gmail_login POST", field_id=field_id, gmail_id=gmail_id, campaign=brand_campaign_id)
 
         if not field_id or not gmail_id:
-            messages.error(request, "Please provide both Field ID and Gmail ID.")
+            messages.error(request, "Please provide both Brand Specific Field ID and Email ID.")
             return render(
                 request,
                 "sharing_management/fieldrep_gmail_login.html",
