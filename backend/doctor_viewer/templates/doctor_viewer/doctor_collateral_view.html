@@ -6,12 +6,15 @@
 
 <style>
   #pdfBox {
-    height: 600px;
+    height: min(600px, 70vh);
     overflow-y: auto;
     overflow-x: hidden;
     display: block;
     background: #f8f9fa;
     padding: 1rem;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
   }
 
   #pdfViewer {
@@ -19,6 +22,31 @@
     flex-direction: column;
     align-items: center;
     gap: 14px;
+  }
+
+  .pdf-page {
+    margin-bottom: 14px;
+    display: flex;
+    justify-content: center;
+    width: 100%;
+  }
+
+  .pdf-page canvas,
+  .pdf-page img {
+    display: block;
+    max-width: 100%;
+    height: auto;
+    background: #fff;
+    box-shadow: 0 12px 24px rgba(15, 23, 42, 0.08);
+    border-radius: 6px;
+  }
+
+  body.ios-pdf-page-scroll #pdfBox {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior: auto;
   }
 
   .archive-item {
@@ -226,6 +254,9 @@
   let totalPages = 0;
   let maxPageReached = 1;
   let lastSentLevel = 0;
+  const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+    || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const useIosImageViewer = !!isiOS;
 
   function computeScrollLevel(maxPage, total) {
     if (!total || total <= 1) return 0;
@@ -236,6 +267,54 @@
     if (maxPage >= total) return 2;
     if (maxPage >= half) return 1;
     return 0;
+  }
+
+  function getVisibleBounds() {
+    if (useIosImageViewer || !pdfBox) {
+      return {
+        top: 0,
+        bottom: window.innerHeight || document.documentElement.clientHeight || 0,
+      };
+    }
+
+    const boxRect = pdfBox.getBoundingClientRect();
+    return {
+      top: boxRect.top,
+      bottom: boxRect.bottom,
+    };
+  }
+
+  function enableIosPdfViewerMode() {
+    if (!useIosImageViewer || !pdfBox) return;
+    document.body.classList.add("ios-pdf-page-scroll");
+  }
+
+  async function renderPageSurface(page, pageNum, viewport, pixelRatio) {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+    canvas.height = Math.floor(viewport.height * pixelRatio);
+    canvas.width = Math.floor(viewport.width * pixelRatio);
+    canvas.style.width = `${viewport.width}px`;
+    canvas.style.height = `${viewport.height}px`;
+    context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+
+    await page.render({ canvasContext: context, viewport }).promise;
+
+    if (!useIosImageViewer) {
+      canvas.dataset.pageNumber = pageNum;
+      return canvas;
+    }
+
+    const image = document.createElement("img");
+    image.dataset.pageNumber = pageNum;
+    image.alt = `PDF page ${pageNum}`;
+    image.loading = pageNum <= 2 ? "eager" : "lazy";
+    image.decoding = "async";
+    image.src = canvas.toDataURL("image/png");
+
+    canvas.width = 0;
+    canvas.height = 0;
+    return image;
   }
 
   async function renderPdf(url) {
@@ -266,44 +345,32 @@
       const availableWidth = Math.max((pdfBox.clientWidth || 0) - 32, 280);
       const scale = availableWidth / baseViewport.width;
       const viewport = page.getViewport({ scale });
-      const canvas = document.createElement("canvas");
-      canvas.dataset.pageNumber = pageNum;
-
-      const context = canvas.getContext("2d");
       const pixelRatio = window.devicePixelRatio || 1;
-      canvas.height = Math.floor(viewport.height * pixelRatio);
-      canvas.width = Math.floor(viewport.width * pixelRatio);
-      canvas.style.width = `${viewport.width}px`;
-      canvas.style.height = `${viewport.height}px`;
-      context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+      const surface = await renderPageSurface(page, pageNum, viewport, pixelRatio);
 
       const wrapper = document.createElement("div");
-      wrapper.style.marginBottom = "14px";
-      wrapper.style.display = "flex";
-      wrapper.style.justifyContent = "center";
-      wrapper.style.width = "100%";
-      wrapper.appendChild(canvas);
+      wrapper.className = "pdf-page";
+      wrapper.appendChild(surface);
 
       pdfViewer.appendChild(wrapper);
-
-      await page.render({ canvasContext: context, viewport }).promise;
     }
 
-    pdfProgressText.textContent = `Scroll to read (${totalPages} pages)`;
+    pdfProgressText.textContent = useIosImageViewer
+      ? `Scroll the page to read (${totalPages} pages)`
+      : `Scroll to read (${totalPages} pages)`;
   }
 
   function detectMaxVisiblePage() {
-    const canvases = pdfViewer.querySelectorAll("canvas[data-page-number]");
+    const pages = pdfViewer.querySelectorAll("[data-page-number]");
     let best = 1;
+    const bounds = getVisibleBounds();
 
-    const boxRect = pdfBox.getBoundingClientRect();
-
-    canvases.forEach((c) => {
-      const rect = c.getBoundingClientRect();
-      const visible = rect.top < boxRect.bottom && rect.bottom > boxRect.top;
+    pages.forEach((node) => {
+      const rect = node.getBoundingClientRect();
+      const visible = rect.top < bounds.bottom && rect.bottom > bounds.top;
 
       if (visible) {
-        const pageNum = parseInt(c.dataset.pageNumber || "1");
+        const pageNum = parseInt(node.dataset.pageNumber || "1");
         if (pageNum > best) best = pageNum;
       }
     });
@@ -337,8 +404,11 @@
     }, 250);
   }
 
-  if (pdfBox) {
-    pdfBox.addEventListener("scroll", onPdfScroll);
+  if (useIosImageViewer) {
+    enableIosPdfViewerMode();
+    window.addEventListener("scroll", onPdfScroll, { passive: true });
+  } else if (pdfBox) {
+    pdfBox.addEventListener("scroll", onPdfScroll, { passive: true });
   }
 
   if (downloadPdfBtn) {
@@ -354,6 +424,7 @@
 
     try {
       await renderPdf(pdfUrl);
+      onPdfScroll();
     } catch (e) {
       pdfProgressText.textContent = "Failed to load PDF. Please refresh.";
       sendEngagement({ event: "pdf_load_failed", value: 1 });
