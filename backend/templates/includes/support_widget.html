@@ -1,4 +1,4 @@
-{% if support_widget_enabled and support_widget_proxy_url %}
+{% if support_widget_enabled and support_widget_embed_url %}
 <style>
   .support-widget {
     position: fixed;
@@ -12,9 +12,9 @@
     width: 60px;
     height: 60px;
     border-radius: 999px;
-    background: linear-gradient(135deg, #0d6efd, #36a2ff);
+    background: linear-gradient(135deg, #0b7a75, #0f9d92);
     color: #fff;
-    box-shadow: 0 18px 40px rgba(13, 110, 253, 0.28);
+    box-shadow: 0 18px 40px rgba(11, 122, 117, 0.28);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -26,7 +26,7 @@
 
   .support-widget__trigger:hover {
     transform: translateY(-2px);
-    box-shadow: 0 22px 48px rgba(13, 110, 253, 0.34);
+    box-shadow: 0 22px 48px rgba(11, 122, 117, 0.34);
   }
 
   .support-widget__pill {
@@ -89,7 +89,7 @@
     justify-content: space-between;
     gap: 12px;
     padding: 14px 16px;
-    background: linear-gradient(135deg, #0d6efd, #36a2ff);
+    background: linear-gradient(135deg, #0b7a75, #0f9d92);
     color: #fff;
   }
 
@@ -182,7 +182,7 @@
     aria-label="Open {{ support_widget_label }}"
     title="Open {{ support_widget_label }}"
   >
-    <span class="support-widget__pill">{{ support_widget_label }}</span>
+    <span class="support-widget__pill">Chatbot</span>
     <span aria-hidden="true">
       <i class="bi bi-chat-dots-fill"></i>
     </span>
@@ -201,8 +201,8 @@
 >
   <header class="support-widget__header">
     <div class="support-widget__title">
-      <strong id="support-widget-title">{{ support_widget_label }}</strong>
-      <small>Quick help for this page</small>
+      <strong id="support-widget-title">{{ support_widget_label }} Chatbot</strong>
+      <small>In-clinic help for this page</small>
     </div>
     <div class="support-widget__header-actions">
       <a
@@ -230,7 +230,7 @@
     <iframe
       class="support-widget__frame"
       data-support-iframe
-      data-src="{{ support_widget_proxy_url }}"
+      data-src="{{ support_widget_embed_url }}"
       loading="lazy"
       referrerpolicy="strict-origin-when-cross-origin"
       title="{{ support_widget_label }}"
