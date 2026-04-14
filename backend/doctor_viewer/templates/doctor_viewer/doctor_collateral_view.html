@@ -59,25 +59,25 @@
     animation: pdfPulse 1.2s ease-in-out infinite;
   }
 
-  body.ios-pdf-scroll-box #pdfBox {
-    height: clamp(420px, 72svh, 640px);
-    overflow-y: auto;
-    overflow-x: hidden;
-    -webkit-overflow-scrolling: touch;
-    overscroll-behavior: contain;
-    touch-action: pan-y;
+  body.ios-pdf-inline #pdfBox {
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    -webkit-overflow-scrolling: auto;
+    overscroll-behavior: auto;
+    touch-action: auto;
   }
 
-  body.ios-pdf-scroll-box #pdfViewer {
+  body.ios-pdf-inline #pdfViewer {
     align-items: stretch;
   }
 
-  body.ios-pdf-scroll-box .pdf-page {
+  body.ios-pdf-inline .pdf-page {
     justify-content: stretch;
   }
 
-  body.ios-pdf-scroll-box .pdf-page img,
-  body.ios-pdf-scroll-box .pdf-page-shell {
+  body.ios-pdf-inline .pdf-page img,
+  body.ios-pdf-inline .pdf-page-shell {
     width: 100%;
   }
 
@@ -304,7 +304,7 @@
   let defaultPageAspectRatio = 1.414;
   const isiOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
     || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const useIosLazyViewer = !!isiOS;
+  const useIosInlineViewer = !!isiOS;
 
   function computeScrollLevel(maxPage, total) {
     if (!total || total <= 1) return 0;
@@ -318,7 +318,7 @@
   }
 
   function getVisibleBounds() {
-    if (!pdfBox) {
+    if (useIosInlineViewer || !pdfBox) {
       return {
         top: 0,
         bottom: window.innerHeight || document.documentElement.clientHeight || 0,
@@ -333,7 +333,7 @@
   }
 
   function getTrackablePageNodes() {
-    if (useIosLazyViewer) {
+    if (useIosInlineViewer) {
       return pdfViewer.querySelectorAll(".pdf-page[data-page-number]");
     }
 
@@ -367,8 +367,8 @@
   }
 
   function enableIosPdfViewerMode() {
-    if (!useIosLazyViewer || !pdfBox) return;
-    document.body.classList.add("ios-pdf-scroll-box");
+    if (!useIosInlineViewer || !pdfBox) return;
+    document.body.classList.add("ios-pdf-inline");
   }
 
   async function canvasToImage(canvas, pageNum) {
@@ -408,7 +408,7 @@
 
     await page.render({ canvasContext: context, viewport }).promise;
 
-    if (!useIosLazyViewer) {
+    if (!useIosInlineViewer) {
       canvas.dataset.pageNumber = pageNum;
       return canvas;
     }
@@ -421,7 +421,7 @@
   }
 
   async function renderPageIntoWrapper(pageNum, wrapper) {
-    if (!useIosLazyViewer || !wrapper || !pdfDoc) return;
+    if (!useIosInlineViewer || !wrapper || !pdfDoc) return;
     const state = wrapper.dataset.renderState;
     if (state === "rendering" || state === "rendered") return;
 
@@ -457,7 +457,7 @@
   }
 
   function queuePageRender(pageNum, wrapper) {
-    if (!useIosLazyViewer || !wrapper) return renderQueue;
+    if (!useIosInlineViewer || !wrapper) return renderQueue;
 
     renderQueue = renderQueue
       .then(() => renderPageIntoWrapper(pageNum, wrapper))
@@ -469,7 +469,7 @@
   }
 
   function prefetchNearbyIosPages() {
-    if (!useIosLazyViewer || !pdfBox) return;
+    if (!useIosInlineViewer || !pdfBox) return;
 
     const bounds = getVisibleBounds();
     let queued = 0;
@@ -519,8 +519,8 @@
           });
         },
         {
-          root: pdfBox,
-          rootMargin: "320px 0px",
+          root: null,
+          rootMargin: "480px 0px",
           threshold: 0.01,
         }
       );
@@ -529,7 +529,7 @@
         pageRenderObserver.observe(wrapper);
       });
     } else if (!fallbackPrefetchBound) {
-      pdfBox.addEventListener("scroll", prefetchNearbyIosPages, { passive: true });
+      window.addEventListener("scroll", prefetchNearbyIosPages, { passive: true });
       fallbackPrefetchBound = true;
     }
 
@@ -563,10 +563,10 @@
       pdf_total_pages: totalPages
     });
 
-    if (useIosLazyViewer) {
+    if (useIosInlineViewer) {
       pdfProgressText.textContent = `Preparing PDF: ${totalPages} pages`;
       setupIosLazyViewer();
-      pdfProgressText.textContent = `Swipe inside the PDF to read (${totalPages} pages)`;
+      pdfProgressText.textContent = `Scroll the page to read (${totalPages} pages)`;
       return;
     }
 
@@ -614,7 +614,7 @@
     if (scrollTimer) clearTimeout(scrollTimer);
 
     scrollTimer = setTimeout(() => {
-      if (useIosLazyViewer) {
+      if (useIosInlineViewer) {
         prefetchNearbyIosPages();
       }
 
@@ -639,14 +639,16 @@
     }, 250);
   }
 
-  if (pdfBox) {
+  if (useIosInlineViewer) {
+    window.addEventListener("scroll", onPdfScroll, { passive: true });
+  } else if (pdfBox) {
     pdfBox.addEventListener("scroll", onPdfScroll, { passive: true });
   }
 
   window.addEventListener("resize", () => {
     if (!pdfBox) return;
 
-    if (useIosLazyViewer) {
+    if (useIosInlineViewer) {
       pdfViewer.querySelectorAll(".pdf-page[data-page-number]").forEach((wrapper) => {
         if (wrapper.dataset.renderState !== "rendered") {
           setPlaceholderHeight(wrapper);
