@@ -18,7 +18,7 @@ Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id
 
 ## 5. Workflow Summary
 
-- The collateral dashboard is the campaign-scoped control panel for asset inventory, calendar edits, doctor-upload shortcuts, and rep-facing entry points.
+- The collateral dashboard is the campaign-scoped control panel for asset inventory, calendar edits, and rep-facing entry points.
 - Add Collateral combines campaign selection, asset upload, banner configuration, webinar metadata, and a default WhatsApp message path.
 - Collateral Messages Management stores custom message text per campaign-collateral pair.
 - Calendar windows determine when a collateral is considered available in the share screens.
@@ -27,7 +27,7 @@ Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id
 ### Step 1. Open the campaign collateral dashboard
 
 - What the user does: Navigate to the campaign's collateral panel from the campaign inventory or directly through the filtered route.
-- What the user sees: A campaign-scoped dashboard with top buttons for `Add Collaterals`, `Edit Calendar`, `Doctor Bulk Upload`, `Field Rep Login`, and `Back to Home`, plus a collateral table with `Link`, `Edit Dates`, `Replace Collateral`, and `Delete` actions.
+- What the user sees: A campaign-scoped dashboard with top buttons for `Add Collaterals`, `Edit Calendar`, `Field Rep Login`, and `Back to Home`, plus a collateral table with `Link`, `Edit Dates`, `Replace Collateral`, and `Delete` actions.
 - Why the step matters: This dashboard is the operator's launch pad for collateral and rep-facing setup.
 - Expected result: The operator sees the current collateral inventory and the next setup actions in one place.
 - Common issues / trainer notes: This route is campaign-aware and surfaces the same brand campaign ID used elsewhere in the product. The dashboard search box also lets trainers jump directly between campaigns by brand campaign ID.

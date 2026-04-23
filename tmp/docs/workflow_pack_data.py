@@ -28,7 +28,7 @@ ROLE_MAP = [
     {
         "role": "Field rep",
         "goal": "Authenticate, pick the right campaign collateral, and share it with doctors through WhatsApp.",
-        "starts_at": "/share/fieldrep-gmail-login/ (legacy register/create-password routes redirect here)",
+        "starts_at": "/share/fieldrep-gmail-login/",
         "hands_off_to": "Doctors who receive the short link.",
     },
     {
@@ -54,7 +54,7 @@ WORKFLOW_GROUPS = [
 ]
 
 INVENTORY_DEPRECATED = [
-    "Legacy field-rep self-registration and create-password routes still exist in the route map, but they now redirect to the Gmail/manual login page and are documented as compatibility entry points inside workflow 06.",
+    "Legacy self-service field-rep registration, password recovery, and bulk doctor-upload coverage has been removed from the training pack; workflow 06 now documents only the live Email ID + Field Rep ID login, while workflow 07 focuses on one-by-one doctor entry.",
 ]
 
 INVENTORY_MISSING = []
@@ -66,14 +66,14 @@ WORKFLOWS = [
         "title": "Platform Overview and Role Map",
         "deck_group": "Platform Overview",
         "inventory_status": "✅ up-to-date",
-        "inventory_note": "Refreshed the cross-role handoff to match the current Gmail-first field-rep login and share experience.",
+        "inventory_note": "Refreshed the cross-role handoff to match the current field-rep login and one-by-one doctor-sharing experience.",
         "document_purpose": "Explain how campaign master data, portal operations, field-rep sharing, doctor verification, and reporting connect end to end.",
         "primary_user": "New team members, trainers, implementation partners, and AI agents orienting to the product.",
         "entry_point": "Role-dependent. The seeded demo uses `/campaigns/manage-data/`, `/campaigns/publisher-landing-page/`, `/share/fieldrep-gmail-login/`, and `/shortlinks/go/<code>/` as the main route families.",
         "workflow_summary": [
             "Campaign definitions originate in the master database and are surfaced in the portal through the Manage Data Panel and publisher landing pages.",
             "Editable campaign metadata, collateral assets, share logs, and transaction rollups live in the portal database.",
-            "Field reps now reach the campaign share flow primarily through the Gmail/manual login or signed SSO entry point; legacy register and create-password URLs redirect into that path.",
+            "Field reps are prepared in the campaign manager or staff-admin flow, then use the public Field Rep login page with Email ID and Field Rep ID before sharing.",
             "Doctors unlock collateral with the same WhatsApp number used during sharing, then consume PDF/video content in a viewer that also surfaces archive and webinar follow-ons.",
             "Reporting screens summarize the latest engagement state per doctor, per collateral, per campaign.",
         ],
@@ -84,7 +84,7 @@ WORKFLOWS = [
 | Publisher / partner system | Publisher landing page, campaign update form | Brand-campaign context plus editable campaign metadata |
 | Internal campaign operator | Manage Data Panel, campaign detail/update | Access to field-rep and collateral operations |
 | Staff admin | Field rep list, doctor maintenance | Campaign-assigned reps and doctor rosters |
-| Field rep | Gmail/manual login, share collateral page, doctor bulk upload | WhatsApp messages containing short links |
+| Field rep | Field Rep login, share collateral page, one-by-one doctor entry | WhatsApp messages containing short links |
 | Doctor | Verify access page, collateral viewer, support chatbot | Engagement records, archive opens, webinar opens |
 | Reporting stakeholder | Collateral transactions dashboard | Operational follow-up and campaign insight |
 
@@ -109,11 +109,11 @@ flowchart LR
 | Campaign operations | Authenticated portal login -> Manage Data Panel |
 | Field rep administration | Authenticated portal login -> Field Rep list |
 | Collateral authoring | Campaign shortcut into the collateral dashboard |
-| Field rep sharing | Campaign-scoped Gmail/manual login or signed SSO route |
+| Field rep sharing | Campaign-scoped Field Rep login route |
 | Doctor consumption | Public short link from WhatsApp |
 | Reporting review | Campaign report URL with `brand_campaign_id` |
 
-> Legacy note: `/share/fieldrep-register/` and `/share/fieldrep-create-password/` remain available only as compatibility redirects into the Gmail/manual login screen.
+> Current training note: field-rep registration is handled in the campaign manager / staff-admin workflow before the public Field Rep login page is used.
 """,
         "steps": [
             {
@@ -147,7 +147,7 @@ flowchart LR
                 "user_sees": "Campaign-specific collateral options, doctor lists, send/reminder statuses, and the floating support chatbot on the field-rep pages.",
                 "why_it_matters": "This is the commercial and educational delivery loop the platform is built to support.",
                 "expected_result": "A doctor receives a short link tied back to the right collateral, campaign, and rep.",
-                "trainer_notes": "The operator-facing campaign screens and the field-rep share screens live in different route families but reference the same campaign ID. Legacy register/create-password links now resolve into this same handoff.",
+                "trainer_notes": "The operator-facing campaign screens and the field-rep share screens live in different route families but reference the same campaign ID. Field-rep registration happens earlier in the campaign manager or staff-admin flow; this public route family is for live login and outreach only.",
                 "screenshot_file": "platform-share-handoff.png",
                 "screenshot_caption": "Field-rep share page showing the current campaign form, doctor list, and support chatbot entry point.",
                 "screenshot_focus": "The moment where campaign operations become doctor outreach in the current Gmail-first flow.",
@@ -431,7 +431,7 @@ flowchart LR
         "primary_user": "Campaign operators and training leads preparing the collateral side of a launch.",
         "entry_point": "Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id>` plus `/collaterals/add/<brand_campaign_id>/` and `/collaterals/collateral-messages/`.",
         "workflow_summary": [
-            "The collateral dashboard is the campaign-scoped control panel for asset inventory, calendar edits, doctor-upload shortcuts, and rep-facing entry points.",
+            "The collateral dashboard is the campaign-scoped control panel for asset inventory, calendar edits, and rep-facing entry points.",
             "Add Collateral combines campaign selection, asset upload, banner configuration, webinar metadata, and a default WhatsApp message path.",
             "Collateral Messages Management stores custom message text per campaign-collateral pair.",
             "Calendar windows determine when a collateral is considered available in the share screens.",
@@ -441,7 +441,7 @@ flowchart LR
                 "number": 1,
                 "title": "Open the campaign collateral dashboard",
                 "user_does": "Navigate to the campaign's collateral panel from the campaign inventory or directly through the filtered route.",
-                "user_sees": "A campaign-scoped dashboard with top buttons for `Add Collaterals`, `Edit Calendar`, `Doctor Bulk Upload`, `Field Rep Login`, and `Back to Home`, plus a collateral table with `Link`, `Edit Dates`, `Replace Collateral`, and `Delete` actions.",
+                "user_sees": "A campaign-scoped dashboard with top buttons for `Add Collaterals`, `Edit Calendar`, `Field Rep Login`, and `Back to Home`, plus a collateral table with `Link`, `Edit Dates`, `Replace Collateral`, and `Delete` actions.",
                 "why_it_matters": "This dashboard is the operator's launch pad for collateral and rep-facing setup.",
                 "expected_result": "The operator sees the current collateral inventory and the next setup actions in one place.",
                 "trainer_notes": "This route is campaign-aware and surfaces the same brand campaign ID used elsewhere in the product. The dashboard search box also lets trainers jump directly between campaigns by brand campaign ID.",
@@ -505,119 +505,83 @@ flowchart LR
     {
         "order": 6,
         "slug": "field-rep-registration-and-login",
-        "title": "Field Rep Registration and Login",
+        "title": "Field Rep Login",
         "deck_group": "Field Rep Journeys",
         "inventory_status": "✅ up-to-date",
-        "inventory_note": "Updated to reflect the legacy redirect behavior, the live password-recovery path, and the current Gmail/manual plus SSO login patterns.",
-        "document_purpose": "Explain the current public field-rep access screens, including the legacy compatibility redirects, the password login and recovery screens, and the active Gmail/manual or SSO login path.",
+        "inventory_note": "Simplified to the live public login pattern that uses Email ID plus Field Rep ID; registration now happens in the campaign manager dashboard.",
+        "document_purpose": "Explain the live public Field Rep login screen and how campaign-scoped reps sign in with Email ID and Field Rep ID.",
         "primary_user": "Field reps and trainers preparing reps for their first campaign login.",
-        "entry_point": "Public routes under `/share/fieldrep-register/`, `/share/fieldrep-create-password/`, `/share/fieldrep-login/`, and `/share/fieldrep-gmail-login/`.",
+        "entry_point": "Campaign-scoped Field Rep login route: `/share/fieldrep-gmail-login/?campaign=<brand_campaign_id>`.",
         "workflow_summary": [
-            "The legacy registration and create-password routes no longer collect new credentials; they redirect into the Gmail/manual login screen with an informational banner.",
-            "The product still supports both email/password login and Brand Specific Field ID plus Email ID login patterns.",
-            "Password recovery is still live through the forgot-password and reset-password flow backed by the rep's configured security question.",
-            "Signed SSO can also auto-complete the Gmail login flow by trusting the master Field Rep ID inside the URL or JWT payload.",
+            "Field reps are registered through the campaign manager or staff-admin workflow before they ever reach the public login page.",
+            "Public training now focuses on one live login pattern: Email ID plus Brand Specific Field ID.",
             "Campaign context can travel in the query string or session so a rep is taken directly into the correct campaign after login.",
+            "Successful login takes the rep straight into the campaign share page used in workflow 07.",
             "The field-rep background can be campaign-specific when the campaign has a configured background image.",
         ],
         "steps": [
             {
                 "number": 1,
-                "title": "Open the legacy registration route and observe the redirect",
-                "user_does": "Launch the campaign-scoped registration URL that older launch materials may still reference.",
-                "user_sees": "The Gmail/manual login page with an info banner stating that Field Rep registration is no longer required.",
-                "why_it_matters": "This explains the current product behavior when older documentation or bookmarks still point to the registration route.",
-                "expected_result": "The rep lands on the active login surface instead of a self-service sign-up form.",
-                "trainer_notes": "Call this out explicitly during training so the audience understands that the route is compatibility-only and not a live onboarding wizard anymore.",
-                "screenshot_file": "fieldrep-register.png",
-                "screenshot_caption": "Legacy registration URL redirecting into the current Gmail/manual login page.",
-                "screenshot_focus": "The informational banner and redirected login screen shown instead of the old registration form.",
+                "title": "Open the campaign-scoped Field Rep login page",
+                "user_does": "Launch the public Field Rep login URL for the selected campaign.",
+                "user_sees": "A campaign-scoped login form labeled Brand Specific Field ID and Email ID, along with the campaign context and the floating support chatbot.",
+                "why_it_matters": "This is the live entry point field reps use after they have already been registered in the campaign manager workflow.",
+                "expected_result": "The rep reaches the correct login surface for the campaign they need to work on.",
+                "trainer_notes": "Set the expectation clearly: this page is for login only. Registration and rep setup happen earlier in the admin workflow covered in workflow 04.",
+                "screenshot_file": "fieldrep-gmail-login.png",
+                "screenshot_caption": "Current Field Rep login page used for campaign-scoped rep access.",
+                "screenshot_focus": "The Email ID and Brand Specific Field ID fields that lead into the share experience.",
             },
             {
                 "number": 2,
-                "title": "Open the legacy create-password route and confirm the new handoff",
-                "user_does": "Launch the create-password URL, optionally carrying the rep email, Field ID, and campaign in the query string.",
-                "user_sees": "The same Gmail/manual login page, usually with the email and Field ID prefilled and the same informational banner.",
-                "why_it_matters": "This shows how older password-setup links now preserve context while handing the rep into the supported login path.",
-                "expected_result": "The rep can continue with the current login flow without losing the campaign or identifier context.",
-                "trainer_notes": "Use this screen to explain that the product team simplified onboarding: reps are expected to log in, not create a new password from this route.",
-                "screenshot_file": "fieldrep-create-password.png",
-                "screenshot_caption": "Legacy create-password URL redirecting into the current login page with preserved identifiers.",
-                "screenshot_focus": "The redirected Gmail/manual login form with prefilled rep context.",
-            },
-            {
-                "number": 3,
-                "title": "Review the direct email/password login screen",
-                "user_does": "Open the field-rep login page tied to the active campaign.",
-                "user_sees": "A focused login form that asks for email and password, preserves campaign context, and exposes a `Forgot Password?` link below the primary login button.",
-                "why_it_matters": "This is the most straightforward rep-login method for routine use.",
-                "expected_result": "The rep knows where to enter their standard credentials when the campaign requires the password flow.",
-                "trainer_notes": "If the audience asks which login path to use, clarify what the current campaign rollout recommends before moving into the next workflow deck.",
-                "screenshot_file": "fieldrep-login.png",
-                "screenshot_caption": "Email/password field-rep login page for the selected campaign.",
-                "screenshot_focus": "The direct credential-entry option for field reps.",
-            },
-            {
-                "number": 4,
-                "title": "Recover access with the security-question flow when needed",
-                "user_does": "Use the `Forgot Password?` link, enter the rep email, answer the configured security question, and continue to the reset-password page.",
-                "user_sees": "A two-stage recovery screen that first asks for the email address, then shows the rep's saved security question and answer field before allowing a reset.",
-                "why_it_matters": "This is the live fallback when a rep remembers their email but not their current password.",
-                "expected_result": "The rep can reach the reset-password step without staff manually changing credentials.",
-                "trainer_notes": "Recovery only works if the rep has a security profile and answer configured. If not, the current product tells the user to contact admin.",
-                "screenshot_file": "fieldrep-forgot-password.png",
-                "screenshot_caption": "Field-rep recovery screen showing the security-question challenge before password reset.",
-                "screenshot_focus": "The recovery path that bridges from forgotten password into reset-password.",
-            },
-            {
-                "number": 5,
-                "title": "Use the active Gmail/manual or SSO login path",
-                "user_does": "Open the Gmail login route and either enter the Brand Specific Field ID plus Email ID manually or arrive through a signed SSO link that provides those values automatically.",
-                "user_sees": "A campaign-scoped login form labeled Brand Specific Field ID and Email ID, along with the campaign context and the floating support chatbot.",
-                "why_it_matters": "This is the primary live access route into the share experience and the path used by the seeded demo.",
-                "expected_result": "The rep reaches the campaign share page with the correct assignment and session context.",
-                "trainer_notes": "Manual login uses the brand-specific Field ID. Automatic SSO trusts the master Field Rep ID from the URL or JWT claims, then completes the same login path only if the claim set matches the campaign and rep identifiers in the request.",
+                "title": "Sign in with Email ID and Field Rep ID",
+                "user_does": "Enter the Email ID and Brand Specific Field ID exactly as assigned for the campaign, then submit the form.",
+                "user_sees": "The same login card until submission succeeds, after which the rep is redirected into the campaign share screen with the selected campaign already in context.",
+                "why_it_matters": "These two identifiers are the only public-login fields the rep needs for the live workflow.",
+                "expected_result": "The rep lands on the share page and is ready to start sending collateral.",
+                "trainer_notes": "If login fails, confirm that the rep record exists in the campaign manager dashboard and that the Email ID plus Field Rep ID pair belongs to the same campaign assignment.",
                 "screenshot_file": "fieldrep-gmail-login.png",
-                "screenshot_caption": "Current Gmail/manual login page used for campaign-scoped rep access.",
-                "screenshot_focus": "The Brand Specific Field ID and Email ID fields that lead directly into the share experience.",
+                "screenshot_caption": "Field Rep login page showing the two identifiers required for campaign access.",
+                "screenshot_focus": "The credential fields and submit action used before the rep is redirected into sharing.",
             },
         ],
         "success_criteria": [
-            "Trainees understand that registration and create-password routes are now compatibility redirects, not live onboarding forms.",
-            "The difference between email/password, password recovery, Gmail/manual login, and signed SSO is explained clearly.",
+            "Trainees understand that registration happens in the campaign manager or staff-admin workflow, not on the public rep page.",
+            "The live public login uses only Email ID and Brand Specific Field ID.",
             "Campaign context in the URL is explained clearly.",
             "The group is ready to continue into the share workflow with the correct login path.",
         ],
         "related_documents": [
+            "docs/product-user-flows/04-admin-field-rep-and-doctor-management.md",
             "docs/product-user-flows/07-field-rep-sharing-and-doctor-bulk-upload.md",
             "backend/sharing_management/views.py",
             "backend/sharing_management/templates/sharing_management/fieldrep_gmail_login.html",
         ],
-        "status": f"Validated against the current public rep-access screens on {GENERATED_ON}; legacy registration routes now documented as redirects into Gmail/manual login.",
+        "status": f"Validated against the current public Field Rep login screen on {GENERATED_ON}; registration is documented in the admin workflow instead of the public rep deck.",
         "tips": [
-            "Lead with the Gmail/manual screen because it reflects the current launch path most accurately.",
-            "Show the forgot-password screen only briefly unless the session is specifically about support or rep onboarding recovery.",
-            "Keep the rep deck practical: explain the legacy redirects once, then spend the rest of the time on the live login and share flow.",
+            "Anchor the training on the actual two-field login pattern instead of describing historical public registration routes.",
+            "If the audience asks where reps are created, point them back to workflow 04 rather than expanding this deck into admin setup.",
+            "Keep this deck short so the training spends most of its time in the share workflow.",
         ],
     },
     {
         "order": 7,
         "slug": "field-rep-sharing-and-doctor-bulk-upload",
-        "title": "Field Rep Sharing and Doctor Bulk Upload",
+        "title": "Field Rep Sharing and Doctor Addition",
         "deck_group": "Field Rep Journeys",
         "inventory_status": "✅ up-to-date",
-        "inventory_note": "Refreshed the share journey to cover the live quick-send actions, doctor-row status lifecycle, reminder follow-up, and chatbot-enabled public rep pages.",
-        "document_purpose": "Document the day-to-day field-rep workflow for choosing doctors, filtering the doctor work queue, sending collateral through WhatsApp, following up with reminders, and bulk-uploading doctor rosters.",
+        "inventory_note": "Refreshed the share journey to cover one-by-one doctor entry, quick-send actions, and the live reminder/opened state lifecycle.",
+        "document_purpose": "Document the day-to-day field-rep workflow for choosing doctors, adding missing doctors one at a time, sending collateral through WhatsApp, and following up with reminders.",
         "primary_user": "Field reps and trainers running campaign distribution sessions.",
-        "entry_point": "Campaign-scoped Gmail share route: `/share/fieldrep-gmail-share-collateral/?brand_campaign_id=<brand_campaign_id>` plus `/share/dashboard/doctors/bulk-upload/?campaign=<brand_campaign_id>`.",
+        "entry_point": "Campaign-scoped Gmail share route: `/share/fieldrep-gmail-share-collateral/?brand_campaign_id=<brand_campaign_id>`.",
         "workflow_summary": [
             "The Gmail share page is the campaign-aware workbench for choosing a doctor, choosing collateral, and launching the WhatsApp handoff.",
-            "The left-side manual form is still a live path for entering a doctor name and WhatsApp number directly, choosing a collateral from the dropdown, and sending with the `Submit` button.",
+            "Missing doctors are handled one at a time from the left-side manual form, where the rep enters the doctor's name and WhatsApp number, chooses a collateral, and sends with the `Submit` button.",
             "Doctors can be typed manually on the left-side form or reused from the rep's assigned doctor list on the right, where each row doubles as a quick-send shortcut.",
             "The right-side doctor statuses are collateral-specific and progress from `Send Message` to `Sent`, then to `Send Reminder` after six days without engagement, and finally to `Opened` once the doctor views the collateral.",
             "Each quick-send action creates or reuses a short link, upserts the doctor record if needed, writes a ShareLog entry, and opens the WhatsApp deep link for that doctor and collateral.",
             "The public rep screens now include the support chatbot so reps and trainers can jump into help without leaving the workflow.",
-            "Bulk upload helps a rep or operator stage a doctor roster before manual sharing starts.",
+            "If the roster is incomplete, the current training flow adds doctors one at a time either from this share page or earlier in the staff-admin doctor maintenance workflow.",
         ],
         "steps": [
             {
@@ -634,15 +598,15 @@ flowchart LR
             },
             {
                 "number": 2,
-                "title": "Prepare a manual share from the left-side form",
+                "title": "Add a doctor one at a time from the left-side form",
                 "user_does": "Enter the doctor name, type the doctor's WhatsApp number, choose the collateral from the dropdown, and review the rep ID before clicking `Submit`.",
                 "user_sees": "The full left-side share form with the campaign ID, read-only Field Rep ID, doctor inputs, collateral selector, and the primary `Submit` button.",
-                "why_it_matters": "This is the explicit manual-share path when the doctor is not yet in the right-side roster or when the trainer wants to demonstrate the form fields one by one.",
+                "why_it_matters": "This is the current doctor-addition path when the doctor is not yet in the right-side roster or when the trainer wants to demonstrate the form fields one by one.",
                 "expected_result": "The rep is ready to send the selected collateral using the left-hand form without relying on a preloaded doctor row.",
-                "trainer_notes": "Emphasize that the collateral dropdown drives the entire page state. The same selected collateral also determines the right-side doctor statuses and the hidden values in the quick-send forms.",
+                "trainer_notes": "Emphasize that the collateral dropdown drives the entire page state. The same selected collateral also determines the right-side doctor statuses and the hidden values in the quick-send forms. There is no bulk doctor-upload step in the current training flow.",
                 "screenshot_file": "fieldrep-send-form.png",
-                "screenshot_caption": "Left-side manual share form showing doctor inputs, collateral dropdown, and the Submit button.",
-                "screenshot_focus": "The explicit manual-send path that pairs a typed doctor with a selected collateral.",
+                "screenshot_caption": "Left-side manual share form used to add one doctor at a time with the selected collateral.",
+                "screenshot_focus": "The one-by-one doctor entry path that pairs a typed doctor with a selected collateral.",
             },
             {
                 "number": 3,
@@ -663,7 +627,7 @@ flowchart LR
                 "user_sees": "A submit action that resolves the doctor phone number, creates or updates the doctor record, creates or reuses the short link and ShareLog entry, and redirects into a WhatsApp deep link for the chosen doctor.",
                 "why_it_matters": "This is the primary field-rep outcome: the doctor receives a trackable message that carries the right campaign, collateral, and rep context.",
                 "expected_result": "The rep launches WhatsApp with the configured collateral message and the right short link for the selected doctor.",
-                "trainer_notes": "This is the clearest slide for explaining the dropdown-based collateral choice and the `Submit` button. The manual form is also how the system can upsert a brand-new doctor into the rep's list.",
+                "trainer_notes": "This is the clearest slide for explaining the dropdown-based collateral choice and the `Submit` button. The manual form is also how the system adds or updates a single doctor in the rep's list.",
                 "screenshot_file": "fieldrep-send-form.png",
                 "screenshot_caption": "Manual share form immediately before the rep submits the first collateral message.",
                 "screenshot_focus": "The doctor details and collateral selection used by the Submit-based share flow.",
@@ -692,34 +656,24 @@ flowchart LR
                 "screenshot_caption": "Reminder-due doctor view showing the follow-up state after the first share ages without engagement.",
                 "screenshot_focus": "The `Send Reminder` action and the surrounding `Sent` and `Opened` status cues.",
             },
-            {
-                "number": 7,
-                "title": "Bulk-upload doctors when onboarding a campaign",
-                "user_does": "Open the Doctor Bulk Upload page, download the sample CSV if needed, and upload a prepared doctor file for the campaign.",
-                "user_sees": "A purpose-built bulk-upload form that explains the expected CSV columns and confirms successful ingestion.",
-                "why_it_matters": "Uploading a roster up front makes manual sharing dramatically faster once the campaign goes live.",
-                "expected_result": "The rep or operator can stage multiple doctors for the same campaign in one pass.",
-                "trainer_notes": "Use the bulk-upload step before the live sharing demo if you want the doctor list to look realistic without typing every doctor by hand.",
-                "screenshot_file": "doctor-bulk-upload.png",
-                "screenshot_caption": "Doctor bulk-upload screen with sample CSV guidance.",
-                "screenshot_focus": "The upload field and the expected column list.",
-            },
         ],
         "success_criteria": [
             "The rep can explain how the left-side collateral selector and Submit flow work together on the share page.",
             "The rep can explain how the doctor search and status filter change the right-side work queue.",
             "The audience understands the row-button lifecycle from `Send Message` to `Sent`, `Send Reminder`, and `Opened`.",
             "The audience understands why the doctor's exact WhatsApp number matters.",
-            "The bulk-upload option is positioned as a preparation tool, not a separate reporting workflow.",
+            "The audience understands that missing doctors are added one at a time from the share form or the admin doctor-maintenance screen.",
         ],
         "related_documents": [
+            "docs/product-user-flows/04-admin-field-rep-and-doctor-management.md",
             "docs/product-user-flows/08-doctor-verification-and-collateral-consumption.md",
             "backend/sharing_management/views.py",
             "backend/sharing_management/templates/sharing_management/fieldrep_gmail_share_collateral.html",
         ],
-        "status": f"Validated against the Gmail/manual share flow and doctor bulk-upload page on {GENERATED_ON}.",
+        "status": f"Validated against the Gmail/manual share flow on {GENERATED_ON}; one-by-one doctor entry is now the documented preparation path.",
         "tips": [
             "Use a real-looking doctor list before your demo so the share screen feels grounded.",
+            "If a doctor is missing, add them one at a time from the left-side form or from the staff-admin doctor maintenance screen before retrying the share.",
             "Remind trainees that changing the collateral dropdown recalculates the right-side statuses for that collateral and keeps the quick-send forms in sync.",
             "Demonstrate the left-hand Submit flow before the right-side quick-send buttons so the audience understands both paths.",
             "Only `Opened` is disabled in the current template; `Sent` and `Send Reminder` are both actionable quick-send buttons.",
