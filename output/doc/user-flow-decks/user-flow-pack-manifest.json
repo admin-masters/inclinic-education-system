@@ -1,0 +1,56 @@
+[
+  {
+    "order": 1,
+    "title": "Platform Overview and Role Map",
+    "source_manual": "docs/product-user-flows/01-platform-overview-and-role-map.md",
+    "deck": "output/doc/user-flow-decks/01-platform-overview-and-role-map.pptx"
+  },
+  {
+    "order": 2,
+    "title": "Publisher Campaign Onboarding and Update",
+    "source_manual": "docs/product-user-flows/02-publisher-campaign-onboarding-and-update.md",
+    "deck": "output/doc/user-flow-decks/02-publisher-campaign-onboarding-and-update.pptx"
+  },
+  {
+    "order": 3,
+    "title": "Internal Campaign Operations from the Manage Data Panel",
+    "source_manual": "docs/product-user-flows/03-internal-campaign-operations-from-the-manage-data-panel.md",
+    "deck": "output/doc/user-flow-decks/03-internal-campaign-operations-from-the-manage-data-panel.pptx"
+  },
+  {
+    "order": 4,
+    "title": "Admin Field Rep and Doctor Management",
+    "source_manual": "docs/product-user-flows/04-admin-field-rep-and-doctor-management.md",
+    "deck": "output/doc/user-flow-decks/04-admin-field-rep-and-doctor-management.pptx"
+  },
+  {
+    "order": 5,
+    "title": "Collateral Authoring and Message Setup",
+    "source_manual": "docs/product-user-flows/05-collateral-authoring-and-message-setup.md",
+    "deck": "output/doc/user-flow-decks/05-collateral-authoring-and-message-setup.pptx"
+  },
+  {
+    "order": 6,
+    "title": "Field Rep Registration and Login",
+    "source_manual": "docs/product-user-flows/06-field-rep-registration-and-login.md",
+    "deck": "output/doc/user-flow-decks/06-field-rep-registration-and-login.pptx"
+  },
+  {
+    "order": 7,
+    "title": "Field Rep Sharing and Doctor Bulk Upload",
+    "source_manual": "docs/product-user-flows/07-field-rep-sharing-and-doctor-bulk-upload.md",
+    "deck": "output/doc/user-flow-decks/07-field-rep-sharing-and-doctor-bulk-upload.pptx"
+  },
+  {
+    "order": 8,
+    "title": "Doctor Verification and Collateral Consumption",
+    "source_manual": "docs/product-user-flows/08-doctor-verification-and-collateral-consumption.md",
+    "deck": "output/doc/user-flow-decks/08-doctor-verification-and-collateral-consumption.pptx"
+  },
+  {
+    "order": 9,
+    "title": "Engagement Reporting and Transaction Review",
+    "source_manual": "docs/product-user-flows/09-engagement-reporting-and-transaction-review.md",
+    "deck": "output/doc/user-flow-decks/09-engagement-reporting-and-transaction-review.pptx"
+  }
+]

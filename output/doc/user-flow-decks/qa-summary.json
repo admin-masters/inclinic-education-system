@@ -1,0 +1,89 @@
+{
+  "rendered_pdfs": [
+    "00-user-flow-training-index.pdf",
+    "01-platform-overview-and-role-map.pdf",
+    "06-field-rep-registration-and-login.pdf",
+    "07-field-rep-sharing-and-doctor-bulk-upload.pdf",
+    "08-doctor-verification-and-collateral-consumption.pdf"
+  ],
+  "pdf_count": 5,
+  "expected_pdf_count": 5,
+  "screenshot_dimensions": {
+    "docs/product-user-flows/assets/platform-overview-and-role-map/platform-home.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/platform-overview-and-role-map/platform-manage-data.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/platform-overview-and-role-map/platform-reporting-loop.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/platform-overview-and-role-map/platform-share-handoff.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-registration-and-login/fieldrep-create-password.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-registration-and-login/fieldrep-gmail-login.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-registration-and-login/fieldrep-login.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-registration-and-login/fieldrep-register.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/doctor-bulk-upload.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-doctor-status.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-gmail-share.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/doctor-verification-and-collateral-consumption/doctor-verify.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/doctor-verification-and-collateral-consumption/doctor-viewer-archive.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/doctor-verification-and-collateral-consumption/doctor-viewer.png": {
+      "width": 1600,
+      "height": 1100
+    }
+  },
+  "linked_workflow_decks": [
+    "01-platform-overview-and-role-map.pptx",
+    "02-publisher-campaign-onboarding-and-update.pptx",
+    "03-internal-campaign-operations-from-the-manage-data-panel.pptx",
+    "04-admin-field-rep-and-doctor-management.pptx",
+    "05-collateral-authoring-and-message-setup.pptx",
+    "06-field-rep-registration-and-login.pptx",
+    "07-field-rep-sharing-and-doctor-bulk-upload.pptx",
+    "08-doctor-verification-and-collateral-consumption.pptx",
+    "09-engagement-reporting-and-transaction-review.pptx"
+  ],
+  "expected_links": 9,
+  "placeholder_hits": {},
+  "qa_scope": [
+    "01-platform-overview-and-role-map",
+    "06-field-rep-registration-and-login",
+    "07-field-rep-sharing-and-doctor-bulk-upload",
+    "08-doctor-verification-and-collateral-consumption"
+  ],
+  "status": "ok"
+}
