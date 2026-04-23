@@ -6,7 +6,7 @@ Collateral Authoring and Message Setup
 
 ## 2. Document Purpose
 
-Show how campaign assets, collateral schedules, and WhatsApp messages are configured before field reps start sharing.
+Show how campaign assets, dashboard shortcuts, collateral schedules, and WhatsApp messages are configured before field reps start sharing.
 
 ## 3. Primary User
 
@@ -18,7 +18,7 @@ Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id
 
 ## 5. Workflow Summary
 
-- The collateral dashboard is the campaign-scoped control panel for asset inventory, calendar edits, and rep-facing shortcuts.
+- The collateral dashboard is the campaign-scoped control panel for asset inventory, calendar edits, doctor-upload shortcuts, and rep-facing entry points.
 - Add Collateral combines campaign selection, asset upload, banner configuration, webinar metadata, and a default WhatsApp message path.
 - Collateral Messages Management stores custom message text per campaign-collateral pair.
 - Calendar windows determine when a collateral is considered available in the share screens.
@@ -27,10 +27,10 @@ Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id
 ### Step 1. Open the campaign collateral dashboard
 
 - What the user does: Navigate to the campaign's collateral panel from the campaign inventory or directly through the filtered route.
-- What the user sees: A campaign-scoped dashboard with buttons for Add Collaterals, Edit Calendar, Doctor Bulk Upload, and the field-rep entry links.
+- What the user sees: A campaign-scoped dashboard with top buttons for `Add Collaterals`, `Edit Calendar`, `Doctor Bulk Upload`, `Field Rep Login`, and `Back to Home`, plus a collateral table with `Link`, `Edit Dates`, `Replace Collateral`, and `Delete` actions.
 - Why the step matters: This dashboard is the operator's launch pad for collateral and rep-facing setup.
 - Expected result: The operator sees the current collateral inventory and the next setup actions in one place.
-- Common issues / trainer notes: This route is campaign-aware and surfaces the same brand campaign ID used elsewhere in the product.
+- Common issues / trainer notes: This route is campaign-aware and surfaces the same brand campaign ID used elsewhere in the product. The dashboard search box also lets trainers jump directly between campaigns by brand campaign ID.
 - Screenshot placeholder:
   Suggested file path: `docs/product-user-flows/assets/collateral-authoring-and-message-setup/collateral-dashboard.png`
   Screenshot caption: Campaign collateral dashboard with collateral inventory and setup shortcuts.
@@ -38,11 +38,11 @@ Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id
 
 ### Step 2. Create or update a collateral asset
 
-- What the user does: Open the Add Collateral form, upload the PDF and banners, choose the type, and add descriptive or webinar metadata.
-- What the user sees: A large multipart form for purpose, content title, content ID, collateral type, PDF or Vimeo input, banners, doctor display name, and webinar details.
+- What the user does: Open the Add Collateral form, choose the campaign and purpose, upload the PDF and banners, choose the type, and add descriptive or webinar metadata before submitting.
+- What the user sees: A large multipart form for campaign, purpose, content title, content ID, collateral type, PDF or Vimeo input, banners, doctor display name, description, webinar details, and an inline WhatsApp message text area.
 - Why the step matters: This screen defines what the doctor ultimately sees after verification.
 - Expected result: The campaign has a polished collateral record that can be linked and shared.
-- Common issues / trainer notes: The form automatically creates a message row when a collateral is saved, which is why the message-management screen is part of the same training segment.
+- Common issues / trainer notes: The type selector changes which asset inputs are visible: PDF, Vimeo, or both. The submit button saves both the collateral record and the optional WhatsApp message text for that campaign-collateral pair.
 - Screenshot placeholder:
   Suggested file path: `docs/product-user-flows/assets/collateral-authoring-and-message-setup/add-collateral-form.png`
   Screenshot caption: Collateral input form used to create campaign-ready doctor content.
@@ -51,7 +51,7 @@ Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id
 ### Step 3. Review or customize the WhatsApp message
 
 - What the user does: Open the Collateral Messages Management page and inspect the message linked to the collateral and campaign pair.
-- What the user sees: A searchable message list with campaign ID, collateral, message preview, status, and actions.
+- What the user sees: A searchable message list with campaign and collateral filters, message preview, status, created date, and edit/delete actions.
 - Why the step matters: The share experience depends on good rep-facing message text that includes the `$collateralLinks` placeholder.
 - Expected result: The active message is appropriate for the campaign and collateral being launched.
 - Common issues / trainer notes: Use this step to remind trainees that the message text is not global; it is scoped to a specific campaign and collateral.
@@ -62,8 +62,8 @@ Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id
 
 ### Step 4. Adjust the collateral calendar window
 
-- What the user does: Open the Edit Calendar screen and confirm the start and end dates for the campaign-collateral mapping.
-- What the user sees: A calendar-edit screen that controls whether a collateral is active in the share flow on the current date.
+- What the user does: Open the Edit Calendar screen from the top dashboard button or the row-level `Edit Dates` action and confirm the start and end dates for the campaign-collateral mapping.
+- What the user sees: A calendar-edit screen that shows the campaign ID, collateral title, and editable start and end date controls.
 - Why the step matters: Availability windows are one of the key reasons a collateral might not appear for a field rep even when the asset exists.
 - Expected result: Only the intended collateral is active during the campaign window.
 - Common issues / trainer notes: This is one of the first places to inspect if a field rep says a collateral is missing from the share page.
@@ -86,4 +86,4 @@ Campaign-scoped collateral panel: `/share/dashboard/?campaign=<brand_campaign_id
 
 ## 9. Status
 
-Validated against the seeded collateral dashboard and forms on 2026-04-11.
+Validated against the seeded collateral dashboard and forms on 2026-04-23.

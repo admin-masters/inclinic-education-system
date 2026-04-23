@@ -6,7 +6,7 @@ Field Rep Registration and Login
 
 ## 2. Document Purpose
 
-Explain the current public field-rep access screens, including the legacy compatibility redirects, the password login page, and the active Gmail/manual or SSO login path.
+Explain the current public field-rep access screens, including the legacy compatibility redirects, the password login and recovery screens, and the active Gmail/manual or SSO login path.
 
 ## 3. Primary User
 
@@ -20,6 +20,7 @@ Public routes under `/share/fieldrep-register/`, `/share/fieldrep-create-passwor
 
 - The legacy registration and create-password routes no longer collect new credentials; they redirect into the Gmail/manual login screen with an informational banner.
 - The product still supports both email/password login and Brand Specific Field ID plus Email ID login patterns.
+- Password recovery is still live through the forgot-password and reset-password flow backed by the rep's configured security question.
 - Signed SSO can also auto-complete the Gmail login flow by trusting the master Field Rep ID inside the URL or JWT payload.
 - Campaign context can travel in the query string or session so a rep is taken directly into the correct campaign after login.
 - The field-rep background can be campaign-specific when the campaign has a configured background image.
@@ -52,7 +53,7 @@ Public routes under `/share/fieldrep-register/`, `/share/fieldrep-create-passwor
 ### Step 3. Review the direct email/password login screen
 
 - What the user does: Open the field-rep login page tied to the active campaign.
-- What the user sees: A focused login form that asks for email and password, preserves campaign context, and includes the same support chatbot used on the other public rep pages.
+- What the user sees: A focused login form that asks for email and password, preserves campaign context, and exposes a `Forgot Password?` link below the primary login button.
 - Why the step matters: This is the most straightforward rep-login method for routine use.
 - Expected result: The rep knows where to enter their standard credentials when the campaign requires the password flow.
 - Common issues / trainer notes: If the audience asks which login path to use, clarify what the current campaign rollout recommends before moving into the next workflow deck.
@@ -61,13 +62,25 @@ Public routes under `/share/fieldrep-register/`, `/share/fieldrep-create-passwor
   Screenshot caption: Email/password field-rep login page for the selected campaign.
   What the screenshot should show: The direct credential-entry option for field reps.
 
-### Step 4. Use the active Gmail/manual or SSO login path
+### Step 4. Recover access with the security-question flow when needed
+
+- What the user does: Use the `Forgot Password?` link, enter the rep email, answer the configured security question, and continue to the reset-password page.
+- What the user sees: A two-stage recovery screen that first asks for the email address, then shows the rep's saved security question and answer field before allowing a reset.
+- Why the step matters: This is the live fallback when a rep remembers their email but not their current password.
+- Expected result: The rep can reach the reset-password step without staff manually changing credentials.
+- Common issues / trainer notes: Recovery only works if the rep has a security profile and answer configured. If not, the current product tells the user to contact admin.
+- Screenshot placeholder:
+  Suggested file path: `docs/product-user-flows/assets/field-rep-registration-and-login/fieldrep-forgot-password.png`
+  Screenshot caption: Field-rep recovery screen showing the security-question challenge before password reset.
+  What the screenshot should show: The recovery path that bridges from forgotten password into reset-password.
+
+### Step 5. Use the active Gmail/manual or SSO login path
 
 - What the user does: Open the Gmail login route and either enter the Brand Specific Field ID plus Email ID manually or arrive through a signed SSO link that provides those values automatically.
 - What the user sees: A campaign-scoped login form labeled Brand Specific Field ID and Email ID, along with the campaign context and the floating support chatbot.
 - Why the step matters: This is the primary live access route into the share experience and the path used by the seeded demo.
 - Expected result: The rep reaches the campaign share page with the correct assignment and session context.
-- Common issues / trainer notes: Manual login uses the brand-specific Field ID. Automatic SSO trusts the master Field Rep ID from the URL or JWT claims, then completes the same login path.
+- Common issues / trainer notes: Manual login uses the brand-specific Field ID. Automatic SSO trusts the master Field Rep ID from the URL or JWT claims, then completes the same login path only if the claim set matches the campaign and rep identifiers in the request.
 - Screenshot placeholder:
   Suggested file path: `docs/product-user-flows/assets/field-rep-registration-and-login/fieldrep-gmail-login.png`
   Screenshot caption: Current Gmail/manual login page used for campaign-scoped rep access.
@@ -76,7 +89,7 @@ Public routes under `/share/fieldrep-register/`, `/share/fieldrep-create-passwor
 ## 7. Success Criteria
 
 - Trainees understand that registration and create-password routes are now compatibility redirects, not live onboarding forms.
-- The difference between email/password, Gmail/manual login, and signed SSO is explained clearly.
+- The difference between email/password, password recovery, Gmail/manual login, and signed SSO is explained clearly.
 - Campaign context in the URL is explained clearly.
 - The group is ready to continue into the share workflow with the correct login path.
 
