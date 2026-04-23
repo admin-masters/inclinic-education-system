@@ -103,10 +103,6 @@
     <a href="{% url 'edit_campaign_calendar' %}" class="btn btn-primary" target="_blank">Edit Calendar</a>
   {% endif %}
 
-  {% if campaign_filter %}
-    <a href="{% url 'doctor_bulk_upload' %}?campaign={{ campaign_filter }}" class="btn btn-primary" target="_blank">Doctor Bulk Upload</a>
-  {% endif %}
-
   <a
     href="{% url 'fieldrep_gmail_login' %}{% if campaign_id %}?campaign={{ campaign_id }}{% endif %}"
     class="btn btn-primary"
