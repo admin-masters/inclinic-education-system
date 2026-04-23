@@ -44,6 +44,10 @@ def capture(page: Page, path: Path, full_page: bool = False) -> None:
     page.screenshot(path=str(path), full_page=full_page)
 
 
+def capture_locator(locator, path: Path) -> None:
+    locator.screenshot(path=str(path))
+
+
 def with_query_params(path: str, **params: str) -> str:
     parts = urlsplit(path)
     current = dict(parse_qsl(parts.query, keep_blank_values=True))
@@ -67,6 +71,87 @@ def parse_args() -> argparse.Namespace:
         help="Comma-separated workflow orders or slugs to capture.",
     )
     return parser.parse_args()
+
+
+def fieldrep_share_url(manifest: dict, collateral_id: int | str | None = None) -> str:
+    path = manifest["pages"]["fieldrep_gmail_share"]
+    if collateral_id is not None:
+        path = with_query_params(path, collateral=str(collateral_id))
+    return f"{manifest['base_url']}{path}"
+
+
+def login_fieldrep_public(page: Page, manifest: dict) -> None:
+    base_url = manifest["base_url"]
+    pages = manifest["pages"]
+    creds = manifest["credentials"]["field_rep_public"]
+
+    page.goto(f"{base_url}{pages['fieldrep_gmail_login']}", wait_until="networkidle")
+    page.fill("input[name='field_id']", creds["field_id"])
+    page.fill("input[name='gmail_id']", creds["email"])
+    page.click("button[type='submit']")
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(400)
+
+
+def expect_share_redirect(page: Page, click_action, expected_phone_digits: str) -> None:
+    with page.expect_response(
+        lambda response: response.request.method == "POST" and "fieldrep-gmail-share-collateral" in response.url
+    ) as response_info:
+        click_action()
+
+    response = response_info.value
+    location = response.header_value("location") or ""
+    assert response.status in {302, 303}, f"Expected redirect status from share action, got {response.status}"
+    assert location.startswith("https://wa.me/"), f"Expected WhatsApp redirect, got {location}"
+    assert expected_phone_digits in location, f"Expected phone digits {expected_phone_digits} in redirect {location}"
+
+
+def row_button(page: Page, doctor_name: str):
+    return page.locator(".doctor-row", has_text=doctor_name).locator("button")
+
+
+def smoke_test_fieldrep_share_actions(page: Page, manifest: dict, share_url: str) -> None:
+    page.route("https://wa.me/**", lambda route: route.fulfill(status=200, body="WhatsApp stub for docs capture"))
+
+    page.goto(share_url, wait_until="networkidle")
+    page.wait_for_timeout(200)
+    page.fill("input[name='doctor_name']", "Dr. Manual Share Demo")
+    page.fill("input[name='doctor_whatsapp']", "9090909090")
+    expect_share_redirect(
+        page,
+        lambda: page.locator(".col-12.col-lg-4 form button[type='submit']").click(),
+        "919090909090",
+    )
+
+    doctors = manifest["fieldrep_doctors"]
+
+    page.goto(share_url, wait_until="networkidle")
+    page.wait_for_timeout(200)
+    expect_share_redirect(
+        page,
+        lambda: row_button(page, doctors["not_sent"]["name"]).click(),
+        f"91{doctors['not_sent']['phone_last10']}",
+    )
+
+    page.goto(share_url, wait_until="networkidle")
+    page.wait_for_timeout(200)
+    expect_share_redirect(
+        page,
+        lambda: row_button(page, doctors["sent"]["name"]).click(),
+        f"91{doctors['sent']['phone_last10']}",
+    )
+
+    page.goto(share_url, wait_until="networkidle")
+    page.wait_for_timeout(200)
+    expect_share_redirect(
+        page,
+        lambda: row_button(page, doctors["reminder"]["name"]).click(),
+        f"91{doctors['reminder']['phone_last10']}",
+    )
+
+    page.goto(share_url, wait_until="networkidle")
+    opened_button = row_button(page, doctors["opened"]["name"])
+    assert opened_button.is_disabled(), "Expected the opened doctor action to be disabled"
 
 
 def capture_public_home(page: Page, base_url: str) -> None:
@@ -148,11 +233,11 @@ def capture_operator_ops(page: Page, manifest: dict, selected_orders: set[int]) 
 
 
 def capture_fieldrep_public(page: Page, manifest: dict, selected_orders: set[int]) -> None:
-    base_url = manifest["base_url"]
     pages = manifest["pages"]
     creds = manifest["credentials"]["field_rep_public"]
 
     if 6 in selected_orders:
+        base_url = manifest["base_url"]
         page.goto(f"{base_url}{pages['fieldrep_register']}", wait_until="networkidle")
         page.wait_for_timeout(250)
         capture(page, asset_path("field-rep-registration-and-login", "fieldrep-register.png"))
@@ -174,20 +259,32 @@ def capture_fieldrep_public(page: Page, manifest: dict, selected_orders: set[int
         capture(page, asset_path("field-rep-registration-and-login", "fieldrep-gmail-login.png"))
 
     if 1 in selected_orders or 7 in selected_orders:
-        page.goto(f"{base_url}{pages['fieldrep_gmail_login']}", wait_until="networkidle")
-        page.fill("input[name='field_id']", creds["field_id"])
-        page.fill("input[name='gmail_id']", creds["email"])
-        page.click("button[type='submit']")
-        page.wait_for_load_state("networkidle")
+        login_fieldrep_public(page, manifest)
+        main_collateral_id = manifest["collateral_ids"]["main"]
+        share_url = fieldrep_share_url(manifest, main_collateral_id)
+        page.goto(share_url, wait_until="networkidle")
         page.wait_for_timeout(400)
 
         share_top = asset_path("field-rep-sharing-and-doctor-bulk-upload", "fieldrep-gmail-share.png")
         capture(page, share_top)
-        duplicate(share_top, asset_path("platform-overview-and-role-map", "platform-share-handoff.png"))
+        if 1 in selected_orders:
+            duplicate(share_top, asset_path("platform-overview-and-role-map", "platform-share-handoff.png"))
 
-        page.locator("#doctorList").scroll_into_view_if_needed()
+        doctor_panel = page.locator(".col-12.col-lg-8 .card.shadow")
         page.wait_for_timeout(300)
-        capture(page, asset_path("field-rep-sharing-and-doctor-bulk-upload", "fieldrep-doctor-status.png"))
+        capture_locator(doctor_panel, asset_path("field-rep-sharing-and-doctor-bulk-upload", "fieldrep-doctor-status.png"))
+
+        page.select_option("#statusFilter", "not_sent")
+        page.wait_for_timeout(250)
+        capture_locator(doctor_panel, asset_path("field-rep-sharing-and-doctor-bulk-upload", "fieldrep-send-message.png"))
+
+        page.select_option("#statusFilter", "reminder")
+        page.wait_for_timeout(250)
+        capture_locator(doctor_panel, asset_path("field-rep-sharing-and-doctor-bulk-upload", "fieldrep-send-reminder.png"))
+
+        page.select_option("#statusFilter", "")
+        page.wait_for_timeout(150)
+        smoke_test_fieldrep_share_actions(page, manifest, share_url)
 
 
 def capture_doctor_flow(page: Page, manifest: dict) -> None:

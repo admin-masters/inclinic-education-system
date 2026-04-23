@@ -2,12 +2,18 @@
   "rendered_pdfs": [
     "00-user-flow-training-index.pdf",
     "01-platform-overview-and-role-map.pdf",
+    "02-publisher-campaign-onboarding-and-update.pdf",
+    "03-internal-campaign-operations-from-the-manage-data-panel.pdf",
+    "04-admin-field-rep-and-doctor-management.pdf",
+    "05-collateral-authoring-and-message-setup.pdf",
     "06-field-rep-registration-and-login.pdf",
     "07-field-rep-sharing-and-doctor-bulk-upload.pdf",
-    "08-doctor-verification-and-collateral-consumption.pdf"
+    "08-doctor-verification-and-collateral-consumption.pdf",
+    "09-engagement-reporting-and-transaction-review.pdf",
+    "zz-user-flow-template.pdf"
   ],
-  "pdf_count": 5,
-  "expected_pdf_count": 5,
+  "pdf_count": 11,
+  "expected_pdf_count": 11,
   "screenshot_dimensions": {
     "docs/product-user-flows/assets/platform-overview-and-role-map/platform-home.png": {
       "width": 1600,
@@ -22,6 +28,50 @@
       "height": 1100
     },
     "docs/product-user-flows/assets/platform-overview-and-role-map/platform-share-handoff.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/publisher-campaign-onboarding-and-update/publisher-campaign-update.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/publisher-campaign-onboarding-and-update/publisher-landing.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/internal-campaign-operations-from-the-manage-data-panel/campaign-detail.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/internal-campaign-operations-from-the-manage-data-panel/manage-data-panel.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/admin-field-rep-and-doctor-management/fieldrep-doctors.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/admin-field-rep-and-doctor-management/fieldrep-form.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/admin-field-rep-and-doctor-management/fieldrep-list.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/collateral-authoring-and-message-setup/add-collateral-form.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/collateral-authoring-and-message-setup/collateral-dashboard.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/collateral-authoring-and-message-setup/collateral-messages.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/collateral-authoring-and-message-setup/edit-calendar.png": {
       "width": 1600,
       "height": 1100
     },
@@ -46,12 +96,20 @@
       "height": 1100
     },
     "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-doctor-status.png": {
-      "width": 1600,
-      "height": 1100
+      "width": 830,
+      "height": 336
     },
     "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-gmail-share.png": {
       "width": 1600,
       "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-send-message.png": {
+      "width": 830,
+      "height": 336
+    },
+    "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-send-reminder.png": {
+      "width": 830,
+      "height": 336
     },
     "docs/product-user-flows/assets/doctor-verification-and-collateral-consumption/doctor-verify.png": {
       "width": 1600,
@@ -62,6 +120,14 @@
       "height": 1100
     },
     "docs/product-user-flows/assets/doctor-verification-and-collateral-consumption/doctor-viewer.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/engagement-reporting-and-transaction-review/report-dashboard.png": {
+      "width": 1600,
+      "height": 1100
+    },
+    "docs/product-user-flows/assets/engagement-reporting-and-transaction-review/report-filtered.png": {
       "width": 1600,
       "height": 1100
     }
@@ -81,9 +147,14 @@
   "placeholder_hits": {},
   "qa_scope": [
     "01-platform-overview-and-role-map",
+    "02-publisher-campaign-onboarding-and-update",
+    "03-internal-campaign-operations-from-the-manage-data-panel",
+    "04-admin-field-rep-and-doctor-management",
+    "05-collateral-authoring-and-message-setup",
     "06-field-rep-registration-and-login",
     "07-field-rep-sharing-and-doctor-bulk-upload",
-    "08-doctor-verification-and-collateral-consumption"
+    "08-doctor-verification-and-collateral-consumption",
+    "09-engagement-reporting-and-transaction-review"
   ],
   "status": "ok"
 }
