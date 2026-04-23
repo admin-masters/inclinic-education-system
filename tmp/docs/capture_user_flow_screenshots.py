@@ -254,6 +254,13 @@ def capture_fieldrep_public(page: Page, manifest: dict, selected_orders: set[int
         page.wait_for_timeout(250)
         capture(page, asset_path("field-rep-registration-and-login", "fieldrep-login.png"))
 
+        page.goto(f"{base_url}/share/fieldrep-forgot-password/", wait_until="networkidle")
+        page.fill("input[name='email']", creds["email"])
+        page.click("button[type='submit']")
+        page.wait_for_load_state("networkidle")
+        page.wait_for_timeout(250)
+        capture_locator(page.locator(".card.shadow"), asset_path("field-rep-registration-and-login", "fieldrep-forgot-password.png"))
+
         page.goto(f"{base_url}{pages['fieldrep_gmail_login']}", wait_until="networkidle")
         page.wait_for_timeout(250)
         capture(page, asset_path("field-rep-registration-and-login", "fieldrep-gmail-login.png"))
@@ -269,6 +276,12 @@ def capture_fieldrep_public(page: Page, manifest: dict, selected_orders: set[int
         capture(page, share_top)
         if 1 in selected_orders:
             duplicate(share_top, asset_path("platform-overview-and-role-map", "platform-share-handoff.png"))
+
+        page.fill("input[name='doctor_name']", "Dr. Manual Share Demo")
+        page.fill("input[name='doctor_whatsapp']", "9090909090")
+        page.wait_for_timeout(200)
+        form_panel = page.locator(".col-12.col-lg-4 .card.shadow")
+        capture_locator(form_panel, asset_path("field-rep-sharing-and-doctor-bulk-upload", "fieldrep-send-form.png"))
 
         doctor_panel = page.locator(".col-12.col-lg-8 .card.shadow")
         page.wait_for_timeout(300)

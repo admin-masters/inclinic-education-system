@@ -79,6 +79,10 @@
       "width": 1600,
       "height": 1100
     },
+    "docs/product-user-flows/assets/field-rep-registration-and-login/fieldrep-forgot-password.png": {
+      "width": 400,
+      "height": 374
+    },
     "docs/product-user-flows/assets/field-rep-registration-and-login/fieldrep-gmail-login.png": {
       "width": 1600,
       "height": 1100
@@ -102,6 +106,10 @@
     "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-gmail-share.png": {
       "width": 1600,
       "height": 1100
+    },
+    "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-send-form.png": {
+      "width": 403,
+      "height": 572
     },
     "docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-send-message.png": {
       "width": 830,

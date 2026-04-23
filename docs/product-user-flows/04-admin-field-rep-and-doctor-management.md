@@ -27,10 +27,10 @@ Authenticated portal login followed by `/admin_dashboard/fieldreps/` or `/admin_
 ### Step 1. Open the field-rep list for a campaign
 
 - What the user does: Navigate to the field-rep list and optionally keep the campaign filter in the URL.
-- What the user sees: A table of master field reps with unique ID, field ID, Gmail ID, phone number, campaign mapping, and action buttons.
+- What the user sees: A table of master field reps with unique ID, field ID, Gmail ID, phone number, campaign mapping, a search box, and row actions for `Edit`, `Delete`, and `View Doctors`.
 - Why the step matters: Campaign filtering reduces noise and keeps training focused on the reps that actually matter for a launch.
 - Expected result: The admin can see exactly which reps are assigned to the selected campaign.
-- Common issues / trainer notes: The list mixes master-table data with a display-friendly campaign mapping string to make the assignment state easy to explain.
+- Common issues / trainer notes: The list mixes master-table data with a display-friendly campaign mapping string to make the assignment state easy to explain. When a campaign filter is present, the `Add Field Rep` button can redirect to the external field-rep site rather than the local Django form.
 - Screenshot placeholder:
   Suggested file path: `docs/product-user-flows/assets/admin-field-rep-and-doctor-management/fieldrep-list.png`
   Screenshot caption: Field-rep administration list filtered to the active campaign.
@@ -39,7 +39,7 @@ Authenticated portal login followed by `/admin_dashboard/fieldreps/` or `/admin_
 ### Step 2. Review or create a field-rep record
 
 - What the user does: Open the add or edit field-rep form, confirm the contact details, and keep the campaign context intact.
-- What the user sees: A standard field-rep form that writes back to the master data tables and preserves the campaign filter in the redirect.
+- What the user sees: A standard field-rep form that writes back to the master data tables and preserves the campaign filter in the redirect when the local form is used.
 - Why the step matters: Rep identity and campaign assignment need to be correct before any field-rep login or sharing flow works.
 - Expected result: The rep is active, reachable, and assigned to the right campaign.
 - Common issues / trainer notes: In the current implementation, the campaign-aware add button may point to an external field-rep site instead of the local Django form; document whichever environment your training run actually uses.
@@ -50,8 +50,8 @@ Authenticated portal login followed by `/admin_dashboard/fieldreps/` or `/admin_
 
 ### Step 3. Maintain the doctor list for a selected rep
 
-- What the user does: Use the View Doctors action to add, edit, or remove doctors associated with the rep.
-- What the user sees: A rep-specific doctor list and a compact add-doctor form on the same page.
+- What the user does: Use the `View Doctors` action to add a doctor from the inline form or edit/delete existing doctors associated with the rep.
+- What the user sees: A rep-specific doctor list with a compact add-doctor form at the top and `Edit` and `Delete` buttons beside each doctor row.
 - Why the step matters: Doctors created here become reusable share targets in the field-rep experience.
 - Expected result: The rep leaves with a clean doctor list that can support fast WhatsApp sharing.
 - Common issues / trainer notes: This screen writes to the portal doctor table even though the rep itself lives in the master database.
@@ -86,4 +86,4 @@ Authenticated portal login followed by `/admin_dashboard/fieldreps/` or `/admin_
 
 ## 9. Status
 
-Validated against the seeded staff-admin screens on 2026-04-11.
+Validated against the seeded staff-admin screens on 2026-04-23.
