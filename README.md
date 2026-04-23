@@ -57,7 +57,8 @@ The platform solves the operational gap between campaign planning and real docto
 - Collateral management for PDF, video, and PDF-plus-video assets
 - Campaign-collateral calendar scheduling through bridge tables
 - Custom WhatsApp message templates per campaign/collateral pair
-- Field rep registration, password creation, login, forgot-password, and Gmail-based login paths
+- Field-rep password login, forgot-password recovery, Gmail/manual login, and JWT-backed SSO entry
+- Legacy field-rep registration routes preserved as compatibility redirects into the login flow
 - Doctor sharing workflows with short links and verification
 - PDF download, page-progress, and video-progress tracking
 - Collateral transaction rollups for analytics dashboards
@@ -70,7 +71,7 @@ The platform solves the operational gap between campaign planning and real docto
 | --- | --- | --- |
 | Publisher / external system | Open a campaign inside the portal and maintain PE-specific fields | `/campaigns/publisher-landing-page/`, `/campaigns/publisher/<campaign_id>/edit/` |
 | Internal admin / staff | Manage campaigns, field reps, collaterals, messages, and reports | Django admin, `/campaigns/manage-data/`, `/admin_dashboard/`, `/collaterals/` |
-| Field representative | Register, login, manage doctors, and share collateral | `/share/fieldrep-*`, `/share/dashboard/` |
+| Field representative | Login, manage doctors, and share collateral | `/share/fieldrep-*`, `/share/dashboard/` |
 | Doctor | Verify access and consume the collateral | `/shortlinks/go/<code>/`, `/view/collateral/verify/`, `/view/<code>/` |
 | Analytics stakeholder | Inspect campaign-level engagement and reporting data | `/reports/collateral-transactions/<brand_campaign_id>/`, reporting DB consumers |
 
@@ -548,21 +549,21 @@ Store campaign-specific educational assets, control when they are visible to fie
 
 **Purpose**
 
-Support both traditional password login and Gmail-based identity matching for field reps assigned in the master system.
+Support password login, Gmail/manual identity matching, and password reset for field reps that are provisioned in the master system.
 
 **User flow**
 
 1. A rep receives a campaign-specific link.
-2. New reps use `/share/fieldrep-register/` and `/share/fieldrep-create-password/`.
-3. Existing reps use `/share/fieldrep-login/` or `/share/fieldrep-gmail-login/`.
+2. The active sign-in paths are `/share/fieldrep-login/` and `/share/fieldrep-gmail-login/`.
+3. Legacy `/share/fieldrep-register/` and `/share/fieldrep-create-password/` URLs now redirect reps into the Gmail login flow instead of creating accounts directly.
 4. After login, session keys capture field-rep identity and campaign context.
 
 **Backend logic**
 
-- `fieldrep_create_password()` registers the rep, stores security-question data, and best-effort creates a local portal user plus campaign assignment.
+- `fieldrep_email_registration()` and `fieldrep_create_password()` are compatibility shims that now redirect to the Gmail login route with the campaign/email context preserved.
 - `fieldrep_login()` validates password against `MasterFieldRep.password_hash` and falls back to the master `auth_user.password`.
-- `fieldrep_forgot_password()` and `fieldrep_reset_password()` use `FieldRepSecurityProfile`.
-- `fieldrep_gmail_login()` matches reps by field ID and Gmail ID, validates campaign assignment in the master DB, then creates or updates a portal user.
+- `fieldrep_forgot_password()` and `fieldrep_reset_password()` use `FieldRepSecurityProfile`, which must already exist for the master field rep.
+- `fieldrep_gmail_login()` supports both manual field ID + Gmail login and JWT-backed SSO, validates campaign assignment in the master DB, then creates or updates a portal user.
 
 **Data interactions**
 
@@ -711,7 +712,7 @@ Treat the React console as an in-progress or partial interface, not the definiti
 | `/collaterals/*` | Mostly admin/staff session |
 | `/share/*` | Field-rep session or local portal session |
 | `/shortlinks/go/*`, `/view/*` | Public, but collateral access still requires verification |
-| `/api/*` | Session auth, with admin role enforced on write-capable viewsets |
+| `/api/*` | Session auth; campaign/collateral/shortlink viewsets require admin role for all methods, while share/engagement endpoints are authenticated read-only |
 
 ### Global and auth routes
 
@@ -789,14 +790,14 @@ Treat the React console as an in-progress or partial interface, not the definiti
 | `/share/share/` | `GET`, `POST` | `field_rep_required` local user | Generic share form for logged-in portal users | Form fields from `ShareForm`; HTML / redirect |
 | `/share/share/success/<share_log_id>/` | `GET` | `field_rep_required` | Show share success page and WhatsApp link | HTML |
 | `/share/logs/` | `GET` | `field_rep_required` | List share logs for the current field rep | Paginated HTML |
-| `/share/fieldrep-register/` | `GET`, `POST` | Public | Email capture step before password creation | Query / form param: `campaign`; redirect |
-| `/share/fieldrep-create-password/` | `GET`, `POST` | Public | Full registration form for new field rep | Email, field ID, names, WhatsApp, password, security question/answer; redirect |
+| `/share/fieldrep-register/` | `GET`, `POST` | Public | Legacy compatibility route that now redirects reps into Gmail login | Query / form params: `campaign`, optional `email`; redirect |
+| `/share/fieldrep-create-password/` | `GET`, `POST` | Public | Legacy compatibility route that now redirects to Gmail login instead of collecting a new password | Query / form params: `campaign`, `email`, `field_id`; redirect |
 | `/share/fieldrep-login/` | `GET`, `POST` | Public | Password-based field-rep login against master DB | Email, password, optional `campaign`; redirect |
 | `/share/fieldrep-forgot-password/` | `GET`, `POST` | Public | Security-question driven forgot-password flow | Email, answer; HTML / redirect |
 | `/share/fieldrep-reset-password/` | `GET`, `POST` | Public | Reset master and portal password | Email, password, confirm password; redirect |
 | `/share/fieldrep-share-collateral/` | `GET`, `POST` | Field-rep session | Main share UI using session campaign or all assigned campaigns | HTML or AJAX JSON |
 | `/share/fieldrep-share-collateral/<brand_campaign_id>/` | `GET`, `POST` | Field-rep session | Campaign-scoped share UI | HTML or AJAX JSON |
-| `/share/fieldrep-gmail-login/` | `GET`, `POST` | Public | Match field rep by field ID + Gmail ID | Form fields: `field_id`, `gmail_id`, optional `brand_campaign_id`; redirect |
+| `/share/fieldrep-gmail-login/` | `GET`, `POST` | Public | Match field rep by field ID + Gmail ID, or accept JWT-backed SSO query parameters | Form fields: `field_id`, `gmail_id`, optional `brand_campaign_id`; query params may also include `jwt|token|access_token`; redirect |
 | `/share/fieldrep-gmail-share-collateral/` | `GET`, `POST` | Field-rep session | Gmail-login share UI | HTML or redirect/AJAX depending on form |
 | `/share/fieldrep-gmail-share-collateral/<brand_campaign_id>/` | `GET`, `POST` | Field-rep session | Campaign-scoped Gmail-login share UI | HTML |
 | `/share/dashboard/` | `GET` | `field_rep_required` | Field-rep collateral dashboard | Query params: `campaign`, `search`; HTML |
