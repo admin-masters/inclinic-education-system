@@ -1,12 +1,12 @@
-# Field Rep Sharing and Doctor Bulk Upload
+# Field Rep Sharing and Doctor Addition
 
 ## 1. Title
 
-Field Rep Sharing and Doctor Bulk Upload
+Field Rep Sharing and Doctor Addition
 
 ## 2. Document Purpose
 
-Document the day-to-day field-rep workflow for choosing doctors, filtering the doctor work queue, sending collateral through WhatsApp, following up with reminders, and bulk-uploading doctor rosters.
+Document the day-to-day field-rep workflow for choosing doctors, adding missing doctors one at a time, sending collateral through WhatsApp, and following up with reminders.
 
 ## 3. Primary User
 
@@ -14,17 +14,17 @@ Field reps and trainers running campaign distribution sessions.
 
 ## 4. Entry Point
 
-Campaign-scoped Gmail share route: `/share/fieldrep-gmail-share-collateral/?brand_campaign_id=<brand_campaign_id>` plus `/share/dashboard/doctors/bulk-upload/?campaign=<brand_campaign_id>`.
+Campaign-scoped Gmail share route: `/share/fieldrep-gmail-share-collateral/?brand_campaign_id=<brand_campaign_id>`.
 
 ## 5. Workflow Summary
 
 - The Gmail share page is the campaign-aware workbench for choosing a doctor, choosing collateral, and launching the WhatsApp handoff.
-- The left-side manual form is still a live path for entering a doctor name and WhatsApp number directly, choosing a collateral from the dropdown, and sending with the `Submit` button.
+- Missing doctors are handled one at a time from the left-side manual form, where the rep enters the doctor's name and WhatsApp number, chooses a collateral, and sends with the `Submit` button.
 - Doctors can be typed manually on the left-side form or reused from the rep's assigned doctor list on the right, where each row doubles as a quick-send shortcut.
 - The right-side doctor statuses are collateral-specific and progress from `Send Message` to `Sent`, then to `Send Reminder` after six days without engagement, and finally to `Opened` once the doctor views the collateral.
 - Each quick-send action creates or reuses a short link, upserts the doctor record if needed, writes a ShareLog entry, and opens the WhatsApp deep link for that doctor and collateral.
 - The public rep screens now include the support chatbot so reps and trainers can jump into help without leaving the workflow.
-- Bulk upload helps a rep or operator stage a doctor roster before manual sharing starts.
+- If the roster is incomplete, the current training flow adds doctors one at a time either from this share page or earlier in the staff-admin doctor maintenance workflow.
 ## 6. Step-By-Step Instructions
 
 ### Step 1. Authenticate into the campaign share screen
@@ -39,17 +39,17 @@ Campaign-scoped Gmail share route: `/share/fieldrep-gmail-share-collateral/?bran
   Screenshot caption: Campaign share page after a successful Gmail/manual rep login.
   What the screenshot should show: The left-side share form, collateral picker, and help entry point at the top of the current screen.
 
-### Step 2. Prepare a manual share from the left-side form
+### Step 2. Add a doctor one at a time from the left-side form
 
 - What the user does: Enter the doctor name, type the doctor's WhatsApp number, choose the collateral from the dropdown, and review the rep ID before clicking `Submit`.
 - What the user sees: The full left-side share form with the campaign ID, read-only Field Rep ID, doctor inputs, collateral selector, and the primary `Submit` button.
-- Why the step matters: This is the explicit manual-share path when the doctor is not yet in the right-side roster or when the trainer wants to demonstrate the form fields one by one.
+- Why the step matters: This is the current doctor-addition path when the doctor is not yet in the right-side roster or when the trainer wants to demonstrate the form fields one by one.
 - Expected result: The rep is ready to send the selected collateral using the left-hand form without relying on a preloaded doctor row.
-- Common issues / trainer notes: Emphasize that the collateral dropdown drives the entire page state. The same selected collateral also determines the right-side doctor statuses and the hidden values in the quick-send forms.
+- Common issues / trainer notes: Emphasize that the collateral dropdown drives the entire page state. The same selected collateral also determines the right-side doctor statuses and the hidden values in the quick-send forms. There is no bulk doctor-upload step in the current training flow.
 - Screenshot placeholder:
   Suggested file path: `docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-send-form.png`
-  Screenshot caption: Left-side manual share form showing doctor inputs, collateral dropdown, and the Submit button.
-  What the screenshot should show: The explicit manual-send path that pairs a typed doctor with a selected collateral.
+  Screenshot caption: Left-side manual share form used to add one doctor at a time with the selected collateral.
+  What the screenshot should show: The one-by-one doctor entry path that pairs a typed doctor with a selected collateral.
 
 ### Step 3. Review the doctor queue and filter the worklist
 
@@ -69,7 +69,7 @@ Campaign-scoped Gmail share route: `/share/fieldrep-gmail-share-collateral/?bran
 - What the user sees: A submit action that resolves the doctor phone number, creates or updates the doctor record, creates or reuses the short link and ShareLog entry, and redirects into a WhatsApp deep link for the chosen doctor.
 - Why the step matters: This is the primary field-rep outcome: the doctor receives a trackable message that carries the right campaign, collateral, and rep context.
 - Expected result: The rep launches WhatsApp with the configured collateral message and the right short link for the selected doctor.
-- Common issues / trainer notes: This is the clearest slide for explaining the dropdown-based collateral choice and the `Submit` button. The manual form is also how the system can upsert a brand-new doctor into the rep's list.
+- Common issues / trainer notes: This is the clearest slide for explaining the dropdown-based collateral choice and the `Submit` button. The manual form is also how the system adds or updates a single doctor in the rep's list.
 - Screenshot placeholder:
   Suggested file path: `docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/fieldrep-send-form.png`
   Screenshot caption: Manual share form immediately before the rep submits the first collateral message.
@@ -99,32 +99,21 @@ Campaign-scoped Gmail share route: `/share/fieldrep-gmail-share-collateral/?bran
   Screenshot caption: Reminder-due doctor view showing the follow-up state after the first share ages without engagement.
   What the screenshot should show: The `Send Reminder` action and the surrounding `Sent` and `Opened` status cues.
 
-### Step 7. Bulk-upload doctors when onboarding a campaign
-
-- What the user does: Open the Doctor Bulk Upload page, download the sample CSV if needed, and upload a prepared doctor file for the campaign.
-- What the user sees: A purpose-built bulk-upload form that explains the expected CSV columns and confirms successful ingestion.
-- Why the step matters: Uploading a roster up front makes manual sharing dramatically faster once the campaign goes live.
-- Expected result: The rep or operator can stage multiple doctors for the same campaign in one pass.
-- Common issues / trainer notes: Use the bulk-upload step before the live sharing demo if you want the doctor list to look realistic without typing every doctor by hand.
-- Screenshot placeholder:
-  Suggested file path: `docs/product-user-flows/assets/field-rep-sharing-and-doctor-bulk-upload/doctor-bulk-upload.png`
-  Screenshot caption: Doctor bulk-upload screen with sample CSV guidance.
-  What the screenshot should show: The upload field and the expected column list.
-
 ## 7. Success Criteria
 
 - The rep can explain how the left-side collateral selector and Submit flow work together on the share page.
 - The rep can explain how the doctor search and status filter change the right-side work queue.
 - The audience understands the row-button lifecycle from `Send Message` to `Sent`, `Send Reminder`, and `Opened`.
 - The audience understands why the doctor's exact WhatsApp number matters.
-- The bulk-upload option is positioned as a preparation tool, not a separate reporting workflow.
+- The audience understands that missing doctors are added one at a time from the share form or the admin doctor-maintenance screen.
 
 ## 8. Related Documents
 
+- `docs/product-user-flows/04-admin-field-rep-and-doctor-management.md`
 - `docs/product-user-flows/08-doctor-verification-and-collateral-consumption.md`
 - `backend/sharing_management/views.py`
 - `backend/sharing_management/templates/sharing_management/fieldrep_gmail_share_collateral.html`
 
 ## 9. Status
 
-Validated against the Gmail/manual share flow and doctor bulk-upload page on 2026-04-23.
+Validated against the Gmail/manual share flow on 2026-04-23; one-by-one doctor entry is now the documented preparation path.

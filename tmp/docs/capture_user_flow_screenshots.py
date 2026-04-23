@@ -227,40 +227,12 @@ def capture_operator_ops(page: Page, manifest: dict, selected_orders: set[int]) 
         page.goto(f"{base_url}/share/edit-calendar/?brand={campaign_uuid}", wait_until="networkidle")
         capture(page, asset_path("collateral-authoring-and-message-setup", "edit-calendar.png"))
 
-    if 7 in selected_orders:
-        page.goto(f"{base_url}{pages['doctor_bulk_upload']}", wait_until="networkidle")
-        capture(page, asset_path("field-rep-sharing-and-doctor-bulk-upload", "doctor-bulk-upload.png"))
-
 
 def capture_fieldrep_public(page: Page, manifest: dict, selected_orders: set[int]) -> None:
     pages = manifest["pages"]
-    creds = manifest["credentials"]["field_rep_public"]
 
     if 6 in selected_orders:
         base_url = manifest["base_url"]
-        page.goto(f"{base_url}{pages['fieldrep_register']}", wait_until="networkidle")
-        page.wait_for_timeout(250)
-        capture(page, asset_path("field-rep-registration-and-login", "fieldrep-register.png"))
-
-        create_password_path = with_query_params(
-            pages["fieldrep_create_password"],
-            field_id=creds["field_id"],
-        )
-        page.goto(f"{base_url}{create_password_path}", wait_until="networkidle")
-        page.wait_for_timeout(250)
-        capture(page, asset_path("field-rep-registration-and-login", "fieldrep-create-password.png"))
-
-        page.goto(f"{base_url}{pages['fieldrep_login']}", wait_until="networkidle")
-        page.wait_for_timeout(250)
-        capture(page, asset_path("field-rep-registration-and-login", "fieldrep-login.png"))
-
-        page.goto(f"{base_url}/share/fieldrep-forgot-password/", wait_until="networkidle")
-        page.fill("input[name='email']", creds["email"])
-        page.click("button[type='submit']")
-        page.wait_for_load_state("networkidle")
-        page.wait_for_timeout(250)
-        capture_locator(page.locator(".card.shadow"), asset_path("field-rep-registration-and-login", "fieldrep-forgot-password.png"))
-
         page.goto(f"{base_url}{pages['fieldrep_gmail_login']}", wait_until="networkidle")
         page.wait_for_timeout(250)
         capture(page, asset_path("field-rep-registration-and-login", "fieldrep-gmail-login.png"))
@@ -355,7 +327,7 @@ def main() -> None:
             )
             capture_admin_ops(admin_page, manifest, selected_orders)
 
-        if selected_orders & {5, 7}:
+        if 5 in selected_orders:
             operator_ctx = browser.new_context(viewport={"width": 1600, "height": 1100})
             operator_page = operator_ctx.new_page()
             login_via_admin(

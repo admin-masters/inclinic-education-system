@@ -20,7 +20,7 @@ Role-dependent. The seeded demo uses `/campaigns/manage-data/`, `/campaigns/publ
 
 - Campaign definitions originate in the master database and are surfaced in the portal through the Manage Data Panel and publisher landing pages.
 - Editable campaign metadata, collateral assets, share logs, and transaction rollups live in the portal database.
-- Field reps now reach the campaign share flow primarily through the Gmail/manual login or signed SSO entry point; legacy register and create-password URLs redirect into that path.
+- Field reps are prepared in the campaign manager or staff-admin flow, then use the public Field Rep login page with Email ID and Field Rep ID before sharing.
 - Doctors unlock collateral with the same WhatsApp number used during sharing, then consume PDF/video content in a viewer that also surfaces archive and webinar follow-ons.
 - Reporting screens summarize the latest engagement state per doctor, per collateral, per campaign.
 
@@ -31,7 +31,7 @@ Role-dependent. The seeded demo uses `/campaigns/manage-data/`, `/campaigns/publ
 | Publisher / partner system | Publisher landing page, campaign update form | Brand-campaign context plus editable campaign metadata |
 | Internal campaign operator | Manage Data Panel, campaign detail/update | Access to field-rep and collateral operations |
 | Staff admin | Field rep list, doctor maintenance | Campaign-assigned reps and doctor rosters |
-| Field rep | Gmail/manual login, share collateral page, doctor bulk upload | WhatsApp messages containing short links |
+| Field rep | Field Rep login, share collateral page, one-by-one doctor entry | WhatsApp messages containing short links |
 | Doctor | Verify access page, collateral viewer, support chatbot | Engagement records, archive opens, webinar opens |
 | Reporting stakeholder | Collateral transactions dashboard | Operational follow-up and campaign insight |
 
@@ -56,11 +56,11 @@ flowchart LR
 | Campaign operations | Authenticated portal login -> Manage Data Panel |
 | Field rep administration | Authenticated portal login -> Field Rep list |
 | Collateral authoring | Campaign shortcut into the collateral dashboard |
-| Field rep sharing | Campaign-scoped Gmail/manual login or signed SSO route |
+| Field rep sharing | Campaign-scoped Field Rep login route |
 | Doctor consumption | Public short link from WhatsApp |
 | Reporting review | Campaign report URL with `brand_campaign_id` |
 
-> Legacy note: `/share/fieldrep-register/` and `/share/fieldrep-create-password/` remain available only as compatibility redirects into the Gmail/manual login screen.
+> Current training note: field-rep registration is handled in the campaign manager / staff-admin workflow before the public Field Rep login page is used.
 
 ## 6. Step-By-Step Instructions
 
@@ -94,7 +94,7 @@ flowchart LR
 - What the user sees: Campaign-specific collateral options, doctor lists, send/reminder statuses, and the floating support chatbot on the field-rep pages.
 - Why the step matters: This is the commercial and educational delivery loop the platform is built to support.
 - Expected result: A doctor receives a short link tied back to the right collateral, campaign, and rep.
-- Common issues / trainer notes: The operator-facing campaign screens and the field-rep share screens live in different route families but reference the same campaign ID. Legacy register/create-password links now resolve into this same handoff.
+- Common issues / trainer notes: The operator-facing campaign screens and the field-rep share screens live in different route families but reference the same campaign ID. Field-rep registration happens earlier in the campaign manager or staff-admin flow; this public route family is for live login and outreach only.
 - Screenshot placeholder:
   Suggested file path: `docs/product-user-flows/assets/platform-overview-and-role-map/platform-share-handoff.png`
   Screenshot caption: Field-rep share page showing the current campaign form, doctor list, and support chatbot entry point.
