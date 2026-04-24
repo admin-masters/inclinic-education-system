@@ -85,7 +85,7 @@ class ShortLinkDeleteView(DeleteView):
 # ----------------------------------------------------------------
 def resolve_shortlink(request, code=None, short_code=None):
     """
-    Resolve a short link code to the collateral verification URL.
+    Resolve a short link code to the direct doctor collateral viewer.
 
     Accepts both `code` and `short_code` for compatibility with URL kwarg naming.
     """
@@ -105,9 +105,9 @@ def resolve_shortlink(request, code=None, short_code=None):
         # Capture optional share_id passed through the shortlink
         share_id = request.GET.get("share_id") or request.GET.get("s") or request.GET.get("share")
 
-        verify_url = f"{base_url}/view/collateral/verify/?short_link_id={shortlink.id}"
+        verify_url = f"{base_url}{reverse('doctor_view', args=[shortlink.short_code])}"
         if share_id:
-            verify_url += f"&share_id={urllib.parse.quote(str(share_id))}"
+            verify_url += f"?share_id={urllib.parse.quote(str(share_id))}"
 
         return redirect(verify_url)
 
@@ -139,7 +139,7 @@ def debug_shortlink(request, code):
                 'title': collateral.title if collateral else None,
                 'is_active': collateral.is_active if collateral else None,
             } if collateral else None,
-            'redirect_url': f"/view/collateral/verify/?short_link_id={shortlink.id}"
+            'redirect_url': reverse('doctor_view', args=[shortlink.short_code])
         }
         
         return JsonResponse(debug_info)
