@@ -213,6 +213,46 @@ def _doctor_archive_items(*, current_collateral: Collateral, matched_sharelog_id
     return archives
 
 
+def _doctor_view_engagement(request, short_link: ShortLink) -> DoctorEngagement:
+    session_key = f"dv_engagement_id_{short_link.id}"
+    existing_engagement_id = request.session.get(session_key) or request.session.get("dv_engagement_id")
+    engagement = None
+
+    if existing_engagement_id:
+        engagement = DoctorEngagement.objects.filter(
+            id=existing_engagement_id,
+            short_link=short_link,
+        ).first()
+
+    if not engagement:
+        engagement = DoctorEngagement.objects.create(short_link=short_link)
+
+    request.session[session_key] = engagement.id
+    request.session["dv_engagement_id"] = engagement.id
+    return engagement
+
+
+def _doctor_view_context(request, *, short_link: ShortLink, collateral: Collateral, engagement: DoctorEngagement, share_log=None):
+    share_id = getattr(share_log, "id", None) or request.session.get("share_id")
+    doctor_identifier = getattr(share_log, "doctor_identifier", None) if share_log else None
+    archives = _doctor_archive_items(
+        current_collateral=collateral,
+        matched_sharelog_id=share_id,
+        doctor_identifier=doctor_identifier,
+    )
+
+    return {
+        "collateral": collateral,
+        "short_link": short_link,
+        "verified": True,
+        "archives": archives,
+        "absolute_pdf_url": _safe_absolute_file_url(request, collateral.file),
+        "share_id": share_id,
+        "engagement_id": engagement.id,
+        "short_code": short_link.short_code,
+    }
+
+
 # ──────────────────────────────────────────────────────────────
 # GET  /view/<code>/   → render PDF or video template
 # ──────────────────────────────────────────────────────────────
@@ -222,12 +262,7 @@ def resolve_view(request, code: str):
     if not collateral or not collateral.is_active:
         return render(request, "doctor_viewer/error.html", {"msg": "Collateral unavailable"})
 
-    existing_engagement_id = request.session.get("dv_engagement_id")
-    engagement = DoctorEngagement.objects.filter(id=existing_engagement_id).first() if existing_engagement_id else None
-
-    if not engagement:
-        engagement = DoctorEngagement.objects.create(short_link=short_link)
-        request.session["dv_engagement_id"] = engagement.id
+    engagement = _doctor_view_engagement(request, short_link)
 
     # ---------------------------------------------------------
     # IMPORTANT: ShareLog model has ghost fields not in DB.
@@ -295,12 +330,14 @@ def resolve_view(request, code: str):
     except Exception as e:
         print("[VIEW DEBUG] ShareLog raw lookup failed:", e)
 
-    context = {
-        "collateral": collateral,
-        "engagement_id": engagement.id,
-        "short_code": code,
-    }
-    return render(request, "doctor_viewer/view.html", context)
+    context = _doctor_view_context(
+        request,
+        short_link=short_link,
+        collateral=collateral,
+        engagement=engagement,
+        share_log=sl,
+    )
+    return render(request, "doctor_viewer/doctor_collateral_view.html", context)
 
 
 # ──────────────────────────────────────────────────────────────
