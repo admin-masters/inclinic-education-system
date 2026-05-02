@@ -27,11 +27,16 @@ class Campaign(models.Model):
     name = models.CharField(max_length=255)
     brand_name = models.CharField(max_length=255, blank=True, null=True)
 
-    brand_campaign_id = models.UUIDField(
+    # Stored values are not guaranteed to be UUIDs. Older and current records
+    # include marketing-owned IDs like "BIOTECH-D1D829", so this must stay a
+    # plain text field to match the migrated DB schema and avoid UUID parsing
+    # errors in admin/queryset hydration.
+    brand_campaign_id = models.CharField(
+        max_length=64,
         unique=True,
         db_index=True,
-        editable=False,
-        help_text="External Brand Campaign UUID"
+        blank=True,
+        help_text="ID used by marketing / brand team",
     )
 
     start_date = models.DateTimeField()
