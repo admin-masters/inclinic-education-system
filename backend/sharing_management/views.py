@@ -396,39 +396,84 @@ def _resolve_fieldrep_sso_credentials(request, payload: dict | None = None) -> t
 
 def _master_get_fieldrep_for_sso(field_id: str, gmail_id: str, master_fieldrep_id: int | None, request=None):
     """
-    SSO bootstrap must trust the master Field Rep PK from the signed URL/JWT.
-    Manual login continues to use brand_supplied_field_rep_id via _master_get_fieldrep.
+    SSO prefers the signed numeric Field Rep id, but some environments only have
+    the email-backed master user populated. In that case, fall back carefully to
+    a unique active master rep resolved by email / brand-supplied rep id.
     """
-    if not master_fieldrep_id:
+    alias = _master_db_alias()
+    base_qs = MasterFieldRep.objects.using(alias).select_related("user").filter(is_active=True)
+
+    if master_fieldrep_id:
+        try:
+            qs = base_qs.filter(pk=master_fieldrep_id)
+            if gmail_id:
+                qs = qs.filter(user__email__iexact=gmail_id)
+            master_rep = qs.first()
+            _dbg(
+                request,
+                "MASTER SSO lookup by pk",
+                master_fieldrep_id=master_fieldrep_id,
+                gmail_id=gmail_id,
+                found=bool(master_rep),
+                brand_supplied_field_rep_id=getattr(master_rep, "brand_supplied_field_rep_id", None),
+            )
+            if master_rep:
+                return master_rep
+        except Exception as e:
+            _dbg(request, "MASTER SSO lookup by pk exception", err=str(e), master_fieldrep_id=master_fieldrep_id)
+
+    fallback_qs = base_qs
+    if gmail_id:
+        fallback_qs = fallback_qs.filter(user__email__iexact=gmail_id)
+    elif field_id:
+        fallback_qs = fallback_qs.filter(brand_supplied_field_rep_id__iexact=field_id)
+    else:
         _dbg(
             request,
-            "MASTER SSO lookup skipped: missing master field rep id",
+            "MASTER SSO lookup skipped: missing master field rep id and fallback identifiers",
             field_id=field_id,
             gmail_id=gmail_id,
         )
         return None
 
-    try:
-        qs = (
-            MasterFieldRep.objects.using(_master_db_alias())
-            .select_related("user")
-            .filter(pk=master_fieldrep_id, is_active=True)
+    if field_id:
+        fallback_qs = fallback_qs.filter(
+            Q(brand_supplied_field_rep_id__iexact=field_id) |
+            Q(user__username__iexact=field_id)
         )
-        if gmail_id:
-            qs = qs.filter(user__email__iexact=gmail_id)
-        master_rep = qs.first()
-        _dbg(
-            request,
-            "MASTER SSO lookup by pk",
-            master_fieldrep_id=master_fieldrep_id,
-            gmail_id=gmail_id,
-            found=bool(master_rep),
-            brand_supplied_field_rep_id=getattr(master_rep, "brand_supplied_field_rep_id", None),
-        )
-        return master_rep
-    except Exception as e:
-        _dbg(request, "MASTER SSO lookup by pk exception", err=str(e), master_fieldrep_id=master_fieldrep_id)
-        return None
+
+    matches = list(fallback_qs[:2])
+    master_rep = matches[0] if len(matches) == 1 else None
+    _dbg(
+        request,
+        "MASTER SSO fallback lookup",
+        field_id=field_id,
+        gmail_id=gmail_id,
+        candidate_count=len(matches),
+        matched_master_fieldrep_id=getattr(master_rep, "pk", None),
+    )
+    return master_rep
+
+
+def _find_existing_portal_fieldrep_user(email: str, field_id: str, request=None):
+    UserModel = get_user_model()
+    user = None
+
+    if field_id:
+        try:
+            user = UserModel.objects.filter(field_id=field_id, role="field_rep").first()
+            _dbg(request, "PORTAL existing user lookup by field_id", found=bool(user), field_id=field_id)
+        except Exception as e:
+            _dbg(request, "PORTAL existing user lookup by field_id failed", err=str(e), field_id=field_id)
+
+    if not user and email:
+        try:
+            user = UserModel.objects.filter(email__iexact=email, role="field_rep").first()
+            _dbg(request, "PORTAL existing user lookup by email", found=bool(user), email=email)
+        except Exception as e:
+            _dbg(request, "PORTAL existing user lookup by email failed", err=str(e), email=email)
+
+    return user
 
 
 def _complete_fieldrep_gmail_login(
@@ -439,6 +484,7 @@ def _complete_fieldrep_gmail_login(
     brand_campaign_id: str | None,
     master_rep=None,
     require_master_rep: bool = False,
+    allow_portal_fallback: bool = False,
     assignment_error_message: str = "Please Login to continue",
     success_redirect_url: str | None = None,
 ):
@@ -453,8 +499,18 @@ def _complete_fieldrep_gmail_login(
             _dbg(request, "MASTER lookup exception", err=str(e))
             master_rep = None
 
+    portal_user = None
+    used_portal_fallback = False
+
     if not master_rep and require_master_rep:
-        return None, "Please Login to continue"
+        if not allow_portal_fallback:
+            return None, "Please Login to continue"
+
+        portal_user = _find_existing_portal_fieldrep_user(gmail_id, field_id, request=request)
+        if not portal_user:
+            _dbg(request, "FIELDREP SSO portal fallback user missing", gmail_id=gmail_id, field_id=field_id)
+            return None, "Please Login to continue"
+        used_portal_fallback = True
 
     if not field_id:
         field_id = _first_non_empty(
@@ -472,10 +528,19 @@ def _complete_fieldrep_gmail_login(
             _dbg(request, "BLOCKED: master assignment missing", master_fieldrep_id=master_rep.pk, campaign=brand_campaign_id)
             return None, assignment_error_message
 
-    portal_user = _ensure_portal_fieldrep_user(email=gmail_id, field_id=field_id, request=request)
+    if portal_user is None:
+        portal_user = _ensure_portal_fieldrep_user(email=gmail_id, field_id=field_id, request=request)
 
     if brand_campaign_id:
-        _portal_sync_assignment(portal_user, brand_campaign_id, request=request)
+        sync_ok = _portal_sync_assignment(portal_user, brand_campaign_id, request=request)
+        if used_portal_fallback and not sync_ok:
+            _dbg(
+                request,
+                "FIELDREP SSO portal fallback assignment missing",
+                portal_user_id=getattr(portal_user, "id", None),
+                campaign=brand_campaign_id,
+            )
+            return None, assignment_error_message
 
     google_session_keys = [
         "_auth_user_id", "_auth_user_backend", "_auth_user_hash",
@@ -684,9 +749,12 @@ def _portal_sync_assignment(portal_user, brand_campaign_id: str, request=None):
         _dbg(request, "PORTAL sync import failed", err=str(e))
         return False
 
-    campaign_obj = Campaign.objects.filter(brand_campaign_id=brand_campaign_id).first()
-    if not campaign_obj:
-        campaign_obj = Campaign.objects.filter(id=brand_campaign_id).first()
+    campaign_variants = _campaign_id_variants(brand_campaign_id)
+    campaign_obj = None
+    if campaign_variants:
+        campaign_obj = Campaign.objects.filter(brand_campaign_id__in=campaign_variants).first()
+    if not campaign_obj and _looks_like_int(brand_campaign_id):
+        campaign_obj = Campaign.objects.filter(id=int(brand_campaign_id)).first()
 
     if not campaign_obj:
         _dbg(request, "PORTAL campaign not found", brand_campaign_id=brand_campaign_id)
@@ -2109,6 +2177,7 @@ def fieldrep_gmail_login(request):
             brand_campaign_id=effective_campaign_id,
             master_rep=master_rep,
             require_master_rep=True,
+            allow_portal_fallback=True,
             success_redirect_url=success_next_url,
         )
         if response:

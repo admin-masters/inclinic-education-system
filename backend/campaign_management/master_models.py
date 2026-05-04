@@ -15,7 +15,7 @@ class MasterBrand(models.Model):
 
 
 class MasterCampaign(models.Model):
-    id = models.CharField(max_length=32, primary_key=True)  # was UUIDField, now dashless string
+    id = models.UUIDField(primary_key=True)
     brand = models.ForeignKey(
         MasterBrand,
         on_delete=models.DO_NOTHING,
@@ -32,7 +32,43 @@ class MasterCampaign(models.Model):
     contact_person_phone = models.CharField(max_length=50, blank=True, default="")
     contact_person_email = models.EmailField(blank=True, default="")
 
+    brand_manager_email = models.EmailField(blank=True, default="", db_index=True)
+    brand_manager_password_encrypted = models.CharField(max_length=512, blank=True, default="")
+    brand_manager_login_token = models.CharField(max_length=255, blank=True, default="")
+    brand_manager_login_link = models.URLField(max_length=600, blank=True, default="")
+
     num_doctors_supported = models.PositiveIntegerField(default=0)
+
+    system_rfa = models.BooleanField(default=False)
+    system_pe = models.BooleanField(default=False)
+    system_ic = models.BooleanField(default=False)
+
+    banner_small_key = models.CharField(max_length=512, blank=True)
+    banner_large_key = models.CharField(max_length=512, blank=True)
+    banner_small_url = models.URLField(blank=True)
+    banner_large_url = models.URLField(blank=True)
+    banner_target_url = models.URLField(blank=True)
+
+    email_logo_key = models.CharField(max_length=512, blank=True, default="")
+    email_logo_url = models.URLField(max_length=600, blank=True, default="")
+
+    fieldrep_backdrop_key = models.CharField(max_length=512, blank=True, default="")
+    fieldrep_backdrop_url = models.URLField(max_length=600, blank=True, default="")
+    fieldrep_doctor_universe_json = models.TextField(blank=True, default="[]")
+
+    system_name = models.TextField(blank=True, default="")
+    add_to_campaign_message = models.TextField(blank=True, default="")
+    recruitment_mail_format = models.TextField(blank=True, default="")
+
+    doctor_recruitment_link = models.URLField(max_length=500, blank=True)
+
+    start_date = models.DateField(null=True, blank=True)
+    end_date = models.DateField(null=True, blank=True)
+
+    status = models.CharField(max_length=20, default="draft")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         managed = False
@@ -102,6 +138,7 @@ class MasterFieldRep(models.Model):
 
     full_name = models.CharField(max_length=200)
     phone_number = models.CharField(max_length=50, blank=True)
+    state = models.CharField(max_length=255, blank=True, default="")
     brand_supplied_field_rep_id = models.CharField(max_length=100, blank=True)
 
     is_active = models.BooleanField(default=True)
@@ -134,7 +171,7 @@ class MasterFieldRep(models.Model):
 class MasterCampaignFieldRep(models.Model):
     """
     Master join table: campaign_campaignfieldrep
-    Maps field reps to master campaigns (campaign_id stored as 32 hex without hyphens).
+    Maps field reps to master campaigns.
     """
     campaign = models.ForeignKey(
         "MasterCampaign",
