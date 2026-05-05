@@ -3,7 +3,7 @@ from django import forms
 from django.core.exceptions import ValidationError, FieldError
 from .models import Collateral, CampaignCollateral, CollateralMessage
 from campaign_management.models import Campaign
-from .campaign_ids import campaign_id_variants
+from .campaign_ids import campaign_id_variants, ensure_portal_campaign
 
 class CampaignCollateralDateForm(forms.ModelForm):
     class Meta:
@@ -83,8 +83,12 @@ class CollateralForm(forms.ModelForm):
 
         # If brand_campaign_id is provided, filter the campaign choices
         if brand_campaign_id:
-            variants = campaign_id_variants(brand_campaign_id)
-            self.fields['campaign'].queryset = Campaign.objects.filter(brand_campaign_id__in=variants) if variants else Campaign.objects.none()
+            campaign = ensure_portal_campaign(brand_campaign_id)
+            if campaign:
+                self.fields['campaign'].queryset = Campaign.objects.filter(pk=campaign.pk)
+            else:
+                variants = campaign_id_variants(brand_campaign_id)
+                self.fields['campaign'].queryset = Campaign.objects.filter(brand_campaign_id__in=variants) if variants else Campaign.objects.none()
             # If there's only one campaign, set it as the initial value
             if self.fields['campaign'].queryset.count() == 1:
                 self.fields['campaign'].initial = self.fields['campaign'].queryset.first()
@@ -164,7 +168,7 @@ from django import forms
 from django.core.exceptions import FieldError
 from .models import CollateralMessage, Collateral
 from campaign_management.models import Campaign
-from .campaign_ids import campaign_id_variants
+from .campaign_ids import campaign_id_variants, ensure_portal_campaign
 
 
 class CollateralMessageForm(forms.ModelForm):
