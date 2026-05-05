@@ -12,6 +12,7 @@ import os
 import uuid
 import re
 
+from .campaign_ids import resolve_portal_campaign
 from .models import Campaign, CampaignAssignment, CampaignCollateral
 from user_management.models import User  # your custom User model
 
@@ -239,11 +240,9 @@ class CampaignCollateralForm(forms.ModelForm):
         # Get the campaign if brand_campaign_id is provided
         campaign = None
         if brand_campaign_id:
-            try:
-                campaign = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
+            campaign = resolve_portal_campaign(brand_campaign_id, sync_from_master=True)
+            if campaign:
                 self.fields['campaign'].initial = campaign.brand_campaign_id
-            except Campaign.DoesNotExist:
-                pass
         
         # If we have an existing instance, get the campaign from it
         if self.instance and self.instance.pk:
@@ -290,10 +289,8 @@ class CampaignCollateralForm(forms.ModelForm):
         # Keep campaign field for new records, but validate it exists
         if 'campaign' in cleaned_data and cleaned_data['campaign']:
             # Validate that the campaign exists
-            from campaign_management.models import Campaign
-            try:
-                Campaign.objects.get(brand_campaign_id=cleaned_data['campaign'])
-            except Campaign.DoesNotExist:
+            campaign = resolve_portal_campaign(cleaned_data['campaign'], sync_from_master=True)
+            if not campaign:
                 raise ValidationError(f"Campaign with Brand Campaign ID '{cleaned_data['campaign']}' not found.")
         elif not self.instance.pk:
             # For new records, campaign is required
@@ -313,14 +310,11 @@ class CampaignCollateralForm(forms.ModelForm):
             # For new instances, set campaign from the form data
             campaign_brand_id = self.cleaned_data.get('campaign')
             if campaign_brand_id:
-                from campaign_management.models import Campaign
-                try:
-                    campaign = Campaign.objects.get(brand_campaign_id=campaign_brand_id)
+                campaign = resolve_portal_campaign(campaign_brand_id, sync_from_master=True)
+                if campaign:
                     instance.campaign = campaign
-                except Campaign.DoesNotExist:
-                    # This should have been caught in clean(), but handle gracefully
-                    if commit:
-                        raise ValidationError(f"Campaign with Brand Campaign ID '{campaign_brand_id}' not found.")
+                elif commit:
+                    raise ValidationError(f"Campaign with Brand Campaign ID '{campaign_brand_id}' not found.")
 
         # Normalize start/end into DateTime for the collateral_management.CampaignCollateral model
         # If date objects are provided (from <input type="date">), convert to start-of-day and end-of-day
