@@ -16,6 +16,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, DeleteView, ListView, UpdateView
 
+from campaign_management.campaign_ids import resolve_portal_campaign
 from campaign_management.models import Campaign  # portal campaign still used by dashboard/bulk-upload
 from campaign_management.master_models import (
     MasterAuthUser,
@@ -608,7 +609,7 @@ def bulk_upload_fieldreps(request):
         campaign_ref = _get_campaign_param_any(request)
         if campaign_ref:
             try:
-                campaign_obj = Campaign.objects.filter(brand_campaign_id=str(campaign_ref)).first()
+                campaign_obj = resolve_portal_campaign(str(campaign_ref), sync_from_master=True)
                 if campaign_obj:
                     form.fields["campaign"].initial = campaign_obj
             except Exception:

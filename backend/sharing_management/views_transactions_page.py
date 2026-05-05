@@ -6,6 +6,7 @@ from django.db.models import OuterRef, Subquery, F
 from django.http import HttpResponse
 from django.shortcuts import render
 
+from campaign_management.campaign_ids import canonical_brand_campaign_id, tracking_campaign_id_variants
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
 from sharing_management.models import CollateralTransaction
 from user_management.models import User
@@ -13,17 +14,19 @@ from user_management.models import User
 
 def collateral_transactions_dashboard(request, brand_campaign_id: str):
     brand_campaign_id = (str(brand_campaign_id) or "").strip()
+    campaign_variants = tracking_campaign_id_variants(brand_campaign_id, sync_from_master=True)
+    canonical_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
 
     # --- Schema drift safety: inspect model field names at runtime ---
     model_field_names = {f.name for f in CollateralTransaction._meta.get_fields()}
 
     # Base queryset for this campaign
-    qs = CollateralTransaction.objects.filter(brand_campaign_id=brand_campaign_id)
+    qs = CollateralTransaction.objects.filter(brand_campaign_id__in=campaign_variants)
 
     # Collateral dropdown list (from campaign calendar table)
     collaterals_qs = (
         CMCampaignCollateral.objects
-        .filter(campaign__brand_campaign_id=brand_campaign_id)
+        .filter(campaign__brand_campaign_id__in=campaign_variants)
         .select_related("collateral")
         .order_by("-id")
     )
@@ -57,7 +60,7 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
     # --- Latest row per (doctor_number, collateral_id, field_rep_id) ---
     latest_updated = Subquery(
         CollateralTransaction.objects.filter(
-            brand_campaign_id=brand_campaign_id,
+            brand_campaign_id__in=campaign_variants,
             doctor_number=OuterRef("doctor_number"),
             collateral_id=OuterRef("collateral_id"),
             field_rep_id=OuterRef("field_rep_id"),
@@ -230,7 +233,7 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
         return response
 
     context = {
-        "brand_campaign_id": brand_campaign_id,
+        "brand_campaign_id": canonical_campaign_id or brand_campaign_id,
         "collaterals": collaterals,
         "selected_collateral_id": selected_collateral_id_int,
         "summary_items": [
