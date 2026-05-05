@@ -13,6 +13,7 @@ from .decorators import admin_required
 from .models import Collateral, CampaignCollateral
 from .forms import CollateralForm, CampaignCollateralForm
 from campaign_management.models import Campaign
+from .campaign_ids import campaign_id_variants
 from .forms import CampaignCollateralDateForm
 
 class CollateralListView(ListView):
@@ -28,10 +29,11 @@ class CollateralListView(ListView):
         # Check for campaign filter in query parameters
         campaign_filter = self.request.GET.get('campaign')
         if campaign_filter:
-            # Filter collaterals that are linked to the specified brand campaign
-            queryset = queryset.filter(
-                campaign__brand_campaign_id=campaign_filter
-            )
+            variants = campaign_id_variants(campaign_filter)
+            if variants:
+                queryset = queryset.filter(campaign__brand_campaign_id__in=variants)
+            else:
+                queryset = queryset.none()
             
         return queryset.select_related('campaign')
     
@@ -43,10 +45,9 @@ class CollateralListView(ListView):
         campaign = None
         
         if campaign_id:
-            try:
-                campaign = Campaign.objects.get(brand_campaign_id=campaign_id)
-            except Campaign.DoesNotExist:
-                pass
+            variants = campaign_id_variants(campaign_id)
+            if variants:
+                campaign = Campaign.objects.filter(brand_campaign_id__in=variants).first()
                 
         context['campaign_filter'] = campaign  # Now passing the campaign object
         
@@ -136,9 +137,9 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
     
     # If brand_campaign_id is provided, get the campaign and filter choices
     if brand_campaign_id:
-        try:
-            selected_campaign = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
-        except Campaign.DoesNotExist:
+        variants = campaign_id_variants(brand_campaign_id)
+        selected_campaign = Campaign.objects.filter(brand_campaign_id__in=variants).first() if variants else None
+        if not selected_campaign:
             messages.error(request, f"Campaign with Brand Campaign ID '{brand_campaign_id}' not found.")
             return redirect("collateral_list")
     
