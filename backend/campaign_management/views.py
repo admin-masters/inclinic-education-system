@@ -17,6 +17,7 @@ from django.contrib import messages
 from django.urls import reverse
 
 
+from .campaign_ids import campaign_id_variants as shared_campaign_id_variants, resolve_portal_campaign
 from .master_models import MasterCampaign, MasterBrand
 
 from django.conf import settings
@@ -91,17 +92,17 @@ class CampaignDetailByCampaignIdView(DetailView):
             return HttpResponseBadRequest("Missing campaign-id")
 
         # If not yet created in default DB, send user to edit route
-        if not Campaign.objects.using("default").filter(brand_campaign_id=campaign_id).exists():
+        if not resolve_portal_campaign(campaign_id, sync_from_master=True):
             return redirect("campaign_by_id_update", campaign_id=campaign_id)
 
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
         campaign_id = self.kwargs.get("campaign_id")
-        return get_object_or_404(
-            Campaign.objects.using("default"),
-            brand_campaign_id=campaign_id,
-        )
+        campaign = resolve_portal_campaign(campaign_id, sync_from_master=True)
+        if not campaign:
+            raise Http404("Campaign not found")
+        return campaign
 
 
 
@@ -239,7 +240,7 @@ def get_default_campaign_by_campaign_id(campaign_id):
     Fetch Campaign from DEFAULT DB by matching brand_campaign_id against
     raw/dashless/dashed variants. Returns Campaign or None.
     """
-    variants = campaign_id_variants(campaign_id)
+    variants = shared_campaign_id_variants(campaign_id)
     return (
         Campaign.objects.using("default")
         .filter(brand_campaign_id__in=variants)

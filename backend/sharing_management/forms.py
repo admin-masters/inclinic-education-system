@@ -14,6 +14,7 @@ from user_management.models import User
 from doctor_viewer.models import Doctor, DoctorCollateral, DoctorEngagement
 from collateral_management.models import Collateral
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
+from campaign_management.campaign_ids import resolve_portal_campaign
 from campaign_management.models import Campaign
 from .models import ShareLog
 
@@ -182,9 +183,8 @@ class ShareForm(forms.Form):
         # STEP 1: Filter collaterals safely
         # --------------------------------------------------
         if brand_campaign_id:
-            try:
-                campaign = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
-
+            campaign = resolve_portal_campaign(brand_campaign_id, sync_from_master=True)
+            if campaign:
                 cc_qs = CMCampaignCollateral.objects.filter(
                     campaign=campaign,
                     collateral__is_active=True
@@ -197,8 +197,7 @@ class ShareForm(forms.Form):
                     id__in=cc_qs.values_list('collateral_id', flat=True),
                     is_active=True
                 ).order_by('-created_at')
-
-            except Campaign.DoesNotExist:
+            else:
                 self.fields['collateral'].queryset = Collateral.objects.none()
         else:
             # No campaign = no collaterals (important for safety)
@@ -321,11 +320,9 @@ class CalendarCampaignCollateralForm(forms.ModelForm):
         # Determine campaign context
         campaign_obj = None
         if brand_campaign_id:
-            try:
-                campaign_obj = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
+            campaign_obj = resolve_portal_campaign(brand_campaign_id, sync_from_master=True)
+            if campaign_obj:
                 self.fields['campaign'].initial = campaign_obj.brand_campaign_id
-            except Campaign.DoesNotExist:
-                pass
 
         if self.instance and self.instance.pk and not campaign_obj:
             campaign_obj = self.instance.campaign
@@ -362,9 +359,7 @@ class CalendarCampaignCollateralForm(forms.ModelForm):
             bcid = cleaned_data.get('campaign') or self.fields['campaign'].initial
             if not bcid:
                 raise ValidationError("Brand Campaign ID is required for new campaign collateral.")
-            try:
-                Campaign.objects.get(brand_campaign_id=bcid)
-            except Campaign.DoesNotExist:
+            if not resolve_portal_campaign(bcid, sync_from_master=True):
                 raise ValidationError(f"Campaign with Brand Campaign ID '{bcid}' not found.")
         return cleaned_data
 
@@ -377,9 +372,10 @@ class CalendarCampaignCollateralForm(forms.ModelForm):
         else:
             bcid = self.cleaned_data.get('campaign') or self.fields['campaign'].initial
             if bcid:
-                try:
-                    instance.campaign = Campaign.objects.get(brand_campaign_id=bcid)
-                except Campaign.DoesNotExist:
+                campaign = resolve_portal_campaign(bcid, sync_from_master=True)
+                if campaign:
+                    instance.campaign = campaign
+                else:
                     raise ValidationError(f"Campaign with Brand Campaign ID '{bcid}' not found.")
 
         # Convert date inputs to DateTime at start/end of day
