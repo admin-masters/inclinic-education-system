@@ -13,7 +13,7 @@ from .decorators import admin_required
 from .models import Collateral, CampaignCollateral
 from .forms import CollateralForm, CampaignCollateralForm
 from campaign_management.models import Campaign
-from .campaign_ids import campaign_id_variants
+from .campaign_ids import campaign_id_variants, ensure_portal_campaign
 from .forms import CampaignCollateralDateForm
 
 class CollateralListView(ListView):
@@ -137,8 +137,7 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
     
     # If brand_campaign_id is provided, get the campaign and filter choices
     if brand_campaign_id:
-        variants = campaign_id_variants(brand_campaign_id)
-        selected_campaign = Campaign.objects.filter(brand_campaign_id__in=variants).first() if variants else None
+        selected_campaign = ensure_portal_campaign(brand_campaign_id)
         if not selected_campaign:
             messages.error(request, f"Campaign with Brand Campaign ID '{brand_campaign_id}' not found.")
             return redirect("collateral_list")
