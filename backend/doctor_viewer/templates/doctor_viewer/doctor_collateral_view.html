@@ -197,6 +197,8 @@
                         {% if item.start_date %} {{ item.start_date|date:"d M Y" }}{% endif %}
                         {% if item.end_date %} to {{ item.end_date|date:"d M Y" }}{% endif %}
                       </small>
+                    {% elif item.shared_at %}
+                      <small class="text-muted">Shared {{ item.shared_at|date:"d M Y" }}</small>
                     {% endif %}
                   </div>
                   <div class="flex-shrink-0">
