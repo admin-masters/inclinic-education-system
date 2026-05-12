@@ -13,6 +13,7 @@
         <div class="card-body p-4">
           <form method="post" autocomplete="off">
             {% csrf_token %}
+            <input type="hidden" name="share_action" value="initial">
             <div class="mb-3">
               <label class="form-label">Field Rep ID:</label>
               <input type="text" class="form-control" name="fieldrep_id" value="{{ fieldrep_id }}" readonly>
@@ -29,7 +30,7 @@
             <div class="mb-3">
               <label class="form-label">Select Collaterals:</label>
               {% if collaterals %}
-              <select class="form-select" name="collateral" required>
+              <select class="form-select" name="collateral" id="collateralSelect" required>
                 <option value="">Select Collateral</option>
                 {% for c in collaterals %}
                 <option value="{{ c.id }}">{{ c.name }}</option>
@@ -74,8 +75,8 @@
             {% for doctor in doctors %}
             <div class="list-group-item d-flex justify-content-between align-items-center doctor-row"
                  data-id="{{ doctor.id }}"
-                 data-name="{{ doctor.name|lower }}" 
-                 data-phone="{{ doctor.phone }}" 
+                 data-name="{{ doctor.name|lower }}"
+                 data-phone="{{ doctor.phone|default:'' }}"
                  data-status="{{ doctor.status|default:'not_shared' }}">
               <div>
                 <div class="fw-semibold">{{ doctor.name|default:'Unnamed Doctor' }}</div>
@@ -99,6 +100,7 @@
                   {% if collaterals %}
                   <input type="hidden" name="collateral" value="{{ collaterals.0.id }}">
                   {% endif %}
+                  <input type="hidden" name="share_action" value="{% if doctor.status == 'needs_reminder' %}reminder{% else %}initial{% endif %}">
                   {% if doctor.status == 'viewed' %}
                     <button type="button" class="btn btn-success btn-sm" disabled>
                       <i class="fas fa-check-circle me-1"></i> Viewed
@@ -132,6 +134,9 @@
               No collaterals available to share. Please add collaterals to this brand campaign first.
             </div>
             {% endif %}
+            <div class="list-group-item text-center text-muted py-4 d-none" id="doctorNoResults">
+              No doctors match the current search/filter.
+            </div>
           </div>
         </div>
       </div>
@@ -168,38 +173,57 @@
 </style>
 
 <script>
-// Search functionality
-document.getElementById('doctorSearch').addEventListener('input', function(e) {
-  const searchTerm = e.target.value.toLowerCase();
-  const doctorRows = document.querySelectorAll('.doctor-row');
-  
-  doctorRows.forEach(row => {
-    const name = row.dataset.name.toLowerCase();
-    const phone = row.dataset.phone;
-    
-    if (name.includes(searchTerm) || phone.includes(searchTerm)) {
-      row.style.display = '';
-    } else {
-      row.style.display = 'none';
-    }
-  });
-});
+const doctorSearch = document.getElementById('doctorSearch');
+const statusFilter = document.getElementById('statusFilter');
+const doctorNoResults = document.getElementById('doctorNoResults');
 
-// Status filter
-document.getElementById('statusFilter').addEventListener('change', function(e) {
-  const statusFilter = e.target.value;
+function normalizeDigits(value) {
+  return (value || '').replace(/\D/g, '');
+}
+
+function applyDoctorFilters() {
+  const searchTerm = (doctorSearch?.value || '').toLowerCase().trim();
+  const searchDigits = normalizeDigits(searchTerm);
+  const statusValue = statusFilter?.value || '';
   const doctorRows = document.querySelectorAll('.doctor-row');
-  
+  let visibleCount = 0;
+
   doctorRows.forEach(row => {
-    const status = row.dataset.status;
-    
-    if (!statusFilter || status === statusFilter) {
-      row.style.display = '';
-    } else {
-      row.style.display = 'none';
+    const name = (row.dataset.name || '').toLowerCase();
+    const phone = row.dataset.phone || '';
+    const phoneDigits = normalizeDigits(phone);
+    const status = row.dataset.status || '';
+
+    const matchesSearch = !searchTerm || name.includes(searchTerm) || (searchDigits && phoneDigits.includes(searchDigits));
+    const matchesStatus = !statusValue || status === statusValue;
+
+    row.style.display = (matchesSearch && matchesStatus) ? '' : 'none';
+    if (matchesSearch && matchesStatus) {
+      visibleCount += 1;
     }
   });
-});
+
+  if (doctorNoResults) {
+    doctorNoResults.classList.toggle('d-none', visibleCount !== 0);
+  }
+}
+
+doctorSearch?.addEventListener('input', applyDoctorFilters);
+statusFilter?.addEventListener('change', applyDoctorFilters);
+applyDoctorFilters();
+
+const collateralSelect = document.getElementById('collateralSelect');
+function syncHiddenCollateralInputs(value) {
+  document.querySelectorAll('.share-form input[name="collateral"]').forEach((input) => {
+    input.value = value || '';
+  });
+}
+if (collateralSelect) {
+  syncHiddenCollateralInputs(collateralSelect.value);
+  collateralSelect.addEventListener('change', function() {
+    syncHiddenCollateralInputs(this.value);
+  });
+}
 
 // Handle form submissions
 document.querySelectorAll('.share-form').forEach(form => {
@@ -445,6 +469,7 @@ function addDoctorToList(doctor) {
         <input type="hidden" name="doctor_name" value="${doctor.name}">
         <input type="hidden" name="doctor_whatsapp" value="${doctor.phone}">
         <input type="hidden" name="collateral" value="${collateralId}">
+        <input type="hidden" name="share_action" value="initial">
         <button type="button" class="btn btn-warning btn-sm" disabled data-status="shared">
           <i class="fas fa-paper-plane me-1"></i> Shared
         </button>

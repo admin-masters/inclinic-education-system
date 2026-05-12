@@ -141,73 +141,50 @@ def _archive_open_url(share_log: ShareLog) -> str | None:
     return f"{reverse('resolve_shortlink', args=[short_code])}?share_id={share_log.id}"
 
 
-def _doctor_archive_items(*, current_collateral: Collateral, matched_sharelog_id: int | None = None, doctor_identifier: str | None = None, limit: int = 3):
+def _collateral_open_url(collateral: Collateral) -> str | None:
+    short_link = (
+        ShortLink.objects.filter(
+            resource_type="collateral",
+            resource_id=collateral.id,
+            is_active=True,
+        )
+        .order_by("-date_created")
+        .first()
+    )
+    short_code = getattr(short_link, "short_code", None)
+    if not short_code:
+        return None
+    return reverse("resolve_shortlink", args=[short_code])
+
+
+def _doctor_archive_items(*, current_collateral: Collateral, matched_sharelog_id: int | None = None, doctor_identifier: str | None = None, limit: int | None = None):
     campaign_id = _collateral_campaign_id(current_collateral)
     if not campaign_id:
         return []
 
-    current_share_log = None
-    if matched_sharelog_id:
-        current_share_log = (
-            ShareLog.objects.select_related("short_link")
-            .filter(id=matched_sharelog_id)
-            .first()
-        )
-
-    doctor_last10 = _last10_digits(doctor_identifier)
-    if not doctor_last10 and current_share_log:
-        doctor_last10 = _last10_digits(getattr(current_share_log, "doctor_identifier", ""))
-    if not doctor_last10:
-        return []
-
-    campaign_collateral_ids = set(
-        Collateral.objects.filter(campaign_id=campaign_id).values_list("id", flat=True)
-    )
-    campaign_collateral_ids.update(
-        CollateralCampaignLink.objects.filter(campaign_id=campaign_id).values_list("collateral_id", flat=True)
-    )
-    campaign_collateral_ids.discard(current_collateral.id)
-    if not campaign_collateral_ids:
-        return []
-
-    cutoff = _archive_cutoff_for_collateral(
-        current_collateral,
-        campaign_id,
-        getattr(current_share_log, "share_timestamp", None),
-    )
-
-    share_logs = (
-        ShareLog.objects
-        .select_related("short_link", "collateral")
-        .filter(collateral_id__in=campaign_collateral_ids)
-        .order_by("-share_timestamp", "-id")
+    now = timezone.now()
+    scheduled_links = (
+        CollateralCampaignLink.objects
+        .filter(campaign_id=campaign_id, collateral__is_active=True, end_date__lt=now)
+        .exclude(collateral_id=current_collateral.id)
+        .select_related("collateral")
+        .order_by("start_date", "end_date", "id")
     )
 
     archives = []
-    seen_collateral_ids = set()
-
-    for share_log in share_logs:
-        if _last10_digits(getattr(share_log, "doctor_identifier", "")) != doctor_last10:
-            continue
-
-        if cutoff and getattr(share_log, "share_timestamp", None) and share_log.share_timestamp >= cutoff:
-            continue
-
-        collateral = getattr(share_log, "collateral", None)
+    for link in scheduled_links:
+        collateral = getattr(link, "collateral", None)
         if not collateral or not getattr(collateral, "is_active", False):
-            continue
-
-        if share_log.collateral_id in seen_collateral_ids:
             continue
 
         archives.append({
             "obj": collateral,
-            "open_url": _archive_open_url(share_log),
-            "shared_at": getattr(share_log, "share_timestamp", None),
+            "open_url": _collateral_open_url(collateral),
+            "start_date": getattr(link, "start_date", None),
+            "end_date": getattr(link, "end_date", None),
         })
-        seen_collateral_ids.add(share_log.collateral_id)
 
-        if len(archives) >= limit:
+        if limit is not None and len(archives) >= limit:
             break
 
     return archives

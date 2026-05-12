@@ -264,6 +264,22 @@
       </div>
     </div>
 
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Reminder Message:</label>
+      <div class="col-sm-6">
+        <textarea
+          name="reminder_message"
+          class="form-control"
+          rows="4"
+          placeholder="Enter reminder message... Use $collateralLinks for the link"
+        >{{ reminder_message|default_if_none:'' }}</textarea>
+        <small class="text-muted">
+          This message will be used when the Field Rep sends a reminder for the same Campaign + Collateral.
+          Use <code>$collateralLinks</code> as placeholder.
+        </small>
+      </div>
+    </div>
+
     <!-- Submit -->
     <div class="row mb-3">
       <div class="offset-sm-3 col-sm-6">

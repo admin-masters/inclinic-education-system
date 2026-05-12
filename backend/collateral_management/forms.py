@@ -174,7 +174,7 @@ from .campaign_ids import campaign_id_variants, ensure_portal_campaign
 class CollateralMessageForm(forms.ModelForm):
     class Meta:
         model = CollateralMessage
-        fields = ['campaign', 'collateral', 'message', 'is_active']
+        fields = ['campaign', 'collateral', 'message', 'reminder_message', 'is_active']
         widgets = {
             'campaign': forms.Select(attrs={'class': 'form-control', 'id': 'campaign-select'}),
             'collateral': forms.Select(attrs={'class': 'form-control', 'id': 'collateral-select'}),
@@ -183,6 +183,12 @@ class CollateralMessageForm(forms.ModelForm):
                 'rows': 8,
                 'placeholder': 'Enter your custom WhatsApp message here. Use $collateralLinks as placeholder for the actual link.',
                 'id': 'message-textarea'
+            }),
+            'reminder_message': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 6,
+                'placeholder': 'Enter a reminder-specific message. Use $collateralLinks as placeholder for the actual link.',
+                'id': 'reminder-message-textarea'
             }),
             'is_active': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
@@ -259,5 +265,4 @@ class CollateralMessageSearchForm(forms.Form):
             'placeholder': 'Enter Collateral ID'
         })
     )
-
 

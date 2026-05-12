@@ -91,17 +91,17 @@ class CampaignDetailByCampaignIdView(DetailView):
             return HttpResponseBadRequest("Missing campaign-id")
 
         # If not yet created in default DB, send user to edit route
-        if not Campaign.objects.using("default").filter(brand_campaign_id=campaign_id).exists():
+        if not get_default_campaign_by_campaign_id(campaign_id):
             return redirect("campaign_by_id_update", campaign_id=campaign_id)
 
         return super().dispatch(request, *args, **kwargs)
 
     def get_object(self, queryset=None):
         campaign_id = self.kwargs.get("campaign_id")
-        return get_object_or_404(
-            Campaign.objects.using("default"),
-            brand_campaign_id=campaign_id,
-        )
+        obj = get_default_campaign_by_campaign_id(campaign_id)
+        if not obj:
+            raise Http404("Campaign not found in default DB")
+        return obj
 
 
 
@@ -211,10 +211,20 @@ def bulk_master_snapshots(brand_campaign_ids):
     if not dashless_ids:
         return {}
 
+    master_uuid_ids = []
+    for dashless_id in dashless_ids:
+        try:
+            master_uuid_ids.append(uuid.UUID(hex=dashless_id))
+        except (ValueError, TypeError):
+            continue
+
+    if not master_uuid_ids:
+        return {}
+
     master_qs = (
         MasterCampaign.objects.using("master")
         .select_related("brand")
-        .filter(id__in=dashless_ids)
+        .filter(id__in=master_uuid_ids)
     )
     master_list = list(master_qs)
 
@@ -224,12 +234,17 @@ def bulk_master_snapshots(brand_campaign_ids):
     snapshots = {}
     for mc in master_list:
         brand_obj = getattr(mc, "brand", None)
-        snapshots[mc.id] = {
+        snapshot_key = normalize_master_campaign_id(getattr(mc, "id", None))
+        if not snapshot_key:
+            continue
+        snapshots[snapshot_key] = {
             "brand_name": getattr(brand_obj, "name", None),
             "company_name": company_map.get(str(getattr(mc, "brand_id", ""))),
             "incharge_name": getattr(mc, "contact_person_name", None),
             "incharge_contact": getattr(mc, "contact_person_phone", None),
             "num_doctors": getattr(mc, "num_doctors_supported", None),
+            "start_date": getattr(mc, "start_date", None),
+            "end_date": getattr(mc, "end_date", None),
         }
     return snapshots
 
@@ -704,28 +719,42 @@ def manage_data_panel(request):
         .all()
     )
 
-    # Normalize master campaign IDs into dashed UUIDs for default DB lookup + URLs
+    # Normalize master campaign IDs into dashed UUIDs for URLs and keep both
+    # dashed/dashless variants for local default-DB matching.
     normalized_campaign_ids = []
+    default_lookup_variants = set()
     brand_ids = []
 
     master_rows = []
     for mc in master_campaigns:
-        cid = normalize_campaign_id(mc.id)  # dashed if uuid-like
+        cid = normalize_campaign_id(str(mc.id))  # dashed if uuid-like
         normalized_campaign_ids.append(cid)
         master_rows.append((cid, mc))
+        for variant in campaign_id_variants(cid):
+            default_lookup_variants.add(variant)
         if getattr(mc, "brand_id", None):
             brand_ids.append(str(mc.brand_id))
 
     company_by_brand_id = _fetch_company_names_for_brand_ids(list(set(brand_ids)))
 
     default_qs = Campaign.objects.using("default").filter(
-        brand_campaign_id__in=normalized_campaign_ids
+        brand_campaign_id__in=list(default_lookup_variants)
     )
-    default_by_campaign_id = {c.brand_campaign_id: c for c in default_qs}
+    default_by_campaign_variant = {}
+    for campaign in default_qs:
+        for variant in campaign_id_variants(campaign.brand_campaign_id):
+            default_by_campaign_variant.setdefault(variant, campaign)
 
     campaigns = []
     for cid, mc in master_rows:
-        dc = default_by_campaign_id.get(cid)
+        dc = None
+        for variant in campaign_id_variants(cid):
+            dc = default_by_campaign_variant.get(variant)
+            if dc:
+                break
+
+        master_start = getattr(mc, "start_date", None)
+        master_end = getattr(mc, "end_date", None)
 
         campaigns.append({
             "brand_campaign_id": cid,
@@ -738,9 +767,9 @@ def manage_data_panel(request):
             "num_doctors": getattr(mc, "num_doctors_supported", 0) or 0,
 
             # ✅ DEFAULT DB fields (editable ones)
-            "name": getattr(dc, "name", "") if dc else "",
-            "start_date": getattr(dc, "start_date", None) if dc else None,
-            "end_date": getattr(dc, "end_date", None) if dc else None,
+            "name": getattr(dc, "name", "") if dc else (getattr(mc, "name", "") or ""),
+            "start_date": getattr(dc, "start_date", None) if dc and getattr(dc, "start_date", None) else master_start,
+            "end_date": getattr(dc, "end_date", None) if dc and getattr(dc, "end_date", None) else master_end,
             "status": getattr(dc, "status", "") if dc else "",
             "has_default": bool(dc),
         })

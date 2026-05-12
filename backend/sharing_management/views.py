@@ -1202,27 +1202,52 @@ def find_or_create_short_link(collateral, user):
 
 
 
-def get_brand_specific_message(collateral_id, collateral_name, collateral_link, brand_campaign_id=None):
+def get_brand_specific_message(
+    collateral_id,
+    collateral_name,
+    collateral_link,
+    brand_campaign_id=None,
+    message_kind="initial",
+):
     from collateral_management.models import CollateralMessage
     from campaign_management.models import CampaignCollateral as CampaignMgmtCampaignCollateral
 
     bc_id = (str(brand_campaign_id).strip() if brand_campaign_id else "")
+    message_kind = "reminder" if str(message_kind).strip().lower() == "reminder" else "initial"
     if SM_VERBOSE_LOGS:
-        print(f"[SMDBG] get_brand_specific_message bc_id={bc_id!r} collateral_id={collateral_id!r}")
+        print(
+            f"[SMDBG] get_brand_specific_message bc_id={bc_id!r} "
+            f"collateral_id={collateral_id!r} message_kind={message_kind!r}"
+        )
+
+    def _render_custom_message(custom_message):
+        if not custom_message:
+            return None
+
+        if message_kind == "reminder":
+            reminder_template = (getattr(custom_message, "reminder_message", "") or "").strip()
+            if reminder_template:
+                return reminder_template.replace("$collateralLinks", collateral_link)
+
+        message_template = (getattr(custom_message, "message", "") or "").strip()
+        if message_template:
+            return message_template.replace("$collateralLinks", collateral_link)
+        return None
 
     try:
         if bc_id:
             custom_message = (
                 CollateralMessage.objects.filter(
-                    campaign__brand_campaign_id=bc_id,
+                    campaign__brand_campaign_id__in=_campaign_id_variants(bc_id),
                     collateral_id=collateral_id,
                     is_active=True,
                 )
                 .order_by("-id")
                 .first()
             )
-            if custom_message and custom_message.message:
-                return custom_message.message.replace("$collateralLinks", collateral_link)
+            rendered_message = _render_custom_message(custom_message)
+            if rendered_message:
+                return rendered_message
     except Exception as e:
         if SM_VERBOSE_LOGS:
             print(f"[SMDBG] get_brand_specific_message brand-specific lookup ERROR: {e}")
@@ -1245,8 +1270,9 @@ def get_brand_specific_message(collateral_id, collateral_name, collateral_link, 
                 .order_by("-id")
                 .first()
             )
-            if custom_message and custom_message.message:
-                return custom_message.message.replace("$collateralLinks", collateral_link)
+            rendered_message = _render_custom_message(custom_message)
+            if rendered_message:
+                return rendered_message
     except Exception as e:
         if SM_VERBOSE_LOGS:
             print(f"[SMDBG] get_brand_specific_message legacy fallback ERROR: {e}")
@@ -1903,13 +1929,18 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
     else:
         campaign_ids_to_use = allowed_campaign_ids
 
+    campaign_id_variants_to_use = []
+    for campaign_id in campaign_ids_to_use:
+        campaign_id_variants_to_use.extend(_campaign_id_variants(campaign_id))
+    campaign_id_variants_to_use = list(dict.fromkeys([value for value in campaign_id_variants_to_use if value]))
+
     # Collaterals filtered by campaign dates + is_active (DEFAULT DB)
     collaterals_list: list[dict] = []
     try:
         current_dt = timezone.now()
-        if campaign_ids_to_use:
+        if campaign_id_variants_to_use:
             cc_links = (
-                CMCampaignCollateral.objects.filter(campaign__brand_campaign_id__in=campaign_ids_to_use)
+                CMCampaignCollateral.objects.filter(campaign__brand_campaign_id__in=campaign_id_variants_to_use)
                 .filter(collateral__is_active=True)
                 .filter(_live_or_ended_collateral_q(current_dt))
                 .select_related("collateral")
@@ -1957,6 +1988,8 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 doctor_name = (request.POST.get("doctor_name") or "").strip()
                 doctor_whatsapp = (request.POST.get("doctor_whatsapp") or "").strip()
                 collateral_id = request.POST.get("collateral")
+                share_action = (request.POST.get("share_action") or "initial").strip().lower()
+                message_kind = "reminder" if share_action == "reminder" else "initial"
 
                 if not collateral_id:
                     return JsonResponse({"success": False, "message": "Collateral ID is required"})
@@ -1985,6 +2018,13 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 # Create ShareLog in DEFAULT DB
                 collateral_obj = Collateral.objects.get(id=collateral_id_int, is_active=True)
                 short_link = find_or_create_short_link(collateral_obj, rep_user or request.user)
+                message = get_brand_specific_message(
+                    collateral_id_int,
+                    selected_collateral["name"],
+                    selected_collateral["link"],
+                    brand_campaign_id=brand_campaign_id,
+                    message_kind=message_kind,
+                )
 
                 sl = ShareLog.objects.create(
                     short_link=short_link,
@@ -1994,7 +2034,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                     doctor_identifier=phone_e164,
                     share_channel="WhatsApp",
                     share_timestamp=timezone.now(),
-                    message_text="",
+                    message_text=message,
                     brand_campaign_id=(brand_campaign_id or ""),
                 )
 
@@ -2010,12 +2050,6 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 except Exception:
                     pass
 
-                message = get_brand_specific_message(
-                    collateral_id_int,
-                    selected_collateral["name"],
-                    selected_collateral["link"],
-                    brand_campaign_id=brand_campaign_id,
-                )
                 wa_number = re.sub(r"\D", "", phone_e164).lstrip("+")
                 wa_url = f"https://wa.me/{wa_number}?text={urllib.parse.quote(message)}"
 
@@ -2033,6 +2067,8 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
         doctor_name = (request.POST.get("doctor_name") or "").strip()
         doctor_whatsapp = (request.POST.get("doctor_whatsapp") or "").strip()
         collateral_id = request.POST.get("collateral") or ""
+        share_action = (request.POST.get("share_action") or "initial").strip().lower()
+        message_kind = "reminder" if share_action == "reminder" else "initial"
         if not collateral_id.isdigit():
             messages.error(request, "Please provide all required information.")
             return redirect("fieldrep_share_collateral")
@@ -2046,6 +2082,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 selected_collateral["name"],
                 selected_collateral["link"],
                 brand_campaign_id=brand_campaign_id,
+                message_kind=message_kind,
             )
             wa_number = re.sub(r"\D", "", phone_e164).lstrip("+")
             wa_url = f"https://wa.me/{wa_number}?text={urllib.parse.quote(message)}"
@@ -2335,9 +2372,10 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
 
         collaterals = []
         if brand_campaign_id and brand_campaign_id != "all":
+            campaign_variants = _campaign_id_variants(brand_campaign_id)
             # from campaign_management CampaignCollateral
             cc1 = CampaignMgmtCC.objects.filter(
-                campaign__brand_campaign_id=brand_campaign_id
+                campaign__brand_campaign_id__in=campaign_variants
             ).filter(
                 _live_or_ended_collateral_q(current_date)
             ).select_related("collateral", "campaign")
@@ -2345,7 +2383,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
 
             # from collateral_management CampaignCollateral
             cc2 = CMCampaignCollateral2.objects.filter(
-                campaign__brand_campaign_id=brand_campaign_id,
+                campaign__brand_campaign_id__in=campaign_variants,
                 collateral__is_active=True,
             ).filter(
                 _live_or_ended_collateral_q(current_dt)
@@ -2446,6 +2484,8 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         doctor_name = (request.POST.get("doctor_name") or "").strip()
         doctor_whatsapp = (request.POST.get("doctor_whatsapp") or "").strip()
         collateral_id_str = (request.POST.get("collateral") or "").strip()
+        share_action = (request.POST.get("share_action") or "initial").strip().lower()
+        message_kind = "reminder" if share_action == "reminder" else "initial"
 
         # ------------------------------------------------------------
         # Support Assigned Doctors quick-send button
@@ -2533,6 +2573,14 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         short_link = find_or_create_short_link(collateral_obj, rep_user)
         print(f"[SMDBG] short_link resolved id={short_link.id} code={short_link.short_code}")
 
+        message = get_brand_specific_message(
+            collateral_id,
+            selected_collateral["name"],
+            selected_collateral["link"],
+            brand_campaign_id=brand_campaign_id,
+            message_kind=message_kind,
+        )
+
         # ------------------------------------------------------------
         # IMPORTANT FIX: ensure ShareLog row exists with doctor_identifier
         # so doctor_collateral_verify can match WhatsApp number.
@@ -2580,7 +2628,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                         "updated_at": now,
                         "collateral_id": collateral_id,
                         "field_rep_id": str(getattr(rep_user, "id", "") or field_rep_id or ""),
-                        "message_text": "",
+                        "message_text": message,
                     }
 
                     # Fill required NOT NULL cols if they exist and we didn't set them
@@ -2637,12 +2685,6 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             print("[SMDBG] log_manual_doctor_share() ERROR:", e)
 
         # Build WhatsApp URL
-        message = get_brand_specific_message(
-            collateral_id,
-            selected_collateral["name"],
-            selected_collateral["link"],
-            brand_campaign_id=brand_campaign_id,
-        )
         wa_number = _re.sub(r"\D", "", phone_e164).lstrip("+")
         wa_url = f"https://wa.me/{wa_number}?text={_up.quote(message)}"
         print(f"[SMDBG] FINAL wa_url={wa_url}")
