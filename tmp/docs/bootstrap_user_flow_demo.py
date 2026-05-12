@@ -557,7 +557,9 @@ def seed_demo_data() -> dict[str, object]:
     )
 
     doctor_one = Doctor.objects.create(rep=operator_user, name="Dr. Priya Raman", phone="9876543210", source="manual")
-    doctor_two = Doctor.objects.create(rep=operator_user, name="Dr. Arjun Mehta", phone="9988776655", source="manual")
+    doctor_two = Doctor.objects.create(rep=operator_user, name="Dr. Kunal Shah", phone="9988776655", source="manual")
+    doctor_three = Doctor.objects.create(rep=operator_user, name="Dr. Aditi Nair", phone="9123456780", source="manual")
+    doctor_four = Doctor.objects.create(rep=operator_user, name="Dr. Neha Kapoor", phone="9012345678", source="manual")
 
     shortlink_archive = ShortLink.objects.create(
         short_code="cardio-archive-demo",
@@ -604,17 +606,28 @@ def seed_demo_data() -> dict[str, object]:
         share_timestamp=now - timedelta(hours=8),
     )
     share_two = ShareLog.objects.create(
-        short_link=shortlink_supplemental,
-        collateral=supplemental_collateral,
+        short_link=shortlink_main,
+        collateral=main_collateral,
         field_rep_id=rep_ids["FR-1001"],
         field_rep_email="rep.docs@example.com",
         doctor_identifier="+919988776655",
         share_channel="WhatsApp",
-        message_text="Please keep this starter leaflet handy for your next clinic discussion: $collateralLinks",
+        message_text="Hello Doctor, please review the latest CardioCare material here: $collateralLinks",
         brand_campaign_id=str(primary_campaign.brand_campaign_id),
         share_timestamp=now - timedelta(hours=3),
     )
     share_three = ShareLog.objects.create(
+        short_link=shortlink_main,
+        collateral=main_collateral,
+        field_rep_id=rep_ids["FR-1001"],
+        field_rep_email="rep.docs@example.com",
+        doctor_identifier="+919123456780",
+        share_channel="WhatsApp",
+        message_text="Hello Doctor, please review the latest CardioCare material here: $collateralLinks",
+        brand_campaign_id=str(primary_campaign.brand_campaign_id),
+        share_timestamp=now - timedelta(days=8),
+    )
+    share_four = ShareLog.objects.create(
         short_link=shortlink_archive,
         collateral=archive_collateral,
         field_rep_id=rep_ids["FR-1001"],
@@ -629,7 +642,8 @@ def seed_demo_data() -> dict[str, object]:
     for share_log, doctor_name in [
         (share_one, doctor_one.name),
         (share_two, doctor_two.name),
-        (share_three, "Dr. Kavita Rao"),
+        (share_three, doctor_three.name),
+        (share_four, "Dr. Kavita Rao"),
     ]:
         upsert_from_sharelog(
             share_log,
@@ -643,8 +657,6 @@ def seed_demo_data() -> dict[str, object]:
     mark_pdf_progress(share_one, last_page=4, completed=True, total_pages=4)
     mark_downloaded_pdf(share_one)
     mark_video_event(share_one, percentage=100)
-    mark_viewed(share_two)
-    mark_video_event(share_two, percentage=50)
 
     publisher_token = jwt.encode(
         {
@@ -687,6 +699,17 @@ def seed_demo_data() -> dict[str, object]:
             "short_code": shortlink_main.short_code,
             "short_link_id": shortlink_main.id,
             "share_log_id": share_one.id,
+        },
+        "collateral_ids": {
+            "main": main_collateral.id,
+            "supplemental": supplemental_collateral.id,
+            "archive": archive_collateral.id,
+        },
+        "fieldrep_doctors": {
+            "opened": {"name": doctor_one.name, "phone_last10": doctor_one.phone},
+            "sent": {"name": doctor_two.name, "phone_last10": doctor_two.phone},
+            "reminder": {"name": doctor_three.name, "phone_last10": doctor_three.phone},
+            "not_sent": {"name": doctor_four.name, "phone_last10": doctor_four.phone},
         },
         "pages": {
             "admin_login": "/admin/login/",

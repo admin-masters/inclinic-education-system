@@ -31,13 +31,13 @@
   },
   {
     "order": 6,
-    "title": "Field Rep Registration and Login",
+    "title": "Field Rep Login",
     "source_manual": "docs/product-user-flows/06-field-rep-registration-and-login.md",
     "deck": "output/doc/user-flow-decks/06-field-rep-registration-and-login.pptx"
   },
   {
     "order": 7,
-    "title": "Field Rep Sharing and Doctor Bulk Upload",
+    "title": "Field Rep Sharing and Doctor Addition",
     "source_manual": "docs/product-user-flows/07-field-rep-sharing-and-doctor-bulk-upload.md",
     "deck": "output/doc/user-flow-decks/07-field-rep-sharing-and-doctor-bulk-upload.pptx"
   },

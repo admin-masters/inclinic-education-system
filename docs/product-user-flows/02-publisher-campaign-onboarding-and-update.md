@@ -20,14 +20,14 @@ Signed publisher route: `/campaigns/publisher-landing-page/?campaign-id=<uuid>&j
 
 - A signed JWT establishes the publisher session without a standard Django login.
 - The landing page stores the campaign ID in session and offers the add/edit campaign paths.
-- The campaign update page merges read-only master data with locally editable PE fields.
+- The campaign update page merges read-only master data with locally editable PE fields and exposes Add/Edit Field Rep outbound buttons.
 - Successful saves keep the user on the campaign update route so the campaign can be refined iteratively.
 ## 6. Step-By-Step Instructions
 
 ### Step 1. Open the signed publisher landing page
 
 - What the user does: Launch the partner-provided URL that contains the `campaign-id` and publisher JWT.
-- What the user sees: A minimal publisher landing page confirming the campaign ID and offering the add-details or select-another-campaign actions.
+- What the user sees: A minimal publisher landing page confirming the campaign ID and offering the `Add details for this campaign` and `Edit details for any other campaign` actions.
 - Why the step matters: The signed link is what authorizes a publisher without giving them a normal portal user account.
 - Expected result: The publisher session is established and the campaign ID is stored in the session.
 - Common issues / trainer notes: If the JWT is missing or invalid, the route returns `unauthorised access` instead of falling back to a portal login screen.
@@ -39,7 +39,7 @@ Signed publisher route: `/campaigns/publisher-landing-page/?campaign-id=<uuid>&j
 ### Step 2. Open the campaign update form
 
 - What the user does: Choose the add-details or edit path for the current campaign.
-- What the user sees: A campaign form that keeps master-system fields read-only and exposes portal-specific fields such as campaign name, dates, logos, background image, printing requirement, and status.
+- What the user sees: A campaign form that keeps master-system fields read-only and exposes portal-specific fields such as campaign name, dates, logos, background image, printing requirement, and status, plus `Add Field Rep` and `Edit Field Rep` outbound buttons.
 - Why the step matters: This is the sanctioned place where the PE system adds campaign-specific presentation and timing details without mutating the master record.
 - Expected result: The publisher understands which information is reference-only and which is editable locally.
 - Common issues / trainer notes: The form includes direct outbound buttons for field-rep management in the external field-rep site, which is a separate integration touchpoint from the local Django routes.
@@ -86,4 +86,4 @@ Signed publisher route: `/campaigns/publisher-landing-page/?campaign-id=<uuid>&j
 
 ## 9. Status
 
-Validated against the signed publisher demo route on 2026-04-11.
+Validated against the signed publisher demo route on 2026-04-23.

@@ -40,6 +40,14 @@ from campaign_management.master_models import (
     MasterCampaignFieldRep,
     MasterFieldRep,
 )
+from campaign_management.campaign_ids import (
+    canonical_brand_campaign_id,
+    campaign_id_variants as shared_campaign_id_variants,
+    ensure_portal_campaign,
+    normalize_campaign_id as shared_normalize_campaign_id,
+    tracking_campaign_id_variants,
+    resolve_portal_campaign,
+)
 from campaign_management.publisher_auth import extract_jwt_from_request, validate_fieldrep_jwt
 
 from collateral_management.models import CampaignCollateral as CMCampaignCollateral
@@ -120,51 +128,12 @@ _CAMPAIGN_UUID_RE = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[
 _CAMPAIGN_HEX32_RE = re.compile(r"^[0-9a-fA-F]{32}$")
 
 def _normalize_campaign_id(raw: str) -> str:
-    s = (raw or "").strip()
-    if not s:
-        return ""
-    s = s.lower()
-    if _CAMPAIGN_UUID_RE.match(s):
-        return s.replace("-", "")
-    if _CAMPAIGN_HEX32_RE.match(s):
-        return s
-    s2 = re.sub(r"[^0-9a-f]", "", s)
-    if len(s2) == 32:
-        return s2
-    return s.replace("-", "")
+    normalized = shared_normalize_campaign_id(raw)
+    return (normalized or "").lower()
 
 
 def _campaign_id_variants(raw: str) -> list[str]:
-    """
-    Return campaign-id lookup variants (dashed + dashless when possible).
-    """
-    value = (raw or "").strip()
-    if not value:
-        return []
-
-    variants: list[str] = []
-
-    def _add(v: str):
-        v = (v or "").strip()
-        if v and v not in variants:
-            variants.append(v)
-
-    _add(value)
-    norm = _normalize_campaign_id(value)
-    _add(norm)
-
-    if norm and len(norm) == 32 and _CAMPAIGN_HEX32_RE.match(norm):
-        try:
-            _add(str(uuid.UUID(norm)))
-        except Exception:
-            pass
-    else:
-        try:
-            _add(str(uuid.UUID(value)))
-        except Exception:
-            pass
-
-    return variants
+    return shared_campaign_id_variants(raw)
 
 
 def _fieldrep_background_image_url(brand_campaign_id: str | None) -> str:
@@ -1148,7 +1117,7 @@ def _ensure_portal_user_for_master_fieldrep(master_rep: MasterFieldRep, raw_pass
 
             campaign_ids = _master_get_campaign_ids_for_fieldrep(int(master_rep.id))
             for bc_id in campaign_ids:
-                c = Campaign.objects.filter(brand_campaign_id=bc_id).first()
+                c = resolve_portal_campaign(bc_id, sync_from_master=True)
                 if not c:
                     continue
                 CampaignAssignment.objects.get_or_create(
@@ -1236,9 +1205,10 @@ def get_brand_specific_message(
 
     try:
         if bc_id:
+            bc_variants = _campaign_id_variants(bc_id)
             custom_message = (
                 CollateralMessage.objects.filter(
-                    campaign__brand_campaign_id__in=_campaign_id_variants(bc_id),
+                    campaign__brand_campaign_id__in=bc_variants,
                     collateral_id=collateral_id,
                     is_active=True,
                 )
@@ -1484,6 +1454,8 @@ def share_content(request):
 
             master_fieldrep_id = _resolve_master_fieldrep_id_from_portal_user(request.user)
 
+            stored_brand_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
+
             share_log = ShareLog.objects.create(
                 short_link=short_link,
                 collateral=collateral,
@@ -1493,13 +1465,13 @@ def share_content(request):
                 share_channel=share_channel,
                 share_timestamp=timezone.now(),
                 message_text=message_text,
-                brand_campaign_id=str(brand_campaign_id or ""),
+                brand_campaign_id=stored_brand_campaign_id,
             )
 
             try:
                 upsert_from_sharelog(
                     share_log,
-                    brand_campaign_id=str(brand_campaign_id or ""),
+                    brand_campaign_id=stored_brand_campaign_id,
                     doctor_name=None,
                     field_rep_unique_id=getattr(request.user, "employee_code", None)
                     or getattr(request.user, "field_id", None),
@@ -2026,6 +1998,8 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                     message_kind=message_kind,
                 )
 
+                stored_brand_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
+
                 sl = ShareLog.objects.create(
                     short_link=short_link,
                     collateral=collateral_obj,
@@ -2034,15 +2008,15 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                     doctor_identifier=phone_e164,
                     share_channel="WhatsApp",
                     share_timestamp=timezone.now(),
-                    message_text=message,
-                    brand_campaign_id=(brand_campaign_id or ""),
+                    message_text="",
+                    brand_campaign_id=stored_brand_campaign_id,
                 )
 
                 # Upsert transaction best-effort
                 try:
                     upsert_from_sharelog(
                         sl,
-                        brand_campaign_id=(brand_campaign_id or ""),
+                        brand_campaign_id=stored_brand_campaign_id,
                         doctor_name=doctor_name or None,
                         field_rep_unique_id=(rep.brand_supplied_field_rep_id or "") or None,
                         sent_at=sl.share_timestamp,
@@ -2619,6 +2593,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     cols = list(col_null_ok.keys())
 
                     # Candidate values (only inserted if column exists)
+                    stored_brand_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
                     desired = {
                         "short_link_id": short_link.id,
                         "doctor_identifier": phone_e164,
@@ -2627,8 +2602,11 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                         "created_at": now,
                         "updated_at": now,
                         "collateral_id": collateral_id,
-                        "field_rep_id": str(getattr(rep_user, "id", "") or field_rep_id or ""),
-                        "message_text": message,
+
+                        "field_rep_id": str(field_rep_id or getattr(rep_user, "id", "") or ""),
+                        "field_rep_email": field_rep_email or "",
+                        "brand_campaign_id": stored_brand_campaign_id,
+                        "message_text": "",
                     }
 
                     # Fill required NOT NULL cols if they exist and we didn't set them
@@ -2714,7 +2692,7 @@ def fieldrep_dashboard(request):
     # Base: show all active campaign-collateral links
     qs = CMCampaignCollateral.objects.select_related("campaign", "collateral").filter(collateral__is_active=True)
     if campaign_filter:
-        qs = qs.filter(campaign__brand_campaign_id=campaign_filter)
+        qs = qs.filter(campaign__brand_campaign_id__in=_campaign_id_variants(campaign_filter))
 
     # Build deduped collateral rows
     rows = []
@@ -2919,9 +2897,10 @@ def edit_campaign_calendar(request):
     collateral_object = None
     brand_filter = request.GET.get("brand") or request.GET.get("campaign")
     if brand_filter:
+        brand_filter_variants = _campaign_id_variants(brand_filter)
         campaign_collaterals = (
             CMCampaignCollateral.objects.select_related("campaign", "collateral")
-            .filter(campaign__brand_campaign_id=brand_filter)
+            .filter(campaign__brand_campaign_id__in=brand_filter_variants)
         )
     else:
         campaign_collaterals = CMCampaignCollateral.objects.select_related("campaign", "collateral").all()
@@ -2963,7 +2942,7 @@ def edit_campaign_calendar(request):
 
             existing_qs = CMCampaignCollateral.objects.filter(collateral_id=collateral_id)
             if brand_campaign_id:
-                existing_qs = existing_qs.filter(campaign__brand_campaign_id=brand_campaign_id)
+                existing_qs = existing_qs.filter(campaign__brand_campaign_id__in=_campaign_id_variants(brand_campaign_id))
             existing_record = existing_qs.first()
 
             if existing_record:
@@ -2988,9 +2967,8 @@ def edit_campaign_calendar(request):
                     messages.error(request, "Brand Campaign ID is required to create a new campaign collateral.")
                     return redirect("edit_campaign_calendar")
 
-                try:
-                    campaign = Campaign.objects.get(brand_campaign_id=brand_campaign_id)
-                except Campaign.DoesNotExist:
+                campaign = resolve_portal_campaign(brand_campaign_id, sync_from_master=True)
+                if not campaign:
                     messages.error(request, f'Campaign with Brand Campaign ID "{brand_campaign_id}" not found.')
                     return redirect("edit_campaign_calendar")
 

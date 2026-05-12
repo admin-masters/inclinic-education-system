@@ -7,6 +7,7 @@ from typing import Any, Optional
 from django.conf import settings
 from django.utils import timezone
 
+from campaign_management.campaign_ids import canonical_brand_campaign_id
 from sharing_management.models import CollateralTransaction, ShareLog
 
 
@@ -130,7 +131,7 @@ def _base_transaction_values(
         return None
 
     bc_raw = brand_campaign_id if brand_campaign_id else getattr(share_log, "brand_campaign_id", "")
-    bc_id = _as_str(bc_raw).strip()
+    bc_id = canonical_brand_campaign_id(_as_str(bc_raw).strip(), sync_from_master=True)
     doctor_number = _as_str(getattr(share_log, "doctor_identifier", "")).strip()
     collateral_id = _resolve_collateral_id(share_log)
 

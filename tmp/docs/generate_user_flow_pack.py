@@ -260,6 +260,64 @@ def add_bullets(slide, left, top, width, height, items, *, font_size=20, color=T
     return box
 
 
+def add_step_sections(slide, left, top, width, height, step: dict) -> None:
+    sections = [
+        ("User action", step["user_does"], TEAL, TEXT),
+        ("What appears on screen", step["user_sees"], TEAL, TEXT),
+        ("Why it matters", step["why_it_matters"], TEAL, TEXT),
+        ("Expected result", step["expected_result"], TEAL, TEXT),
+        ("Trainer note", step["trainer_notes"], ORANGE, MUTED),
+    ]
+
+    total_chars = sum(len(body) for _, body, _, _ in sections)
+    body_font = 16
+    if total_chars > 720:
+        body_font = 11
+    elif total_chars > 580:
+        body_font = 12
+    elif total_chars > 430:
+        body_font = 13
+    elif total_chars > 320:
+        body_font = 14
+    label_font = 12
+    trainer_font = max(body_font - 1, 11)
+
+    box = slide.shapes.add_textbox(left, top, width, height)
+    tf = box.text_frame
+    tf.word_wrap = True
+    tf.clear()
+    tf.margin_left = 0
+    tf.margin_right = 0
+    tf.margin_top = 0
+    tf.margin_bottom = 0
+
+    first = True
+    for label, body, label_color, body_color in sections:
+        p_label = tf.paragraphs[0] if first else tf.add_paragraph()
+        p_label.text = label
+        p_label.alignment = PP_ALIGN.LEFT
+        p_label.space_before = Pt(0)
+        p_label.space_after = Pt(2)
+        for run in p_label.runs:
+            run.font.name = "Aptos"
+            run.font.size = Pt(label_font)
+            run.font.bold = True
+            run.font.color.rgb = label_color
+
+        p_body = tf.add_paragraph()
+        p_body.text = body
+        p_body.alignment = PP_ALIGN.LEFT
+        p_body.space_before = Pt(0)
+        p_body.space_after = Pt(8 if label != "Trainer note" else 0)
+        p_body.line_spacing = 1.1
+        for run in p_body.runs:
+            run.font.name = "Aptos"
+            run.font.size = Pt(trainer_font if label == "Trainer note" else body_font)
+            run.font.color.rgb = body_color
+
+        first = False
+
+
 def add_title_band(slide, title: str, subtitle: str | None = None) -> None:
     add_rect(slide, Inches(0), Inches(0), Inches(13.333), Inches(0.65), NAVY)
     add_rect(slide, Inches(0), Inches(0.65), Inches(1.35), Inches(0.12), ORANGE)
@@ -369,16 +427,7 @@ def add_step_slide(prs: Presentation, workflow: dict, step: dict) -> None:
     add_title_band(slide, f"Step {step['number']}: {step['title']}", workflow["title"])
 
     add_rect(slide, Inches(0.55), Inches(1.0), Inches(5.0), Inches(5.7), WHITE, line_color=SOFT, radius=True)
-    add_textbox(slide, Inches(0.82), Inches(1.2), Inches(4.4), Inches(0.28), "User action", font_size=12, color=TEAL, bold=True)
-    add_textbox(slide, Inches(0.82), Inches(1.48), Inches(4.3), Inches(0.68), step["user_does"], font_size=16)
-    add_textbox(slide, Inches(0.82), Inches(2.2), Inches(4.4), Inches(0.28), "What appears on screen", font_size=12, color=TEAL, bold=True)
-    add_textbox(slide, Inches(0.82), Inches(2.48), Inches(4.3), Inches(0.78), step["user_sees"], font_size=16)
-    add_textbox(slide, Inches(0.82), Inches(3.35), Inches(4.4), Inches(0.28), "Why it matters", font_size=12, color=TEAL, bold=True)
-    add_textbox(slide, Inches(0.82), Inches(3.63), Inches(4.3), Inches(0.7), step["why_it_matters"], font_size=15)
-    add_textbox(slide, Inches(0.82), Inches(4.45), Inches(4.4), Inches(0.28), "Expected result", font_size=12, color=TEAL, bold=True)
-    add_textbox(slide, Inches(0.82), Inches(4.73), Inches(4.3), Inches(0.62), step["expected_result"], font_size=15)
-    add_textbox(slide, Inches(0.82), Inches(5.43), Inches(4.4), Inches(0.28), "Trainer note", font_size=12, color=ORANGE, bold=True)
-    add_textbox(slide, Inches(0.82), Inches(5.7), Inches(4.3), Inches(0.7), step["trainer_notes"], font_size=13, color=MUTED)
+    add_step_sections(slide, Inches(0.82), Inches(1.2), Inches(4.3), Inches(5.2), step)
 
     add_rect(slide, Inches(5.8), Inches(1.0), Inches(6.95), Inches(5.7), WHITE, line_color=SOFT, radius=True)
     add_textbox(slide, Inches(6.1), Inches(1.2), Inches(6.2), Inches(0.25), step["screenshot_caption"], font_size=13, color=TEAL, bold=True)
