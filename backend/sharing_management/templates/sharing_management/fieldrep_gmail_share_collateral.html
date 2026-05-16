@@ -83,6 +83,7 @@
               <option value="reminder">Reminder Due</option>
               <option value="opened">Opened</option>
             </select>
+            <button type="button" id="applyDoctorFiltersBtn" class="btn btn-sm btn-outline-primary">Apply Filter</button>
           </div>
         </div>
         <div class="card-body p-0">
@@ -128,6 +129,7 @@
     document.addEventListener('DOMContentLoaded', function() {
       const doctorSearch = document.getElementById('doctorSearch');
       const statusFilter = document.getElementById('statusFilter');
+      const applyDoctorFiltersBtn = document.getElementById('applyDoctorFiltersBtn');
       const doctorRows = document.querySelectorAll('.doctor-row');
       const collateralSelect = document.getElementById('collateralSelect');
       const doctorNoResults = document.getElementById('doctorNoResults');
@@ -166,6 +168,13 @@
 
       doctorSearch.addEventListener('input', filterDoctors);
       statusFilter.addEventListener('change', filterDoctors);
+      applyDoctorFiltersBtn.addEventListener('click', filterDoctors);
+      doctorSearch.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          filterDoctors();
+        }
+      });
       filterDoctors();
   
       // Keep hidden collateral inputs in list forms synced with selection
