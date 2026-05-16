@@ -68,7 +68,6 @@
               <option value="reminder">Reminder Due</option>
               <option value="opened">Opened</option>
             </select>
-            <button type="button" id="applyDoctorFiltersBtn" class="btn btn-sm btn-outline-primary">Apply Filter</button>
           </div>
         </div>
         <div class="card-body p-0">
@@ -181,7 +180,6 @@
 const doctorSearch = document.getElementById('doctorSearch');
 const statusFilter = document.getElementById('statusFilter');
 const doctorNoResults = document.getElementById('doctorNoResults');
-const applyDoctorFiltersBtn = document.getElementById('applyDoctorFiltersBtn');
 
 function normalizeDigits(value) {
   return (value || '').replace(/\D/g, '');
@@ -218,7 +216,6 @@ function applyDoctorFilters() {
 
 doctorSearch?.addEventListener('input', applyDoctorFilters);
 statusFilter?.addEventListener('change', applyDoctorFilters);
-applyDoctorFiltersBtn?.addEventListener('click', applyDoctorFilters);
 doctorSearch?.addEventListener('keydown', (event) => {
   if (event.key === 'Enter') {
     event.preventDefault();
