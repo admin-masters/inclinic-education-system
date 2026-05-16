@@ -171,6 +171,10 @@
     border: none !important;
     color: #fff !important;
   }
+
+  .doctor-row-hidden {
+    display: none !important;
+  }
 </style>
 
 <script>
@@ -199,9 +203,11 @@ function applyDoctorFilters() {
     const matchesSearch = !searchTerm || name.includes(searchTerm) || (searchDigits && phoneDigits.includes(searchDigits));
     const matchesStatus = !statusValue || status === statusValue;
 
-    row.style.display = (matchesSearch && matchesStatus) ? '' : 'none';
     if (matchesSearch && matchesStatus) {
+      row.classList.remove('doctor-row-hidden');
       visibleCount += 1;
+    } else {
+      row.classList.add('doctor-row-hidden');
     }
   });
 

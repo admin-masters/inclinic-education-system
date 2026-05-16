@@ -19,6 +19,9 @@
   .doctor-row:hover {
     background-color: #f8f9fa;
   }
+  .doctor-row-hidden {
+    display: none !important;
+  }
 </style>
 {% endblock %}
 
@@ -154,10 +157,10 @@
           const matchesStatus = !statusFilterValue || status === statusFilterValue;
           
           if (matchesSearch && matchesStatus) {
-            row.style.display = '';
+            row.classList.remove('doctor-row-hidden');
             visibleCount += 1;
           } else {
-            row.style.display = 'none';
+            row.classList.add('doctor-row-hidden');
           }
         });
 
