@@ -965,6 +965,81 @@ def _normalize_phone_e164(raw_phone: str, default_country_code: str = "91") -> s
     return f"+{digits}"
 
 
+def _doctor_rows_with_status(assigned_doctors, selected_collateral_id, current_field_rep_id=None):
+    doctors_with_status = []
+    six_days_ago = timezone.now() - timedelta(days=6)
+
+    selected_collateral_id_int = None
+    try:
+        if str(selected_collateral_id or "").isdigit():
+            selected_collateral_id_int = int(selected_collateral_id)
+    except Exception:
+        selected_collateral_id_int = None
+
+    for doctor in assigned_doctors:
+        status = "not_sent"
+        last_shared = None
+        try:
+            if selected_collateral_id_int:
+                phone_val = doctor.phone or ""
+                phone_digits = re.sub(r"\D", "", phone_val)
+                possible_ids = {phone_val, phone_digits}
+                if phone_digits and len(phone_digits) >= 10:
+                    last10 = phone_digits[-10:]
+                    possible_ids.update({last10, f"+91{last10}", f"91{last10}"})
+                possible_ids = [value for value in possible_ids if value]
+
+                share_qs = ShareLog.objects.filter(
+                    doctor_identifier__in=possible_ids,
+                    collateral_id=selected_collateral_id_int,
+                )
+                try:
+                    if current_field_rep_id is not None and str(current_field_rep_id).strip() != "":
+                        share_qs = share_qs.filter(field_rep_id=int(current_field_rep_id))
+                except Exception:
+                    pass
+
+                share_row = (
+                    share_qs
+                    .values("id", "doctor_identifier", "share_timestamp", "field_rep_id", "collateral_id")
+                    .order_by("-id")
+                    .first()
+                )
+
+                if share_row:
+                    last_shared = share_row.get("share_timestamp")
+                    txn_qs = CollateralTransaction.objects.filter(
+                        doctor_number__in=possible_ids,
+                        collateral_id=int(share_row.get("collateral_id") or 0),
+                        has_viewed=True,
+                    )
+                    share_field_rep_id = share_row.get("field_rep_id")
+                    if share_field_rep_id not in (None, ""):
+                        txn_qs = txn_qs.filter(field_rep_id=share_field_rep_id)
+
+                    if txn_qs.exists():
+                        status = "opened"
+                    else:
+                        ts = share_row.get("share_timestamp")
+                        status = "reminder" if ts and ts < six_days_ago else "sent"
+        except Exception:
+            status = "not_sent"
+
+        doctors_with_status.append(
+            {
+                "id": doctor.id,
+                "name": doctor.name,
+                "phone": doctor.phone,
+                "status": status,
+                "specialty": getattr(doctor, "specialty", ""),
+                "city": getattr(doctor, "city", ""),
+                "last_shared": last_shared or getattr(doctor, "last_shared", None),
+            }
+        )
+
+    return doctors_with_status
+
+
 
 def _send_email(to_addr: str, subject: str, body: str) -> None:
     send_mail(
@@ -1945,6 +2020,10 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
         messages.error(request, "Error loading collaterals. Please try again.")
         collaterals_list = []
 
+    selected_collateral_id = (request.GET.get("collateral") or "").strip()
+    if not selected_collateral_id and collaterals_list:
+        selected_collateral_id = str(collaterals_list[0]["id"])
+
     # Doctors assigned to portal_user (DEFAULT DB)
     doctors = []
     try:
@@ -1952,6 +2031,12 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
             doctors = Doctor.objects.filter(rep=portal_user).order_by("name")
     except Exception:
         doctors = []
+
+    doctors_with_status = _doctor_rows_with_status(
+        doctors,
+        selected_collateral_id,
+        current_field_rep_id=int(rep.id),
+    )
 
     if request.method == "POST":
         # AJAX send
@@ -2073,7 +2158,8 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
             "fieldrep_email": field_rep_email,
             "collaterals": collaterals_list,
             "brand_campaign_id": brand_campaign_id,
-            "doctors": doctors,
+            "doctors": doctors_with_status,
+            "selected_collateral_id": selected_collateral_id,
         },
     )
 
@@ -2399,53 +2485,11 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     assigned_doctors = Doctor.objects.filter(rep=actual_user) if actual_user else Doctor.objects.none()
     print(f"[SMDBG] assigned_doctors count={assigned_doctors.count() if hasattr(assigned_doctors,'count') else len(list(assigned_doctors))}")
 
-    # Doctor status block: use .values() only to avoid missing-column issues on ShareLog table
-    doctors_with_status = []
-    six_days_ago = timezone.now() - timedelta(days=6)
-
-    for doctor in assigned_doctors:
-        status = "not_sent"
-        try:
-            if selected_collateral_id:
-                phone_val = doctor.phone or ""
-                phone_clean = phone_val.replace("+", "").replace(" ", "").replace("-", "")
-                possible_ids = [phone_val]
-                if phone_clean and len(phone_clean) == 10:
-                    possible_ids.extend([f"+91{phone_clean}", f"91{phone_clean}"])
-
-                share_row = (
-                    ShareLog.objects.filter(
-                        doctor_identifier__in=possible_ids,
-                        collateral_id=selected_collateral_id,
-                    )
-                    .values("id", "doctor_identifier", "share_timestamp", "field_rep_id", "collateral_id")
-                    .order_by("-id")
-                    .first()
-                )
-
-                if share_row:
-                    # opened?
-                    engaged = CollateralTransaction.objects.filter(
-                        field_rep_id=str(share_row.get("field_rep_id") or ""),
-                        doctor_number=share_row.get("doctor_identifier") or "",
-                        collateral_id=str(share_row.get("collateral_id") or ""),
-                        has_viewed=True,
-                    ).exists()
-
-                    if engaged:
-                        status = "opened"
-                    else:
-                        ts = share_row.get("share_timestamp")
-                        status = "reminder" if ts and ts < six_days_ago else "sent"
-        except Exception as e:
-            print(f"[SMDBG] doctor status calc error doctor.id={doctor.id}: {e}")
-
-        doctors_with_status.append({
-            "id": doctor.id,
-            "name": doctor.name,
-            "phone": doctor.phone,
-            "status": status,
-        })
+    doctors_with_status = _doctor_rows_with_status(
+        assigned_doctors,
+        selected_collateral_id,
+        current_field_rep_id=int(field_rep_id),
+    )
 
     # -----------------------------
     # POST (share)
