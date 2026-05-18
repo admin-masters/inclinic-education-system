@@ -13,6 +13,7 @@
         <div class="card-body p-4">
           <form method="post" autocomplete="off">
             {% csrf_token %}
+            <input type="hidden" name="share_action" value="initial">
             <div class="mb-3">
               <label class="form-label">Field Rep ID:</label>
               <input type="text" class="form-control" name="fieldrep_id" value="{{ fieldrep_id }}" readonly>
@@ -29,10 +30,10 @@
             <div class="mb-3">
               <label class="form-label">Select Collaterals:</label>
               {% if collaterals %}
-              <select class="form-select" name="collateral" required>
+              <select class="form-select" name="collateral" id="collateralSelect" required>
                 <option value="">Select Collateral</option>
                 {% for c in collaterals %}
-                <option value="{{ c.id }}">{{ c.name }}</option>
+                <option value="{{ c.id }}" {% if selected_collateral_id and c.id|stringformat:"s" == selected_collateral_id|stringformat:"s" %}selected{% endif %}>{{ c.name }}</option>
                 {% endfor %}
               </select>
               {% else %}
@@ -62,10 +63,10 @@
             <input type="text" id="doctorSearch" class="form-control form-control-sm" placeholder="Search by name or phone">
             <select id="statusFilter" class="form-select form-select-sm" style="width:auto;">
               <option value="">All</option>
-              <option value="not_shared">Not Shared</option>
-              <option value="shared">Shared</option>
-              <option value="viewed">Viewed</option>
-              <option value="needs_reminder">Needs Reminder</option>
+              <option value="not_sent">Needs Sending</option>
+              <option value="sent">Sent</option>
+              <option value="reminder">Reminder Due</option>
+              <option value="opened">Opened</option>
             </select>
           </div>
         </div>
@@ -74,9 +75,9 @@
             {% for doctor in doctors %}
             <div class="list-group-item d-flex justify-content-between align-items-center doctor-row"
                  data-id="{{ doctor.id }}"
-                 data-name="{{ doctor.name|lower }}" 
-                 data-phone="{{ doctor.phone }}" 
-                 data-status="{{ doctor.status|default:'not_shared' }}">
+                 data-name="{{ doctor.name|lower }}"
+                 data-phone="{{ doctor.phone|default:'' }}"
+                 data-status="{{ doctor.status|default:'not_sent' }}">
               <div>
                 <div class="fw-semibold">{{ doctor.name|default:'Unnamed Doctor' }}</div>
                 <div class="text-muted small">
@@ -97,22 +98,23 @@
                   <input type="hidden" name="doctor_name" value="{{ doctor.name }}">
                   <input type="hidden" name="doctor_whatsapp" value="{{ doctor.phone }}">
                   {% if collaterals %}
-                  <input type="hidden" name="collateral" value="{{ collaterals.0.id }}">
+                  <input type="hidden" name="collateral" value="{{ selected_collateral_id }}">
                   {% endif %}
-                  {% if doctor.status == 'viewed' %}
+                  <input type="hidden" name="share_action" value="{% if doctor.status == 'reminder' %}reminder{% else %}initial{% endif %}">
+                  {% if doctor.status == 'opened' %}
                     <button type="button" class="btn btn-success btn-sm" disabled>
-                      <i class="fas fa-check-circle me-1"></i> Viewed
+                      <i class="fas fa-check-circle me-1"></i> Opened
                     </button>
-                  {% elif doctor.status == 'needs_reminder' %}
-                    <button type="submit" class="btn btn-purple btn-sm" data-status="needs_reminder">
+                  {% elif doctor.status == 'reminder' %}
+                    <button type="submit" class="btn btn-purple btn-sm" data-status="reminder">
                       <i class="fas fa-bell me-1"></i> Send Reminder
                     </button>
-                  {% elif doctor.status == 'shared' %}
-                    <button type="button" class="btn btn-warning btn-sm" disabled data-status="shared">
-                      <i class="fas fa-paper-plane me-1"></i> Shared
+                  {% elif doctor.status == 'sent' %}
+                    <button type="button" class="btn btn-warning btn-sm" disabled data-status="sent">
+                      <i class="fas fa-paper-plane me-1"></i> Sent
                     </button>
                   {% else %}
-                    <button type="submit" class="btn btn-danger btn-sm" data-status="not_shared">
+                    <button type="submit" class="btn btn-danger btn-sm" data-status="not_sent">
                       <i class="fas fa-paper-plane me-1"></i> Send Message
                     </button>
                   {% endif %}
@@ -132,6 +134,9 @@
               No collaterals available to share. Please add collaterals to this brand campaign first.
             </div>
             {% endif %}
+            <div class="list-group-item text-center text-muted py-4 d-none" id="doctorNoResults">
+              No doctors match the current search/filter.
+            </div>
           </div>
         </div>
       </div>
@@ -141,20 +146,20 @@
 
 <style>
   /* Button styles */
-  .btn[data-status="not_shared"] {
+  .btn[data-status="not_sent"] {
     background-color: #dc3545;
     color: white;
     border: none;
   }
   
-  .btn[data-status="shared"] {
+  .btn[data-status="sent"] {
     background-color: #ffc107;
     color: #000;
     border: none;
     opacity: 0.7;
   }
   
-  .btn[data-status="viewed"] {
+  .btn[data-status="opened"] {
     background-color: #28a745;
     color: white;
     border: none;
@@ -165,41 +170,81 @@
     border: none !important;
     color: #fff !important;
   }
+
+  .doctor-row-hidden {
+    display: none !important;
+  }
 </style>
 
 <script>
-// Search functionality
-document.getElementById('doctorSearch').addEventListener('input', function(e) {
-  const searchTerm = e.target.value.toLowerCase();
-  const doctorRows = document.querySelectorAll('.doctor-row');
-  
-  doctorRows.forEach(row => {
-    const name = row.dataset.name.toLowerCase();
-    const phone = row.dataset.phone;
-    
-    if (name.includes(searchTerm) || phone.includes(searchTerm)) {
-      row.style.display = '';
-    } else {
-      row.style.display = 'none';
-    }
-  });
-});
+const doctorSearch = document.getElementById('doctorSearch');
+const statusFilter = document.getElementById('statusFilter');
+const doctorNoResults = document.getElementById('doctorNoResults');
 
-// Status filter
-document.getElementById('statusFilter').addEventListener('change', function(e) {
-  const statusFilter = e.target.value;
+function normalizeDigits(value) {
+  return (value || '').replace(/\D/g, '');
+}
+
+function applyDoctorFilters() {
+  const searchTerm = (doctorSearch?.value || '').toLowerCase().trim();
+  const searchDigits = normalizeDigits(searchTerm);
+  const statusValue = statusFilter?.value || '';
   const doctorRows = document.querySelectorAll('.doctor-row');
-  
+  let visibleCount = 0;
+
   doctorRows.forEach(row => {
-    const status = row.dataset.status;
-    
-    if (!statusFilter || status === statusFilter) {
-      row.style.display = '';
+    const name = (row.dataset.name || '').toLowerCase();
+    const phone = row.dataset.phone || '';
+    const phoneDigits = normalizeDigits(phone);
+    const status = row.dataset.status || '';
+
+    const matchesSearch = !searchTerm || name.includes(searchTerm) || (searchDigits && phoneDigits.includes(searchDigits));
+    const matchesStatus = !statusValue || status === statusValue;
+
+    if (matchesSearch && matchesStatus) {
+      row.classList.remove('doctor-row-hidden');
+      visibleCount += 1;
     } else {
-      row.style.display = 'none';
+      row.classList.add('doctor-row-hidden');
     }
   });
+
+  if (doctorNoResults) {
+    doctorNoResults.classList.toggle('d-none', visibleCount !== 0);
+  }
+}
+
+doctorSearch?.addEventListener('input', applyDoctorFilters);
+statusFilter?.addEventListener('change', applyDoctorFilters);
+doctorSearch?.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    event.preventDefault();
+    applyDoctorFilters();
+  }
 });
+applyDoctorFilters();
+
+const collateralSelect = document.getElementById('collateralSelect');
+function syncHiddenCollateralInputs(value) {
+  document.querySelectorAll('.share-form input[name="collateral"]').forEach((input) => {
+    input.value = value || '';
+  });
+}
+if (collateralSelect) {
+  syncHiddenCollateralInputs(collateralSelect.value);
+  collateralSelect.addEventListener('change', function() {
+    const value = this.value || '';
+    syncHiddenCollateralInputs(value);
+
+    const url = new URL(window.location.href);
+    if (value) {
+      url.searchParams.set('collateral', value);
+    } else {
+      url.searchParams.delete('collateral');
+    }
+    window.location.href = url.toString();
+  });
+}
 
 // Handle form submissions
 document.querySelectorAll('.share-form').forEach(form => {
@@ -228,16 +273,16 @@ document.querySelectorAll('.share-form').forEach(form => {
       console.log('[DEBUG] Response data:', data);
       
       if (data.success) {
-        // Update button state
-        button.className = 'btn btn-warning btn-sm';
-        button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Shared';
-        button.disabled = true;
-        
         // Update row status
         const row = button.closest('.doctor-row');
         if (row) {
-          row.dataset.status = 'shared';
+          row.dataset.status = 'sent';
         }
+
+        button.className = 'btn btn-warning btn-sm';
+        button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Sent';
+        button.disabled = true;
+        applyDoctorFilters();
         
         // Show success message with doctor creation info
         const successMsg = document.createElement('div');
@@ -345,19 +390,19 @@ if (mainForm) {
               id: data.doctor_id,
               name: doctorName,
               phone: doctorPhone,
-              status: 'shared',
+              status: 'sent',
               specialty: '',
               city: '',
               last_shared: new Date()
             });
           } else {
             console.log('[DEBUG] Doctor already exists in list, updating status...');
-            // Update existing doctor status to shared
-            existingDoctor.dataset.status = 'shared';
+            // Update existing doctor status to sent
+            existingDoctor.dataset.status = 'sent';
             const button = existingDoctor.querySelector('button');
             if (button) {
               button.className = 'btn btn-warning btn-sm';
-              button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Shared';
+              button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Sent';
               button.disabled = true;
             }
           }
@@ -377,6 +422,11 @@ if (mainForm) {
         
         // Reset form
         mainForm.reset();
+        if (collateralSelect && selectedCollateral) {
+          collateralSelect.value = selectedCollateral;
+          syncHiddenCollateralInputs(selectedCollateral);
+        }
+        applyDoctorFilters();
         
         // Remove success message after 3 seconds
         setTimeout(() => successMsg.remove(), 3000);
@@ -410,7 +460,10 @@ if (mainForm) {
 // Function to add doctor to the list dynamically
 function addDoctorToList(doctor) {
   const doctorList = document.getElementById('doctorList');
-  const emptyMessage = doctorList.querySelector('.list-group-item:empty');
+  const emptyMessage = Array.from(doctorList.querySelectorAll('.list-group-item')).find((item) => {
+    return !item.classList.contains('doctor-row') && item.id !== 'doctorNoResults' && item.textContent.trim().includes('No doctors assigned');
+  });
+  const noResultsRow = document.getElementById('doctorNoResults');
   
   // Remove "No doctors" message if it exists
   if (emptyMessage) {
@@ -426,8 +479,7 @@ function addDoctorToList(doctor) {
   doctorElement.dataset.status = doctor.status;
   
   // Get the first collateral ID for the form
-  const firstCollateral = document.querySelector('select[name="collateral"] option[value]');
-  const collateralId = firstCollateral ? firstCollateral.value : '';
+  const collateralId = document.getElementById('collateralSelect')?.value || '';
   
   doctorElement.innerHTML = `
     <div>
@@ -445,17 +497,23 @@ function addDoctorToList(doctor) {
         <input type="hidden" name="doctor_name" value="${doctor.name}">
         <input type="hidden" name="doctor_whatsapp" value="${doctor.phone}">
         <input type="hidden" name="collateral" value="${collateralId}">
-        <button type="button" class="btn btn-warning btn-sm" disabled data-status="shared">
-          <i class="fas fa-paper-plane me-1"></i> Shared
+        <input type="hidden" name="share_action" value="initial">
+        <button type="button" class="btn btn-warning btn-sm" disabled data-status="sent">
+          <i class="fas fa-paper-plane me-1"></i> Sent
         </button>
       </form>
     </div>
   `;
   
   // Add to the list
-  doctorList.appendChild(doctorElement);
+  if (noResultsRow) {
+    doctorList.insertBefore(doctorElement, noResultsRow);
+  } else {
+    doctorList.appendChild(doctorElement);
+  }
   
   attachShareFormListener(doctorElement.querySelector('.share-form'));
+  applyDoctorFilters();
   
   console.log('[DEBUG] Doctor added to list:', doctor.name);
 }
@@ -491,14 +549,15 @@ function attachShareFormListener(form) {
       if (data.success) {
         // Update button state
         button.className = 'btn btn-warning btn-sm';
-        button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Shared';
+        button.innerHTML = '<i class="fas fa-paper-plane me-1"></i> Sent';
         button.disabled = true;
         
         // Update row status
         const row = button.closest('.doctor-row');
         if (row) {
-          row.dataset.status = 'shared';
+          row.dataset.status = 'sent';
         }
+        applyDoctorFilters();
         
         // Show success message
         const successMsg = document.createElement('div');

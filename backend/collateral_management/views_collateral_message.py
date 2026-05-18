@@ -200,6 +200,7 @@ def get_collateral_message(request):
             return JsonResponse({
                 'success': True,
                 'message': message.message,
+                'reminder_message': message.reminder_message,
                 'campaign_id': campaign.brand_campaign_id,
                 'collateral_title': collateral.title
             })

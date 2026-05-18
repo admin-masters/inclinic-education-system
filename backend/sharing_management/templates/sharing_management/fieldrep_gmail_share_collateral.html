@@ -19,6 +19,9 @@
   .doctor-row:hover {
     background-color: #f8f9fa;
   }
+  .doctor-row-hidden {
+    display: none !important;
+  }
 </style>
 {% endblock %}
 
@@ -35,6 +38,7 @@
         <div class="card-body p-4">
           <form method="post" autocomplete="off">
             {% csrf_token %}
+            <input type="hidden" name="share_action" value="initial">
             <div class="mb-3">
               <label class="form-label">Field Rep ID:</label>
               <input type="text" class="form-control" name="fieldrep_id" value="{{ fieldrep_id }}" readonly>
@@ -88,7 +92,7 @@
           <div class="list-group list-group-flush" id="doctorList">
             {% for d in doctors %}
             <div class="list-group-item d-flex justify-content-between align-items-center doctor-row"
-                 data-name="{{ d.name|lower }}" data-phone="{{ d.phone }}" data-status="{{ d.status }}">
+                 data-name="{{ d.name|lower }}" data-phone="{{ d.phone|default:'' }}" data-status="{{ d.status }}">
               <div>
                 <div class="fw-semibold">{{ d.name }}</div>
                 <div class="text-muted small">{{ d.phone }}</div>
@@ -98,6 +102,7 @@
                   {% csrf_token %}
                   <input type="hidden" name="doctor_id" value="{{ d.id }}">
                   <input type="hidden" name="collateral" value="{{ selected_collateral_id }}">
+                  <input type="hidden" name="share_action" value="{% if d.status == 'reminder' %}reminder{% else %}initial{% endif %}">
                   {% if d.status == 'opened' %}
                     <button class="btn btn-success btn-sm" disabled>Opened</button>
                   {% elif d.status == 'reminder' %}
@@ -111,6 +116,9 @@
               </div>
             </div>
             {% endfor %}
+            <div class="list-group-item text-center text-muted py-4 d-none" id="doctorNoResults">
+              No doctors match the current search/filter.
+            </div>
           </div>
         </div>
       </div>
@@ -125,37 +133,49 @@
       const statusFilter = document.getElementById('statusFilter');
       const doctorRows = document.querySelectorAll('.doctor-row');
       const collateralSelect = document.getElementById('collateralSelect');
-  
-      // Search functionality
-      doctorSearch.addEventListener('input', function() {
-        const searchTerm = this.value.toLowerCase();
-        filterDoctors();
-      });
-  
-      // Status filter functionality
-      statusFilter.addEventListener('change', function() {
-        filterDoctors();
-      });
-  
+      const doctorNoResults = document.getElementById('doctorNoResults');
+
+      function normalizeDigits(value) {
+        return (value || '').replace(/\D/g, '');
+      }
+
       function filterDoctors() {
-        const searchTerm = doctorSearch.value.toLowerCase();
+        const searchTerm = (doctorSearch.value || '').toLowerCase().trim();
+        const searchDigits = normalizeDigits(searchTerm);
         const statusFilterValue = statusFilter.value;
+        let visibleCount = 0;
   
         doctorRows.forEach(row => {
-          const name = row.getAttribute('data-name');
-          const phone = row.getAttribute('data-phone');
-          const status = row.getAttribute('data-status');
+          const name = (row.getAttribute('data-name') || '').toLowerCase();
+          const phone = row.getAttribute('data-phone') || '';
+          const phoneDigits = normalizeDigits(phone);
+          const status = row.getAttribute('data-status') || '';
           
-          const matchesSearch = name.includes(searchTerm) || phone.includes(searchTerm);
+          const matchesSearch = !searchTerm || name.includes(searchTerm) || (searchDigits && phoneDigits.includes(searchDigits));
           const matchesStatus = !statusFilterValue || status === statusFilterValue;
           
           if (matchesSearch && matchesStatus) {
-            row.style.display = '';
+            row.classList.remove('doctor-row-hidden');
+            visibleCount += 1;
           } else {
-            row.style.display = 'none';
+            row.classList.add('doctor-row-hidden');
           }
         });
+
+        if (doctorNoResults) {
+          doctorNoResults.classList.toggle('d-none', visibleCount !== 0);
+        }
       }
+
+      doctorSearch.addEventListener('input', filterDoctors);
+      statusFilter.addEventListener('change', filterDoctors);
+      doctorSearch.addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          filterDoctors();
+        }
+      });
+      filterDoctors();
   
       // Keep hidden collateral inputs in list forms synced with selection
       if (collateralSelect) {

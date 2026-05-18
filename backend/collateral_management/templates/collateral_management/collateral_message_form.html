@@ -73,6 +73,23 @@
                             </div>
                         </div>
 
+                        <div class="row mb-3">
+                            <div class="col-12">
+                                {{ form.reminder_message.label_tag }}
+                                {{ form.reminder_message }}
+                                {% if form.reminder_message.errors %}
+                                    <div class="text-danger">
+                                        {{ form.reminder_message.errors }}
+                                    </div>
+                                {% endif %}
+                                <div class="mt-2">
+                                    <small class="form-text text-muted">
+                                        Optional reminder-specific message. If left blank, the main WhatsApp message will be reused.
+                                    </small>
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Active Status -->
                         <div class="row mb-3">
                             <div class="col-12">

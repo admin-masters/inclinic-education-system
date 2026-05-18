@@ -143,6 +143,7 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
             return redirect("collateral_list")
     
     whatsapp_message = (request.POST.get("whatsapp_message") or "").strip() if request.method == "POST" else ""
+    reminder_message = (request.POST.get("reminder_message") or "").strip() if request.method == "POST" else ""
 
     if request.method == "POST":
         form = CollateralForm(
@@ -161,6 +162,20 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
                         "selected_campaign": selected_campaign,
                         "brand_campaign_id": brand_campaign_id,
                         "whatsapp_message": whatsapp_message,
+                        "reminder_message": reminder_message,
+                    },
+                )
+            if reminder_message and "$collateralLinks" not in reminder_message:
+                form.add_error(None, "$collateralLinks variable is missing in the reminder message.")
+                return render(
+                    request,
+                    "collateral_management/add_collateral_combined.html",
+                    {
+                        "collateral_form": form,
+                        "selected_campaign": selected_campaign,
+                        "brand_campaign_id": brand_campaign_id,
+                        "whatsapp_message": whatsapp_message,
+                        "reminder_message": reminder_message,
                     },
                 )
 
@@ -198,11 +213,17 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
                         "Thank you."
                     )
 
+                if reminder_message:
+                    default_reminder_message = reminder_message
+                else:
+                    default_reminder_message = default_message
+
                 CollateralMessage.objects.update_or_create(
                     campaign=collateral.campaign,
                     collateral=collateral,
                     defaults={
                         "message": default_message,
+                        "reminder_message": default_reminder_message,
                         "is_active": True,
                     },
                 )
@@ -236,6 +257,7 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
             "selected_campaign": selected_campaign,
             "brand_campaign_id": brand_campaign_id,
             "whatsapp_message": whatsapp_message,
+            "reminder_message": reminder_message,
         },
     )
 def edit_campaign_collateral_dates(request, pk):
@@ -687,4 +709,3 @@ def preview_collateral(request, pk):
         'engagement_id': 0,
         'short_code': '',
     })
-

@@ -153,6 +153,11 @@ class CollateralMessage(models.Model):
     message = models.TextField(
         help_text="Custom WhatsApp message for this collateral. Use $collateralLinks as placeholder for the actual link."
     )
+    reminder_message = models.TextField(
+        blank=True,
+        default="",
+        help_text="Optional reminder-specific WhatsApp message. Use $collateralLinks as placeholder for the actual link.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

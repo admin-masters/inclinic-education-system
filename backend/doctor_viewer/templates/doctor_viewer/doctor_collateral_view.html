@@ -157,7 +157,7 @@
         <div class="mb-3 d-flex justify-content-center gap-2 flex-wrap">
           <a
             href="{{ absolute_pdf_url|default:'#' }}"
-            class="btn btn-outline-success"
+            class="btn btn-success shadow-sm"
             download
             id="downloadPdfBtn"
           >
@@ -191,7 +191,13 @@
                 <div class="card-body py-2 px-3 d-flex flex-column flex-sm-row align-items-sm-center justify-content-between gap-2">
                   <div class="text-break">
                     <h6 class="card-title">{{ item.obj.title }}</h6>
-                    {% if item.shared_at %}
+                    {% if item.start_date or item.end_date %}
+                      <small class="text-muted">
+                        Scheduled
+                        {% if item.start_date %} {{ item.start_date|date:"d M Y" }}{% endif %}
+                        {% if item.end_date %} to {{ item.end_date|date:"d M Y" }}{% endif %}
+                      </small>
+                    {% elif item.shared_at %}
                       <small class="text-muted">Shared {{ item.shared_at|date:"d M Y" }}</small>
                     {% endif %}
                   </div>
