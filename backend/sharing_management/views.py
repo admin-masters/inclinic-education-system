@@ -1253,6 +1253,8 @@ def get_brand_specific_message(
     brand_campaign_id=None,
     message_kind="initial",
 ):
+    from django.db import connection
+
     from collateral_management.models import (
         CampaignCollateral as CollateralMgmtCampaignCollateral,
         Collateral as CollateralModel,
@@ -1270,33 +1272,44 @@ def get_brand_specific_message(
             f"message_kind={message_kind!r}"
         )
 
-    def _render_custom_message(custom_message):
-        if not custom_message:
+    reminder_column_supported = False
+    if message_kind == "reminder":
+        try:
+            with connection.cursor() as cursor:
+                desc = connection.introspection.get_table_description(cursor, CollateralMessage._meta.db_table)
+            reminder_column_supported = any(getattr(col, "name", "") == "reminder_message" for col in desc)
+        except Exception as e:
+            if SM_VERBOSE_LOGS:
+                print(f"[SMDBG] get_brand_specific_message reminder-column introspection ERROR: {e}")
+
+    def _render_custom_message(queryset):
+        fields = ["message"]
+        if reminder_column_supported:
+            fields.append("reminder_message")
+
+        row = queryset.values(*fields).order_by("-id").first()
+        if not row:
             return None
 
-        if message_kind == "reminder":
-            reminder_template = (getattr(custom_message, "reminder_message", "") or "").strip()
+        if message_kind == "reminder" and reminder_column_supported:
+            reminder_template = (row.get("reminder_message") or "").strip()
             if reminder_template:
                 return reminder_template.replace("$collateralLinks", collateral_link)
 
-        message_template = (getattr(custom_message, "message", "") or "").strip()
+        message_template = (row.get("message") or "").strip()
         if message_template:
             return message_template.replace("$collateralLinks", collateral_link)
         return None
 
     try:
         if campaign_variants:
-            custom_message = (
+            rendered_message = _render_custom_message(
                 CollateralMessage.objects.filter(
                     campaign__brand_campaign_id__in=campaign_variants,
                     collateral_id=collateral_id,
                     is_active=True,
                 )
-                .select_related("campaign")
-                .order_by("-id")
-                .first()
             )
-            rendered_message = _render_custom_message(custom_message)
             if rendered_message:
                 return rendered_message
     except Exception as e:
@@ -1312,16 +1325,13 @@ def get_brand_specific_message(
                 .first()
             )
             if campaign_collateral and getattr(campaign_collateral, "campaign", None):
-                custom_message = (
+                rendered_message = _render_custom_message(
                     CollateralMessage.objects.filter(
                         campaign=campaign_collateral.campaign,
                         collateral_id=collateral_id,
                         is_active=True,
                     )
-                    .order_by("-id")
-                    .first()
                 )
-                rendered_message = _render_custom_message(custom_message)
                 if rendered_message:
                     return rendered_message
     except Exception as e:
@@ -1337,16 +1347,13 @@ def get_brand_specific_message(
                 .first()
             )
             if campaign_collateral and getattr(campaign_collateral, "campaign", None):
-                custom_message = (
+                rendered_message = _render_custom_message(
                     CollateralMessage.objects.filter(
                         campaign=campaign_collateral.campaign,
                         collateral_id=collateral_id,
                         is_active=True,
                     )
-                    .order_by("-id")
-                    .first()
                 )
-                rendered_message = _render_custom_message(custom_message)
                 if rendered_message:
                     return rendered_message
     except Exception as e:
@@ -1356,16 +1363,13 @@ def get_brand_specific_message(
     try:
         collateral_obj = CollateralModel.objects.select_related("campaign").filter(id=collateral_id).first()
         if collateral_obj and getattr(collateral_obj, "campaign", None):
-            custom_message = (
+            rendered_message = _render_custom_message(
                 CollateralMessage.objects.filter(
                     campaign=collateral_obj.campaign,
                     collateral_id=collateral_id,
                     is_active=True,
                 )
-                .order_by("-id")
-                .first()
             )
-            rendered_message = _render_custom_message(custom_message)
             if rendered_message:
                 return rendered_message
     except Exception as e:
