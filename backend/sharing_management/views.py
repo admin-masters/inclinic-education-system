@@ -1253,15 +1253,21 @@ def get_brand_specific_message(
     brand_campaign_id=None,
     message_kind="initial",
 ):
-    from collateral_management.models import CollateralMessage
+    from collateral_management.models import (
+        CampaignCollateral as CollateralMgmtCampaignCollateral,
+        Collateral as CollateralModel,
+        CollateralMessage,
+    )
     from campaign_management.models import CampaignCollateral as CampaignMgmtCampaignCollateral
 
     bc_id = (str(brand_campaign_id).strip() if brand_campaign_id else "")
+    campaign_variants = _campaign_id_variants(bc_id)
     message_kind = "reminder" if str(message_kind).strip().lower() == "reminder" else "initial"
     if SM_VERBOSE_LOGS:
         print(
             f"[SMDBG] get_brand_specific_message bc_id={bc_id!r} "
-            f"collateral_id={collateral_id!r} message_kind={message_kind!r}"
+            f"campaign_variants={campaign_variants!r} collateral_id={collateral_id!r} "
+            f"message_kind={message_kind!r}"
         )
 
     def _render_custom_message(custom_message):
@@ -1279,14 +1285,14 @@ def get_brand_specific_message(
         return None
 
     try:
-        if bc_id:
-            bc_variants = _campaign_id_variants(bc_id)
+        if campaign_variants:
             custom_message = (
                 CollateralMessage.objects.filter(
-                    campaign__brand_campaign_id__in=bc_variants,
+                    campaign__brand_campaign_id__in=campaign_variants,
                     collateral_id=collateral_id,
                     is_active=True,
                 )
+                .select_related("campaign")
                 .order_by("-id")
                 .first()
             )
@@ -1297,18 +1303,62 @@ def get_brand_specific_message(
         if SM_VERBOSE_LOGS:
             print(f"[SMDBG] get_brand_specific_message brand-specific lookup ERROR: {e}")
 
-    # Legacy fallback
     try:
-        campaign_collateral = (
-            CampaignMgmtCampaignCollateral.objects.select_related("campaign")
-            .filter(collateral_id=collateral_id)
-            .order_by("-id")
-            .first()
-        )
-        if campaign_collateral and getattr(campaign_collateral, "campaign", None):
+        if campaign_variants:
+            campaign_collateral = (
+                CollateralMgmtCampaignCollateral.objects.select_related("campaign")
+                .filter(campaign__brand_campaign_id__in=campaign_variants, collateral_id=collateral_id)
+                .order_by("-id")
+                .first()
+            )
+            if campaign_collateral and getattr(campaign_collateral, "campaign", None):
+                custom_message = (
+                    CollateralMessage.objects.filter(
+                        campaign=campaign_collateral.campaign,
+                        collateral_id=collateral_id,
+                        is_active=True,
+                    )
+                    .order_by("-id")
+                    .first()
+                )
+                rendered_message = _render_custom_message(custom_message)
+                if rendered_message:
+                    return rendered_message
+    except Exception as e:
+        if SM_VERBOSE_LOGS:
+            print(f"[SMDBG] get_brand_specific_message collateral bridge fallback ERROR: {e}")
+
+    try:
+        if campaign_variants:
+            campaign_collateral = (
+                CampaignMgmtCampaignCollateral.objects.select_related("campaign")
+                .filter(campaign__brand_campaign_id__in=campaign_variants, collateral_id=collateral_id)
+                .order_by("-id")
+                .first()
+            )
+            if campaign_collateral and getattr(campaign_collateral, "campaign", None):
+                custom_message = (
+                    CollateralMessage.objects.filter(
+                        campaign=campaign_collateral.campaign,
+                        collateral_id=collateral_id,
+                        is_active=True,
+                    )
+                    .order_by("-id")
+                    .first()
+                )
+                rendered_message = _render_custom_message(custom_message)
+                if rendered_message:
+                    return rendered_message
+    except Exception as e:
+        if SM_VERBOSE_LOGS:
+            print(f"[SMDBG] get_brand_specific_message legacy bridge fallback ERROR: {e}")
+
+    try:
+        collateral_obj = CollateralModel.objects.select_related("campaign").filter(id=collateral_id).first()
+        if collateral_obj and getattr(collateral_obj, "campaign", None):
             custom_message = (
                 CollateralMessage.objects.filter(
-                    campaign=campaign_collateral.campaign,
+                    campaign=collateral_obj.campaign,
                     collateral_id=collateral_id,
                     is_active=True,
                 )
@@ -1320,7 +1370,7 @@ def get_brand_specific_message(
                 return rendered_message
     except Exception as e:
         if SM_VERBOSE_LOGS:
-            print(f"[SMDBG] get_brand_specific_message legacy fallback ERROR: {e}")
+            print(f"[SMDBG] get_brand_specific_message direct collateral fallback ERROR: {e}")
 
     return (
         "Hello Doctor, please check this: "
@@ -2093,7 +2143,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                     doctor_identifier=phone_e164,
                     share_channel="WhatsApp",
                     share_timestamp=timezone.now(),
-                    message_text="",
+                    message_text=message,
                     brand_campaign_id=stored_brand_campaign_id,
                 )
 
@@ -2650,7 +2700,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                         "field_rep_id": str(field_rep_id or getattr(rep_user, "id", "") or ""),
                         "field_rep_email": field_rep_email or "",
                         "brand_campaign_id": stored_brand_campaign_id,
-                        "message_text": "",
+                        "message_text": message,
                     }
 
                     # Fill required NOT NULL cols if they exist and we didn't set them
