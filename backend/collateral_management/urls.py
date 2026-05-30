@@ -2,7 +2,7 @@ from django.urls import path
 from . import views
 from .views import (
     CollateralListView, CollateralDetailView,
-    CollateralCreateView, CollateralUpdateView,
+    CollateralCreateView,
     CollateralDeleteView, link_collateral_to_campaign,
     unlink_collateral_from_campaign,
 )
@@ -20,7 +20,7 @@ urlpatterns = [
     path("",                CollateralListView.as_view(),  name="collateral_list"),
     path("<int:pk>/",       CollateralDetailView.as_view(), name="collateral_detail"),
     path("create/",                   CollateralCreateView.as_view(), name="collateral_create"),
-    path("<int:pk>/edit/",            CollateralUpdateView.as_view(), name="collateral_update"),
+    path("<int:pk>/edit/",            views.edit_collateral_with_campaign, name="collateral_update"),
     path("<int:pk>/delete/",          CollateralDeleteView.as_view(), name="collateral_delete"),
     path('<int:pk>/replace/',          views.replace_collateral,      name='replace_collateral'),
     path('<int:pk>/dashboard-delete/', views.dashboard_delete_collateral, name='dashboard_delete_collateral'),

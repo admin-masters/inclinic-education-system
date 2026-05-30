@@ -119,6 +119,8 @@ class CollateralForm(forms.ModelForm):
         file_f = cleaned.get('file')
         url_f  = cleaned.get('vimeo_url')
         embed  = cleaned.get('vimeo_embed_code', '').strip()
+        existing_file = getattr(self.instance, 'file', None) if getattr(self, 'instance', None) else None
+        existing_vimeo_url = getattr(self.instance, 'vimeo_url', None) if getattr(self, 'instance', None) else None
 
         # If embed code is provided, extract Vimeo video ID or src
         if embed:
@@ -142,19 +144,19 @@ class CollateralForm(forms.ModelForm):
                     raise ValidationError("Could not parse Vimeo embed code. Please paste the full iframe code.")
 
         if c_type == 'pdf':
-            if not file_f:
+            if not file_f and not existing_file:
                 raise ValidationError("Upload a PDF file.")
-            if file_f.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+            if file_f and file_f.size > MAX_FILE_SIZE_MB * 1024 * 1024:
                 raise ValidationError(f"PDF must be ≤ {MAX_FILE_SIZE_MB}\u202fMB.")
-        elif c_type == 'video' and not url_f:
+        elif c_type == 'video' and not (url_f or existing_vimeo_url):
             raise ValidationError("Provide a Vimeo embed code for videos.")
         elif c_type == 'pdf_video':
             # Require both
-            if not file_f:
+            if not file_f and not existing_file:
                 raise ValidationError("Upload a PDF file (for PDF + Video).")
-            if file_f.size > MAX_FILE_SIZE_MB * 1024 * 1024:
+            if file_f and file_f.size > MAX_FILE_SIZE_MB * 1024 * 1024:
                 raise ValidationError(f"PDF must be ≤ {MAX_FILE_SIZE_MB}\u202fMB.")
-            if not url_f:
+            if not (url_f or existing_vimeo_url):
                 raise ValidationError("Provide a Vimeo embed code (for PDF + Video).")
         return cleaned
 
@@ -265,4 +267,3 @@ class CollateralMessageSearchForm(forms.Form):
             'placeholder': 'Enter Collateral ID'
         })
     )
-
