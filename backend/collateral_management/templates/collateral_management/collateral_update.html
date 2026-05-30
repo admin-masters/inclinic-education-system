@@ -1,0 +1,311 @@
+{% extends "base.html" %}
+{% load static %}
+
+{% block title %}Edit Collateral{% endblock %}
+
+{% block content %}
+<style>
+  .form-horizontal .row {
+    margin-bottom: 1.2rem;
+  }
+
+  .form-horizontal label {
+    font-weight: 600;
+    text-align: right;
+    padding-right: 1rem;
+    color: #222;
+  }
+
+  .form-horizontal .form-control,
+  .form-horizontal select,
+  .form-horizontal input[type="file"] {
+    width: 100%;
+    min-width: 180px;
+    padding: 0.45rem 0.75rem;
+    border-radius: 0.3rem;
+    border: 1px solid #ccc;
+    background: #fff;
+  }
+
+  .form-horizontal .form-control:focus {
+    border-color: #007bff;
+    box-shadow: 0 0 0 2px #e3f0ff;
+  }
+
+  .form-horizontal .errorlist {
+    color: #d9534f;
+    margin: 0.2em 0 0.5em 0;
+    font-size: 0.97em;
+    list-style: none;
+    padding-left: 0;
+  }
+
+  .current-asset {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.5rem;
+    font-size: 0.92rem;
+  }
+
+  .current-asset img {
+    max-height: 64px;
+    border-radius: 0.3rem;
+    border: 1px solid #ddd;
+  }
+
+  @media (max-width: 768px) {
+    .form-horizontal label {
+      text-align: left;
+      padding-right: 0;
+      margin-bottom: 0.3em;
+    }
+
+    .form-horizontal .row {
+      flex-direction: column;
+    }
+  }
+</style>
+
+<div class="container mt-4">
+  <a href="javascript:history.back()" class="btn btn-sm btn-outline-secondary mb-3">
+    <i class="bi bi-arrow-left me-1"></i>Back
+  </a>
+  <h3 class="text-center fw-bold mb-4">Edit Collateral</h3>
+
+  <form method="post" enctype="multipart/form-data" class="form-horizontal">
+    {% csrf_token %}
+    {% if collateral_form.errors %}
+    <div class="alert alert-danger">
+      <ul class="mb-0">
+        {% for field in collateral_form %}
+          {% for error in field.errors %}
+            <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+          {% endfor %}
+        {% endfor %}
+        {% for error in collateral_form.non_field_errors %}
+          <li>{{ error }}</li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Brand Campaign ID :</label>
+      <div class="col-sm-6">
+        {% if brand_campaign_id %}
+          <input type="text" class="form-control" value="{{ brand_campaign_id }}" readonly>
+          <input type="hidden" name="campaign" value="{{ selected_campaign.id }}">
+        {% else %}
+          {{ collateral_form.campaign }}
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Purpose of the Collateral:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.purpose }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Content Title:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.title }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Content ID:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.content_id }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Item Type :</label>
+      <div class="col-sm-6">
+        {{ collateral_form.type }}
+      </div>
+    </div>
+
+    <div class="row mb-3" id="asset-wrapper" style="min-height: 92px;">
+      <div class="col-md-12" id="pdf-group">
+        <div class="row align-items-center">
+          <label class="col-sm-3 col-form-label fw-semibold text-end">PDF File:</label>
+          <div class="col-sm-6">
+            <small class="d-block text-muted">Upload only if you want to replace the current PDF.</small>
+            {{ collateral_form.file }}
+            {% if current_file_url %}
+              <div class="current-asset">
+                <span>Current file:</span>
+                <a href="{{ current_file_url }}" target="_blank" rel="noopener">View current PDF</a>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      <div class="col-md-12 d-none" id="video-group">
+        <div class="row align-items-center">
+          <label class="col-sm-3 col-form-label fw-semibold text-end">Vimeo Embed Code:</label>
+          <div class="col-sm-6">
+            {{ collateral_form.vimeo_embed_code }}
+            {% if collateral.vimeo_url %}
+              <div class="current-asset">
+                <span>Current video:</span>
+                <a href="{{ collateral.vimeo_url }}" target="_blank" rel="noopener">{{ collateral.vimeo_url }}</a>
+              </div>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Banner 1 upload:</label>
+      <div class="col-sm-6">
+        <small class="d-block text-muted">Upload only if you want to replace the current banner.</small>
+        {{ collateral_form.banner_1 }}
+        {% if current_banner_1_url %}
+          <div class="current-asset">
+            <span>Current banner:</span>
+            <a href="{{ current_banner_1_url }}" target="_blank" rel="noopener">
+              <img src="{{ current_banner_1_url }}" alt="Banner 1">
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Banner 2 upload:</label>
+      <div class="col-sm-6">
+        <small class="d-block text-muted">Upload only if you want to replace the current banner.</small>
+        {{ collateral_form.banner_2 }}
+        {% if current_banner_2_url %}
+          <div class="current-asset">
+            <span>Current banner:</span>
+            <a href="{{ current_banner_2_url }}" target="_blank" rel="noopener">
+              <img src="{{ current_banner_2_url }}" alt="Banner 2">
+            </a>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Doctor's Name:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.doctor_name }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Content Description:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.description }}
+      </div>
+    </div>
+
+    <div class="row mb-2">
+      <div class="col-sm-9 offset-sm-3">
+        <h6 class="text-muted mt-2">Optional Webinar</h6>
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">DIAP Webinar Link:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.webinar_url }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Webinar Title:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.webinar_title }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Webinar Description:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.webinar_description }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Webinar Date:</label>
+      <div class="col-sm-6">
+        {{ collateral_form.webinar_date }}
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">WhatsApp Message:</label>
+      <div class="col-sm-6">
+        <textarea
+          name="whatsapp_message"
+          class="form-control"
+          rows="4"
+          placeholder="Enter WhatsApp message... Use $collateralLinks for the link"
+        >{{ whatsapp_message|default_if_none:'' }}</textarea>
+        <small class="text-muted">
+          Use <code>$collateralLinks</code> as the collateral link placeholder.
+        </small>
+      </div>
+    </div>
+
+    <div class="row mb-3 align-items-center">
+      <label class="col-sm-3 col-form-label fw-semibold text-end">Reminder Message:</label>
+      <div class="col-sm-6">
+        <textarea
+          name="reminder_message"
+          class="form-control"
+          rows="4"
+          placeholder="Enter reminder message... Use $collateralLinks for the link"
+        >{{ reminder_message|default_if_none:'' }}</textarea>
+        <small class="text-muted">
+          This is used when the Field Rep clicks <strong>Send Reminder</strong>.
+        </small>
+      </div>
+    </div>
+
+    <div class="row mb-3">
+      <div class="offset-sm-3 col-sm-6 d-flex gap-2">
+        <button type="submit" class="btn btn-primary px-4">Update Collateral</button>
+        {% if brand_campaign_id %}
+          <a href="/share/dashboard/?campaign={{ brand_campaign_id }}" class="btn btn-outline-secondary">Cancel</a>
+        {% else %}
+          <a href="{% url 'collateral_list' %}" class="btn btn-outline-secondary">Cancel</a>
+        {% endif %}
+      </div>
+    </div>
+  </form>
+</div>
+{% endblock %}
+
+{% block bottomjs %}
+<script>
+  document.addEventListener("DOMContentLoaded", function () {
+    const typeField = document.getElementById("id_type");
+    const pdfGroup = document.getElementById("pdf-group");
+    const videoGroup = document.getElementById("video-group");
+
+    function toggleFields() {
+      const type = typeField.value;
+      const isPdf = type === "pdf";
+      const isVideo = type === "video";
+      const isBoth = type === "pdf_video";
+      pdfGroup.classList.toggle("d-none", !(isPdf || isBoth));
+      videoGroup.classList.toggle("d-none", !(isVideo || isBoth));
+    }
+
+    if (typeField) {
+      typeField.addEventListener("change", toggleFields);
+      toggleFields();
+    }
+  });
+</script>
+{% endblock %}

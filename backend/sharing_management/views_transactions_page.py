@@ -93,8 +93,12 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
         clicked_doctors = 0
 
     # Downloaded PDF
-    # Your model/table (per error page) uses "downloaded_pdf"
-    downloaded_field = "downloaded_pdf" if "downloaded_pdf" in model_field_names else None
+    if "has_downloaded_pdf" in model_field_names:
+        downloaded_field = "has_downloaded_pdf"
+    elif "downloaded_pdf" in model_field_names:
+        downloaded_field = "downloaded_pdf"
+    else:
+        downloaded_field = None
     downloaded_pdf_doctors = (
         base_rows.filter(**{downloaded_field: True}).values("doctor_number").distinct().count()
         if downloaded_field else 0
@@ -102,7 +106,9 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
 
     # Viewed last page
     # Prefer pdf_completed if present; else derive from pdf_last_page >= pdf_total_pages
-    if "pdf_completed" in model_field_names:
+    if "has_viewed_last_page" in model_field_names:
+        viewed_last_page_doctors = base_rows.filter(has_viewed_last_page=True).values("doctor_number").distinct().count()
+    elif "pdf_completed" in model_field_names:
         viewed_last_page_doctors = base_rows.filter(pdf_completed=True).values("doctor_number").distinct().count()
     elif "pdf_last_page" in model_field_names and "pdf_total_pages" in model_field_names:
         viewed_last_page_doctors = (
@@ -145,12 +151,21 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
     # --------------------------
     # Row presentation helpers
     # --------------------------
-    # If field_rep_id happens to match portal User.id, show User.field_id; otherwise fallback.
+    def _tx_datetime_part(row):
+        dt = getattr(row, "sent_at", None) or getattr(row, "created_at", None) or getattr(row, "updated_at", None)
+        if hasattr(dt, "strftime"):
+            return dt.strftime("%Y%m%d%H%M%S")
+        tx_date = getattr(row, "transaction_date", "")
+        return str(tx_date).replace("-", "")
+
+    # Prefer the brand-supplied field rep id stored with the transaction.
+    # If old rows only have a portal User id, map it to User.field_id.
     rep_ids = []
     for r in rows:
         rid = getattr(r, "field_rep_id", None)
-        if isinstance(rid, int):
-            rep_ids.append(rid)
+        rid_text = str(rid or "").strip()
+        if rid_text.isdigit():
+            rep_ids.append(int(rid_text))
 
     rep_map = {}
     if rep_ids:
@@ -161,22 +176,31 @@ def collateral_transactions_dashboard(request, brand_campaign_id: str):
 
     for r in rows:
         rid = getattr(r, "field_rep_id", None)
+        rid_text = str(rid or "").strip()
+        rep_unique = (
+            (getattr(r, "field_rep_unique_id", "") or "").strip()
+            if "field_rep_unique_id" in model_field_names
+            else ""
+        )
 
-        rep_display = ""
-        if isinstance(rid, int) and rid in rep_map:
-            rep_display = rep_map[rid]
+        if rep_unique:
+            rep_display = rep_unique
+        elif rid_text.isdigit() and int(rid_text) in rep_map:
+            rep_display = rep_map[int(rid_text)]
         else:
-            # Prefer email if available; else show master id
             rep_email = getattr(r, "field_rep_email", "") if "field_rep_email" in model_field_names else ""
-            rep_display = rep_email or (str(rid) if rid is not None else "")
+            rep_display = rep_email or rid_text
 
         r.field_rep_display = rep_display
-        r.transaction_id_display = f"{rep_display}-{r.doctor_number}-{r.collateral_id}"
+        stored_transaction_id = getattr(r, "transaction_id", "") if "transaction_id" in model_field_names else ""
+        r.transaction_id_display = stored_transaction_id or f"{rep_display}-{r.doctor_number}-{r.collateral_id}-{_tx_datetime_part(r)}"
         r.collateral_title = collateral_title_by_id.get(r.collateral_id, "—")
 
         # Provide template-friendly aliases (won't crash template even if old names were used)
         r.has_downloaded_pdf = bool(getattr(r, downloaded_field, False)) if downloaded_field else False
-        if "pdf_completed" in model_field_names:
+        if "has_viewed_last_page" in model_field_names:
+            r.has_viewed_last_page = bool(getattr(r, "has_viewed_last_page", False))
+        elif "pdf_completed" in model_field_names:
             r.has_viewed_last_page = bool(getattr(r, "pdf_completed", False))
         elif "pdf_last_page" in model_field_names and "pdf_total_pages" in model_field_names:
             try:

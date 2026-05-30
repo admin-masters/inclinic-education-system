@@ -2747,6 +2747,39 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             except Exception as e:
                 print("[SMDBG] ERROR inserting ShareLog row:", e)
 
+        if matched_sharelog_id:
+            try:
+                tx_share_log = (
+                    ShareLog.objects
+                    .only(
+                        "id",
+                        "short_link",
+                        "collateral",
+                        "doctor_identifier",
+                        "share_channel",
+                        "share_timestamp",
+                        "field_rep_id",
+                    )
+                    .filter(id=matched_sharelog_id)
+                    .first()
+                )
+                if tx_share_log:
+                    tx_share_log.__dict__["field_rep_email"] = field_rep_email or ""
+                    tx_share_log.__dict__["brand_campaign_id"] = canonical_brand_campaign_id(
+                        brand_campaign_id,
+                        sync_from_master=True,
+                    )
+                    upsert_from_sharelog(
+                        tx_share_log,
+                        brand_campaign_id=brand_campaign_id or "",
+                        doctor_name=doctor_name or None,
+                        field_rep_unique_id=field_rep_field_id or None,
+                        sent_at=getattr(tx_share_log, "share_timestamp", None),
+                    )
+                    print("[SMDBG] CollateralTransaction upsert OK for share_log_id=", matched_sharelog_id)
+            except Exception as e:
+                print("[SMDBG] CollateralTransaction upsert ERROR:", e)
+
         # Best-effort existing logging helper (optional)
         try:
             from sharing_management.utils.db_operations import log_manual_doctor_share

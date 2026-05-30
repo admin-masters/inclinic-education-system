@@ -164,48 +164,57 @@ class CollateralTransaction(models.Model):
     """
     Stored in DEFAULT DB.
 
-    IMPORTANT CHANGE:
-      - field_rep_id is MASTER field rep id (integer), not a FK.
-
-    Your views/services already treat it as an id in several places.
+    Keep this model aligned with migration 0010 and the existing production table.
+    The reporting service writes the durable transaction_id in the format:
+    brand-supplied-field-id-doctor-number-collateral-id-datetime.
     """
-    field_rep_id = models.BigIntegerField(db_index=True)
-    field_rep_email = models.EmailField(blank=True, default="")
+    transaction_id = models.CharField(max_length=128, db_index=True)
+    brand_campaign_id = models.CharField(max_length=64, db_index=True)
 
-    doctor_number = models.CharField(max_length=64, db_index=True)
-    doctor_name = models.CharField(max_length=255, blank=True, default="")
+    field_rep_id = models.CharField(max_length=64, db_index=True)
+    field_rep_unique_id = models.CharField(max_length=64, blank=True, null=True)
 
-    collateral_id = models.PositiveIntegerField(db_index=True)
-    brand_campaign_id = models.CharField(max_length=32, blank=True, default="", db_index=True)
+    doctor_name = models.CharField(max_length=255, blank=True, null=True)
+    doctor_number = models.CharField(max_length=15, db_index=True)
+    doctor_unique_id = models.CharField(max_length=64, blank=True, null=True)
 
-    share_channel = models.CharField(max_length=32, blank=True, default="")
-    sent_at = models.DateTimeField(null=True, blank=True)
+    collateral_id = models.BigIntegerField(db_index=True)
+    transaction_date = models.DateField(db_index=True)
 
-    # engagement flags
     has_viewed = models.BooleanField(default=False)
-    first_viewed_at = models.DateTimeField(null=True, blank=True)
-    last_viewed_at = models.DateTimeField(null=True, blank=True)
+    has_downloaded_pdf = models.BooleanField(default=False)
+    has_viewed_last_page = models.BooleanField(default=False)
 
-    pdf_last_page = models.PositiveIntegerField(default=0)
-    pdf_total_pages = models.PositiveIntegerField(default=0)
-    pdf_completed = models.BooleanField(default=False)
-    downloaded_pdf = models.BooleanField(default=False)
+    video_view_lt_50 = models.BooleanField(default=False)
+    video_view_gt_50 = models.BooleanField(default=False)
+    video_view_100 = models.BooleanField(default=False)
+    total_video_events = models.PositiveIntegerField(default=0)
+    last_video_percentage = models.PositiveSmallIntegerField(default=0)
+    last_page_scrolled = models.PositiveIntegerField(default=0)
 
-    video_watch_percentage = models.PositiveIntegerField(default=0)
-    video_completed = models.BooleanField(default=False)
+    doctor_viewer_engagement_id = models.BigIntegerField(blank=True, null=True)
+    share_management_engagement_id = models.BigIntegerField(blank=True, null=True)
+    video_tracking_last_event_id = models.BigIntegerField(blank=True, null=True)
 
-    dv_engagement_id = models.IntegerField(null=True, blank=True)
-    sm_engagement_id = models.CharField(max_length=64, blank=True, default="")
-
-    created_at = models.DateTimeField(auto_now_add=True)
+    created_at = models.DateTimeField(default=timezone.now)
     updated_at = models.DateTimeField(auto_now=True)
+
+    sent_at = models.DateTimeField(null=True, blank=True)
+    viewed_at = models.DateTimeField(null=True, blank=True)
+    downloaded_pdf_at = models.DateTimeField(null=True, blank=True)
+    viewed_last_page_at = models.DateTimeField(null=True, blank=True)
+    video_lt_50_at = models.DateTimeField(null=True, blank=True)
+    video_gt_50_at = models.DateTimeField(null=True, blank=True)
+    video_100_at = models.DateTimeField(null=True, blank=True)
+    last_video_event_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         db_table = "sharing_management_collateraltransaction"
+        unique_together = (("field_rep_id", "doctor_number", "collateral_id", "transaction_date"),)
         indexes = [
-            models.Index(fields=["field_rep_id", "doctor_number", "collateral_id"]),
-            models.Index(fields=["brand_campaign_id", "collateral_id"]),
+            models.Index(fields=["brand_campaign_id", "transaction_date"]),
+            models.Index(fields=["doctor_number", "collateral_id"]),
         ]
 
     def __str__(self) -> str:
-        return f"CollateralTransaction(field_rep_id={self.field_rep_id}, doctor={self.doctor_number}, collateral_id={self.collateral_id})"
+        return self.transaction_id

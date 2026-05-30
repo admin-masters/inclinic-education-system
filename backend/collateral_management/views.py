@@ -10,7 +10,7 @@ from django.http import FileResponse, Http404
 import os
 import traceback
 from .decorators import admin_required
-from .models import Collateral, CampaignCollateral
+from .models import Collateral, CampaignCollateral, CollateralMessage
 from .forms import CollateralForm, CampaignCollateralForm
 from campaign_management.models import Campaign
 from .campaign_ids import campaign_id_variants, ensure_portal_campaign
@@ -258,6 +258,97 @@ def add_collateral_with_campaign(request, brand_campaign_id=None):
             "brand_campaign_id": brand_campaign_id,
             "whatsapp_message": whatsapp_message,
             "reminder_message": reminder_message,
+        },
+    )
+
+
+@admin_required
+def edit_collateral_with_campaign(request, pk):
+    collateral = get_object_or_404(Collateral.objects.select_related("campaign"), pk=pk)
+    selected_campaign = collateral.campaign
+    brand_campaign_id = getattr(selected_campaign, "brand_campaign_id", "") if selected_campaign else ""
+
+    custom_message = None
+    if selected_campaign:
+        custom_message = (
+            CollateralMessage.objects.filter(campaign=selected_campaign, collateral=collateral)
+            .order_by("-id")
+            .first()
+        )
+
+    if request.method == "POST":
+        whatsapp_message = (request.POST.get("whatsapp_message") or "").strip()
+        reminder_message = (request.POST.get("reminder_message") or "").strip()
+        form = CollateralForm(
+            request.POST,
+            request.FILES,
+            instance=collateral,
+            brand_campaign_id=brand_campaign_id or None,
+        )
+
+        if whatsapp_message and "$collateralLinks" not in whatsapp_message:
+            form.add_error(None, "$collateralLinks variable is missing in the WhatsApp message.")
+        if reminder_message and "$collateralLinks" not in reminder_message:
+            form.add_error(None, "$collateralLinks variable is missing in the reminder message.")
+
+        if form.is_valid():
+            with transaction.atomic():
+                updated_collateral = form.save(commit=False)
+                updated_collateral.created_by = updated_collateral.created_by or request.user
+                updated_collateral.purpose = form.cleaned_data.get("purpose")
+
+                if selected_campaign:
+                    updated_collateral.campaign = selected_campaign
+
+                updated_collateral.save()
+
+                effective_campaign = updated_collateral.campaign or selected_campaign or form.cleaned_data.get("campaign")
+                if effective_campaign:
+                    CampaignCollateral.objects.get_or_create(
+                        campaign=effective_campaign,
+                        collateral=updated_collateral,
+                    )
+
+                    default_message = whatsapp_message or (
+                        (getattr(custom_message, "message", "") or "").strip()
+                        or "Hello Doctor 👋\n\nPlease review the following material:\n$collateralLinks\n\nThank you."
+                    )
+                    default_reminder_message = reminder_message or (
+                        (getattr(custom_message, "reminder_message", "") or "").strip()
+                        or default_message
+                    )
+
+                    CollateralMessage.objects.update_or_create(
+                        campaign=effective_campaign,
+                        collateral=updated_collateral,
+                        defaults={
+                            "message": default_message,
+                            "reminder_message": default_reminder_message,
+                            "is_active": True,
+                        },
+                    )
+
+                if brand_campaign_id:
+                    return redirect(f"/share/dashboard/?campaign={brand_campaign_id}")
+                return redirect("collateral_detail", pk=updated_collateral.pk)
+    else:
+        form = CollateralForm(instance=collateral, brand_campaign_id=brand_campaign_id or None)
+        whatsapp_message = (getattr(custom_message, "message", "") or "").strip()
+        reminder_message = (getattr(custom_message, "reminder_message", "") or "").strip()
+
+    return render(
+        request,
+        "collateral_management/collateral_update.html",
+        {
+            "collateral_form": form,
+            "collateral": collateral,
+            "selected_campaign": selected_campaign,
+            "brand_campaign_id": brand_campaign_id,
+            "whatsapp_message": whatsapp_message,
+            "reminder_message": reminder_message,
+            "current_file_url": collateral.file.url if getattr(collateral, "file", None) else "",
+            "current_banner_1_url": collateral.banner_1.url if getattr(collateral, "banner_1", None) else "",
+            "current_banner_2_url": collateral.banner_2.url if getattr(collateral, "banner_2", None) else "",
         },
     )
 def edit_campaign_collateral_dates(request, pk):

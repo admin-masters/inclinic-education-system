@@ -141,6 +141,7 @@
         <th>Item Name</th>
         <th>Description for display</th>
         <th>URL of the Page</th>
+        <th>Edit Collateral</th>
         <th>Edit</th>
         <th>Replace Collateral</th>
         <th>Delete</th>
@@ -154,6 +155,13 @@
         <td>{{ collateral.description }}</td>
         <td>
           <a class="btn btn-warning" href="{% url 'collateral_preview' collateral.id %}" target="_blank">Link</a>
+        </td>
+        <td>
+          {% if collateral.id %}
+            <a class="btn btn-primary" href="{% url 'collateral_update' collateral.id %}" target="_blank">Edit Collateral</a>
+          {% else %}
+            <span class="text-muted">N/A</span>
+          {% endif %}
         </td>
         <td>
           {% if collateral.campaign_collateral_id %}
@@ -188,7 +196,7 @@
       </tr>
       {% empty %}
       <tr>
-        <td colspan="7">No collaterals available.</td>
+        <td colspan="8">No collaterals available.</td>
       </tr>
       {% endfor %}
     </tbody>
