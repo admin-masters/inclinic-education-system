@@ -159,6 +159,27 @@ def repair_collateraltransaction_schema(apps, schema_editor):
             ),
         )
 
+    if "video_completed" in columns and "video_view_100" in columns:
+        _execute_if_columns_exist(
+            schema_editor,
+            {"video_completed", "video_view_100"},
+            (
+                f"UPDATE {table} SET {qn('video_view_100')} = 1 "
+                f"WHERE COALESCE({qn('video_completed')}, 0) <> 0"
+            ),
+        )
+
+    if "total_video_events" in columns and "last_video_percentage" in columns:
+        _execute_if_columns_exist(
+            schema_editor,
+            {"total_video_events", "last_video_percentage"},
+            (
+                f"UPDATE {table} SET {qn('total_video_events')} = 1 "
+                f"WHERE COALESCE({qn('total_video_events')}, 0) = 0 "
+                f"AND COALESCE({qn('last_video_percentage')}, 0) > 0"
+            ),
+        )
+
     if {"viewed_at", "first_viewed_at", "last_viewed_at"}.issubset(columns):
         _execute_if_columns_exist(
             schema_editor,
@@ -171,6 +192,18 @@ def repair_collateraltransaction_schema(apps, schema_editor):
             ),
         )
 
+    if {"downloaded_pdf_at", "last_viewed_at", "viewed_at", "updated_at", "has_downloaded_pdf"}.issubset(columns):
+        _execute_if_columns_exist(
+            schema_editor,
+            {"downloaded_pdf_at", "last_viewed_at", "viewed_at", "updated_at", "has_downloaded_pdf"},
+            (
+                f"UPDATE {table} SET {qn('downloaded_pdf_at')} = "
+                f"COALESCE({qn('last_viewed_at')}, {qn('viewed_at')}, {qn('updated_at')}) "
+                f"WHERE {qn('downloaded_pdf_at')} IS NULL "
+                f"AND COALESCE({qn('has_downloaded_pdf')}, 0) <> 0"
+            ),
+        )
+
     if {"viewed_last_page_at", "last_viewed_at", "has_viewed_last_page"}.issubset(columns):
         _execute_if_columns_exist(
             schema_editor,
@@ -180,6 +213,31 @@ def repair_collateraltransaction_schema(apps, schema_editor):
                 f"WHERE {qn('viewed_last_page_at')} IS NULL "
                 f"AND COALESCE({qn('has_viewed_last_page')}, 0) <> 0 "
                 f"AND {qn('last_viewed_at')} IS NOT NULL"
+            ),
+        )
+
+    if {"last_video_event_at", "last_viewed_at", "viewed_at", "updated_at", "last_video_percentage"}.issubset(columns):
+        _execute_if_columns_exist(
+            schema_editor,
+            {"last_video_event_at", "last_viewed_at", "viewed_at", "updated_at", "last_video_percentage"},
+            (
+                f"UPDATE {table} SET {qn('last_video_event_at')} = "
+                f"COALESCE({qn('last_viewed_at')}, {qn('viewed_at')}, {qn('updated_at')}) "
+                f"WHERE {qn('last_video_event_at')} IS NULL "
+                f"AND COALESCE({qn('last_video_percentage')}, 0) > 0"
+            ),
+        )
+
+    if {"transaction_date", "sent_at", "created_at"}.issubset(columns):
+        today_expr = "CURRENT_DATE()" if vendor == "mysql" else "DATE('now')"
+        _execute_if_columns_exist(
+            schema_editor,
+            {"transaction_date", "sent_at", "created_at"},
+            (
+                f"UPDATE {table} "
+                f"SET {qn('transaction_date')} = COALESCE("
+                f"DATE({qn('transaction_date')}), DATE({qn('sent_at')}), DATE({qn('created_at')}), {today_expr}"
+                f") WHERE {qn('transaction_date')} IS NOT NULL"
             ),
         )
 
