@@ -298,6 +298,7 @@ def _base_transaction_values(
     bc_raw = _as_str(brand_campaign_id).strip() or _infer_brand_campaign_id(share_log)
     bc_id = canonical_brand_campaign_id(bc_raw, sync_from_master=True)
     doctor_number = _as_str(getattr(share_log, "doctor_identifier", "")).strip()
+    doctor_name_value = _as_str(doctor_name).strip()
 
     values = {
         "brand_campaign_id": bc_id,
@@ -306,7 +307,7 @@ def _base_transaction_values(
             share_log,
             explicit_field_id=field_rep_unique_id,
         ),
-        "doctor_name": _as_str(doctor_name).strip() if doctor_name else None,
+        "doctor_name": doctor_name_value,
         "doctor_number": doctor_number,
         "collateral_id": int(collateral_id),
         "transaction_date": _local_dt(event_at).date(),
@@ -361,6 +362,11 @@ def _merged_snapshot_values(base_values: dict[str, Any]) -> dict[str, Any]:
 
     if not snapshot_values.get("field_rep_unique_id"):
         snapshot_values["field_rep_unique_id"] = snapshot_values.get("field_rep_id", "")
+
+    # Production keeps doctor_name as NOT NULL. Tracking events often do not
+    # carry a doctor name, so persist a harmless blank instead of NULL.
+    if snapshot_values.get("doctor_name") is None:
+        snapshot_values["doctor_name"] = ""
 
     if not snapshot_values.get("transaction_id"):
         snapshot_values["transaction_id"] = _build_transaction_id(snapshot_values)
