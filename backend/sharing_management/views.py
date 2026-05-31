@@ -1008,16 +1008,26 @@ def _doctor_rows_with_status(assigned_doctors, selected_collateral_id, current_f
 
                 if share_row:
                     last_shared = share_row.get("share_timestamp")
-                    txn_qs = CollateralTransaction.objects.filter(
-                        doctor_number__in=possible_ids,
-                        collateral_id=int(share_row.get("collateral_id") or 0),
-                        has_viewed=True,
-                    )
-                    share_field_rep_id = share_row.get("field_rep_id")
-                    if share_field_rep_id not in (None, ""):
-                        txn_qs = txn_qs.filter(field_rep_id=share_field_rep_id)
+                    share_log_id = share_row.get("id")
+                    opened = False
+                    if share_log_id:
+                        opened = CollateralTransaction.objects.filter(
+                            share_management_engagement_id=share_log_id,
+                            has_viewed=True,
+                        ).exists()
 
-                    if txn_qs.exists():
+                    if not opened:
+                        txn_qs = CollateralTransaction.objects.filter(
+                            doctor_number__in=possible_ids,
+                            collateral_id=int(share_row.get("collateral_id") or 0),
+                            has_viewed=True,
+                        )
+                        share_field_rep_id = share_row.get("field_rep_id")
+                        if share_field_rep_id not in (None, ""):
+                            txn_qs = txn_qs.filter(field_rep_id=str(share_field_rep_id))
+                        opened = txn_qs.exists()
+
+                    if opened:
                         status = "opened"
                     else:
                         ts = share_row.get("share_timestamp")
@@ -1380,6 +1390,23 @@ def get_brand_specific_message(
         "Hello Doctor, please check this: "
         f"{collateral_link}"
     )
+
+
+def _link_with_share_id(url: str, share_id) -> str:
+    if not url or not share_id:
+        return url
+
+    try:
+        parsed = urllib.parse.urlsplit(url)
+        query = urllib.parse.parse_qsl(parsed.query, keep_blank_values=True)
+        query = [(key, value) for key, value in query if key not in {"share_id", "s", "share"}]
+        query.append(("share_id", str(share_id)))
+        return urllib.parse.urlunsplit(
+            parsed._replace(query=urllib.parse.urlencode(query))
+        )
+    except Exception:
+        separator = "&" if "?" in url else "?"
+        return f"{url}{separator}share_id={share_id}"
 
 
 
@@ -2779,6 +2806,31 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                     print("[SMDBG] CollateralTransaction upsert OK for share_log_id=", matched_sharelog_id)
             except Exception as e:
                 print("[SMDBG] CollateralTransaction upsert ERROR:", e)
+
+        if matched_sharelog_id:
+            personalized_link = _link_with_share_id(selected_collateral["link"], matched_sharelog_id)
+            message = get_brand_specific_message(
+                collateral_id,
+                selected_collateral["name"],
+                personalized_link,
+                brand_campaign_id=brand_campaign_id,
+                message_kind=message_kind,
+            )
+
+            try:
+                with connection.cursor() as cursor:
+                    table = ShareLog._meta.db_table
+                    desc = connection.introspection.get_table_description(cursor, table)
+                    cols = {c.name for c in desc}
+                    if "message_text" in cols:
+                        qn = connection.ops.quote_name
+                        cursor.execute(
+                            f"UPDATE {qn(table)} SET {qn('message_text')} = %s WHERE id = %s",
+                            [message, matched_sharelog_id],
+                        )
+                        print("[SMDBG] ShareLog message_text updated with personalized share_id link")
+            except Exception as e:
+                print("[SMDBG] ShareLog message_text update ERROR:", e)
 
         # Best-effort existing logging helper (optional)
         try:

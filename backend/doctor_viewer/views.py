@@ -112,6 +112,102 @@ def _collateral_campaign_id(collateral: Collateral) -> int | None:
     return legacy_link.campaign_id if legacy_link else None
 
 
+def _prepare_sharelog_for_tracking(share_log: ShareLog | None) -> ShareLog | None:
+    if not share_log:
+        return None
+
+    share_log.__dict__.setdefault("field_rep_email", "")
+    share_log.__dict__.setdefault("brand_campaign_id", "")
+
+    try:
+        if getattr(share_log, "collateral_id", None):
+            link = (
+                CollateralCampaignLink.objects
+                .select_related("campaign")
+                .filter(collateral_id=share_log.collateral_id)
+                .order_by("-id")
+                .first()
+            )
+            if link and getattr(link, "campaign", None):
+                share_log.__dict__["brand_campaign_id"] = (
+                    getattr(link.campaign, "brand_campaign_id", "") or ""
+                )
+    except Exception as e:
+        print("[TRACKING DEBUG] brand_campaign_id inference error:", e)
+
+    return share_log
+
+
+def _sharelog_for_tracking_by_id(share_log_id) -> ShareLog | None:
+    try:
+        share_log_id = int(share_log_id)
+    except (TypeError, ValueError):
+        return None
+
+    try:
+        rows = list(
+            ShareLog.objects.raw(
+                """
+                SELECT id, short_link_id, doctor_identifier, share_channel,
+                       share_timestamp, collateral_id, field_rep_id, message_text
+                FROM sharing_management_sharelog
+                WHERE id = %s
+                LIMIT 1
+                """,
+                [share_log_id],
+            )
+        )
+        return _prepare_sharelog_for_tracking(rows[0] if rows else None)
+    except Exception as e:
+        print("[TRACKING DEBUG] ShareLog raw lookup failed:", e)
+        return None
+
+
+def _matching_sharelog_id_for_phone(short_link_id, whatsapp_number: str | None) -> int | None:
+    input_last10 = _last10_digits(whatsapp_number)
+    if not input_last10:
+        return None
+
+    try:
+        logs = (
+            ShareLog.objects
+            .filter(short_link_id=short_link_id)
+            .exclude(doctor_identifier__isnull=True)
+            .exclude(doctor_identifier__exact="")
+            .values("id", "doctor_identifier")
+            .order_by("-id")[:100]
+        )
+        for row in logs:
+            if _last10_digits(row.get("doctor_identifier") or "") == input_last10:
+                return row["id"]
+    except Exception as e:
+        print("[TRACKING DEBUG] ShareLog phone match failed:", e)
+
+    return None
+
+
+def _mark_prepared_sharelog_viewed(share_log: ShareLog | None, debug_prefix: str) -> ShareLog | None:
+    if not share_log:
+        return None
+
+    try:
+        try:
+            mark_viewed(share_log, sm_engagement_id=None, when=timezone.now())
+        except TypeError:
+            mark_viewed(share_log, sm_engagement_id=None)
+        return share_log
+    except Exception as e:
+        print(f"[{debug_prefix}] mark_viewed failed:", e)
+        return None
+
+
+def _mark_sharelog_viewed_by_id(share_log_id, debug_prefix: str) -> ShareLog | None:
+    return _mark_prepared_sharelog_viewed(
+        _sharelog_for_tracking_by_id(share_log_id),
+        debug_prefix,
+    )
+
+
 def _archive_cutoff_for_collateral(collateral: Collateral, campaign_id: int | None, share_timestamp=None):
     if share_timestamp:
         return share_timestamp
@@ -410,21 +506,8 @@ def resolve_view(request, code: str):
             sl = rows[0] if rows else None
 
         if sl:
-            # Prevent Django from trying to lazy-load ghost DB columns later
-            try:
-                sl.__dict__["field_rep_email"] = ""
-            except Exception:
-                pass
-            try:
-                sl.__dict__["brand_campaign_id"] = ""
-            except Exception:
-                pass
-
-            try:
-                mark_viewed(sl, sm_engagement_id=None)
-            except Exception as e:
-                print("[VIEW DEBUG] mark_viewed failed:", e)
-
+            sl = _prepare_sharelog_for_tracking(sl)
+            _mark_prepared_sharelog_viewed(sl, "VIEW DEBUG")
             request.session["share_id"] = sl.id
 
     except Exception as e:
@@ -941,6 +1024,7 @@ def doctor_collateral_verify(request):
         collateral = short_link.get_collateral()
 
         request.session["share_id"] = matched_sharelog_id
+        _mark_sharelog_viewed_by_id(matched_sharelog_id, "VERIFYDBG")
 
         # (keep the rest of your existing “archives + engagement” logic unchanged)
         archives = _doctor_archive_items(
@@ -1006,40 +1090,23 @@ def doctor_collateral_view(request):
                     messages.error(request, "Collateral not found.")
                     return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
-                request.session["share_id"] = row_id
+                matched_sharelog_id = _matching_sharelog_id_for_phone(short_link_id, whatsapp_number)
+                if matched_sharelog_id:
+                    request.session["share_id"] = matched_sharelog_id
+                else:
+                    request.session.pop("share_id", None)
 
-                # best-effort mark download in ShareLog (RAW, avoid ghost fields)
+                # best-effort mark open/download in ShareLog (RAW, avoid ghost fields)
                 try:
-                    rows = list(
-                        ShareLog.objects.raw(
-                            """
-                            SELECT id, short_link_id, doctor_identifier, share_channel,
-                                   share_timestamp, collateral_id, field_rep_id, message_text
-                            FROM sharing_management_sharelog
-                            WHERE short_link_id = %s
-                            ORDER BY share_timestamp DESC, id DESC
-                            LIMIT 1
-                            """,
-                            [int(short_link_id)],
-                        )
-                    )
-                    sl = rows[0] if rows else None
+                    sl = _mark_sharelog_viewed_by_id(matched_sharelog_id, "OTP VIEW DEBUG")
                     if sl:
-                        try:
-                            sl.__dict__["field_rep_email"] = ""
-                        except Exception:
-                            pass
-                        try:
-                            sl.__dict__["brand_campaign_id"] = ""
-                        except Exception:
-                            pass
                         mark_downloaded_pdf(sl)
                 except Exception as e:
                     print("[OTP VIEW DEBUG] mark_downloaded_pdf failed:", e)
 
                 archives = _doctor_archive_items(
                     current_collateral=collateral,
-                    matched_sharelog_id=row_id,
+                    matched_sharelog_id=matched_sharelog_id,
                     doctor_identifier=whatsapp_number,
                 )
 
