@@ -20,6 +20,9 @@ from .views import home_view, support_widget_proxy
 from django.contrib.auth import views as auth_views
 from django.conf.urls.static import static
 from django.conf import settings
+from django.views.generic import RedirectView
+from campaign_management import views as campaign_views
+from campaign_management.views import CampaignCreateView, CampaignUpdateView
 from user_management.views_custom import CustomAdminLoginView
 from sharing_management.views_transactions_page import collateral_transactions_dashboard
 from admin_dashboard import views as admin_dashboard_views
@@ -31,6 +34,33 @@ urlpatterns = [
     path('collaterals/', include('collateral_management.urls')),
     path('user/', include('user_management.urls')),
     # path('campaigns/', include('campaign_management.urls')),
+    path(
+        "campaigns/manage-data/",
+        RedirectView.as_view(pattern_name="home", permanent=False),
+        name="manage_data_panel",
+    ),
+    path(
+        "campaigns/publisher-landing-page/",
+        campaign_views.publisher_landing_page,
+        name="publisher_landing_page",
+    ),
+    path(
+        "campaigns/publisher/select-campaign/",
+        campaign_views.publisher_campaign_select,
+        name="publisher_campaign_select",
+    ),
+    path("campaigns/create/", CampaignCreateView.as_view(), name="campaign_create"),
+    path(
+        "campaigns/campaign/<str:campaign_id>/edit/",
+        CampaignUpdateView.as_view(),
+        name="campaign_by_id_update",
+    ),
+    path(
+        "campaigns/publisher/<str:campaign_id>/edit/",
+        CampaignUpdateView.as_view(),
+        name="publisher_campaign_update",
+    ),
+    path("campaigns/thank-you/", campaign_views.campaign_thank_you, name="campaign_thank_you"),
     path('share/', include('sharing_management.urls')),
     path('view/', include('doctor_viewer.urls')),
     path('api/', include('api.api_urls')),   
