@@ -3,17 +3,14 @@ from urllib.request import Request, urlopen
 
 from django.conf import settings
 from django.http import HttpResponse, HttpResponseBadRequest, HttpResponseNotAllowed
-from django.shortcuts import render, redirect
+from django.shortcuts import render
 from django.views.decorators.csrf import csrf_exempt
 
 
 def home_view(request):
     """
-    Landing page that shows home.html for unauthenticated users 
-    and redirects to manage data panel after login.
+    Single welcome/home page for both anonymous and authenticated users.
     """
-    if request.user.is_authenticated:
-        return redirect('manage_data_panel')
     return render(request, 'home.html')
 
 
