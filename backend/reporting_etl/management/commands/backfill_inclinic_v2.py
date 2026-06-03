@@ -12,7 +12,6 @@ from django.utils import timezone
 
 from reporting_etl.inclinic_v2 import (
     DUPLICATE_ASM_DOCTOR_OVERRIDES,
-    FIELD_REP_CONFLICT_TRANSACTION_EXCLUSION_CAMPAIGN_IDS,
     LEGACY_DOCTOR_REP_ALIASES,
     SYSTEM_NAME,
     TARGET_CAMPAIGN_ID,
@@ -228,13 +227,6 @@ class Command(BaseCommand):
         row: dict[str, Any],
         consistency_status: str,
     ) -> str:
-        if consistency_status != "conflict":
-            return ""
-
-        campaign_id_norm = normalize_campaign_id(row.get("brand_campaign_id"))
-        if campaign_id_norm in FIELD_REP_CONFLICT_TRANSACTION_EXCLUSION_CAMPAIGN_IDS:
-            return "manual_target_campaign_field_rep_conflict_transaction_exclusion"
-
         return ""
 
     def source_common(self, alias: str, table: str, row: dict[str, Any], basis: str, status: str = "verified"):
@@ -261,7 +253,20 @@ class Command(BaseCommand):
         value = clean_text(collateral_id)
         return stable_uuid("collateral", value) if value else None
 
-    def record_exception(self, *, database_alias: str, source_table: str, source_pk_value: Any, entity_type: str, issue_code: str, details: Any, raw_payload: Any, source_pk_column: str = "id"):
+    def record_exception(
+        self,
+        *,
+        database_alias: str,
+        source_table: str,
+        source_pk_value: Any,
+        entity_type: str,
+        issue_code: str,
+        details: Any,
+        raw_payload: Any,
+        source_pk_column: str = "id",
+        resolution_status: str = "open",
+        resolution_notes: str | None = None,
+    ):
         MigrationExceptionV2.objects.create(
             migration_batch_id=self.batch_id,
             system_name=SYSTEM_NAME,
@@ -273,7 +278,8 @@ class Command(BaseCommand):
             issue_code=issue_code,
             issue_details=to_json(details),
             raw_payload_json=to_json(raw_payload),
-            resolution_status="open",
+            resolution_status=resolution_status,
+            resolution_notes=resolution_notes,
         )
         self.inc(f"exceptions.{issue_code}")
 
@@ -772,7 +778,7 @@ class Command(BaseCommand):
             raw_brand_fr = self.fr_by_brand.get(raw_field_rep_unique_id) if raw_field_rep_unique_id else None
             status, basis, resolved_uuid, brand_supplied_field_rep_id, brand_fr = self.transaction_consistency(row, fr, raw_brand_fr)
             field_rep_conflict_exclusion = self.field_rep_conflict_transaction_exclusion_reason(row, status)
-            if status == "conflict" and not field_rep_conflict_exclusion:
+            if status == "conflict":
                 self.record_exception(
                     database_alias=self.default_alias,
                     source_table="sharing_management_collateraltransaction",
@@ -787,7 +793,16 @@ class Command(BaseCommand):
                         "resolved_brand_supplied_field_rep_id": brand_supplied_field_rep_id,
                     },
                     raw_payload=row,
+                    resolution_status="resolved",
+                    resolution_notes=(
+                        "Resolved for reporting by preferring "
+                        "sharing_management_collateraltransaction.field_rep_id, "
+                        "which maps to campaign_fieldrep.id. The conflicting "
+                        "field_rep_unique_id is preserved in raw_payload_json and "
+                        "old_field_rep_unique_id for audit."
+                    ),
                 )
+                self.inc("collateral_transaction.field_rep_conflicts_resolved_by_field_rep_id")
             if not fr:
                 self.record_exception(
                     database_alias=self.default_alias,
