@@ -77,18 +77,6 @@ def repair_collateraltransaction_schema(apps, schema_editor):
 
     vendor = connection.vendor
 
-    if {"field_rep_unique_id", "field_rep_id"}.issubset(columns):
-        cast_type = "CHAR" if vendor == "mysql" else "TEXT"
-        _execute_if_columns_exist(
-            schema_editor,
-            {"field_rep_unique_id", "field_rep_id"},
-            (
-                f"UPDATE {table} "
-                f"SET {qn('field_rep_unique_id')} = CAST({qn('field_rep_id')} AS {cast_type}) "
-                f"WHERE {qn('field_rep_unique_id')} IS NULL OR {qn('field_rep_unique_id')} = ''"
-            ),
-        )
-
     if {"transaction_date", "sent_at", "created_at"}.issubset(columns):
         today_expr = "CURRENT_DATE()" if vendor == "mysql" else "DATE('now')"
         _execute_if_columns_exist(

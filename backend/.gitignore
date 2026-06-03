@@ -1,1 +1,5 @@
 .env
+.local_runtime/
+local_media/
+media/
+staticfiles/

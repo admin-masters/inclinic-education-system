@@ -210,13 +210,17 @@ def _resolve_brand_supplied_field_id(
 
     field_rep_id = getattr(share_log, "field_rep_id", None)
 
-    # In older rows field_rep_id points to the local portal User; in newer flows it
-    # can point to the master FieldRep. Try both and keep the raw id as fallback.
-    field_id = _brand_field_id_from_portal_user(field_rep_id)
+    # ShareLog.field_rep_id is the master campaign_fieldrep.id in the current
+    # field-rep flows. Prefer master resolution first; falling through to the
+    # local portal User id can accidentally turn the internal id into the
+    # brand-supplied id when both tables happen to share a numeric primary key.
+    field_id = _brand_field_id_from_master(share_log, field_rep_id)
     if field_id:
         return field_id
 
-    field_id = _brand_field_id_from_master(share_log, field_rep_id)
+    # Legacy rows may still carry the local portal user id, so keep this as a
+    # fallback only.
+    field_id = _brand_field_id_from_portal_user(field_rep_id)
     if field_id:
         return field_id
 
@@ -359,9 +363,6 @@ def _merged_snapshot_values(base_values: dict[str, Any]) -> dict[str, Any]:
         if isinstance(value, str) and not value.strip() and key in snapshot_values:
             continue
         snapshot_values[key] = value
-
-    if not snapshot_values.get("field_rep_unique_id"):
-        snapshot_values["field_rep_unique_id"] = snapshot_values.get("field_rep_id", "")
 
     # Production keeps doctor_name as NOT NULL. Tracking events often do not
     # carry a doctor name, so persist a harmless blank instead of NULL.
