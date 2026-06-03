@@ -14,6 +14,14 @@ import os
 # ──────────────────────────────────────────────────────────────
 BASE_DIR = Path(__file__).resolve().parents[2]
 load_dotenv("/var/www/secrets/.env")
+load_dotenv(BASE_DIR / "backend" / ".env")
+
+
+def _env_list(name, default=()):
+    value = os.getenv(name)
+    if not value:
+        return list(default)
+    return [item.strip() for item in value.split(",") if item.strip()]
 
 # ──────────────────────────────────────────────────────────────
 # 1   Paths
@@ -36,6 +44,10 @@ ALLOWED_HOSTS = [
     "localhost",
     "inclinic.inditech.co.in"
 ]
+for host in _env_list("ALLOWED_HOSTS"):
+    if host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(host)
+SITE_ID = int(os.getenv("SITE_ID", "1"))
 
 CSRF_TRUSTED_ORIGINS   = ["https://*.cpdinclinic.co.in"]
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -135,7 +147,7 @@ DATABASES = {
     },
     'master': {
         'ENGINE': 'django.db.backends.mysql',
-        'NAME': 'healthcare_forms_2',    # Your DB name
+        'NAME': 'rfa_master_dev',
         'USER': 'admin',                # Username shown in your screenshot
         'PASSWORD': 'fizxyZ-rovpat-memri5',    # Enter the correct root password
         'HOST': 'master-db-new-system.cbnobb8kfeuq.ap-south-1.rds.amazonaws.com',
@@ -194,8 +206,12 @@ AUTHENTICATION_BACKENDS = (
     "django.contrib.auth.backends.ModelBackend",
 )
 
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY    = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY")
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET")
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_KEY") or GOOGLE_CLIENT_ID
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = (
+    os.getenv("SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET") or GOOGLE_CLIENT_SECRET
+)
 
 RECAPTCHA_SITE_KEY   = os.getenv("RECAPTCHA_SITE_KEY")
 RECAPTCHA_SECRET_KEY = os.getenv("RECAPTCHA_SECRET_KEY")
@@ -275,7 +291,42 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = os.getenv("EMAIL_HOST_USER")  # your-email@gmail.com
 EMAIL_HOST_PASSWORD = os.getenv("EMAIL_HOST_PASSWORD")  # App Password
-DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
+EMAIL_PROVIDER = os.getenv("EMAIL_PROVIDER", "smtp").strip().lower()
+DEFAULT_FROM_EMAIL = (
+    os.getenv("DEFAULT_FROM_EMAIL")
+    or os.getenv("MAILHIPPO_FROM_EMAIL")
+    or EMAIL_HOST_USER
+)
+DO_NOT_REPLY_EMAIL = os.getenv("DO_NOT_REPLY_EMAIL", DEFAULT_FROM_EMAIL)
+SENDGRID_API_KEY = os.getenv("SENDGRID_API_KEY", "")
+
+MAILHIPPO_SECRET_REGION = os.getenv("MAILHIPPO_SECRET_REGION", "")
+MAILHIPPO_FROM_NAME_SECRET_NAME = os.getenv("MAILHIPPO_FROM_NAME_SECRET_NAME", "")
+MAILHIPPO_FROM_EMAIL_SECRET_NAME = os.getenv("MAILHIPPO_FROM_EMAIL_SECRET_NAME", "")
+MAILHIPPO_API_ENDPOINT_SECRET_NAME = os.getenv("MAILHIPPO_API_ENDPOINT_SECRET_NAME", "")
+MAILHIPPO_X_AUTH_SECRET_SECRET_NAME = os.getenv("MAILHIPPO_X_AUTH_SECRET_SECRET_NAME", "")
+MAILHIPPO_API_ENDPOINT = os.getenv("MAILHIPPO_API_ENDPOINT", "")
+MAILHIPPO_X_AUTH_SECRET = os.getenv("MAILHIPPO_X_AUTH_SECRET", "")
+MAILHIPPO_FROM_EMAIL = os.getenv("MAILHIPPO_FROM_EMAIL", "")
+MAILHIPPO_FROM_NAME = os.getenv("MAILHIPPO_FROM_NAME", "")
+
+WHATSAPP_MODE = os.getenv("WHATSAPP_MODE", "TEMPLATE")
+WHATSAPP_GATEWAY_URL = os.getenv("WHATSAPP_GATEWAY_URL", "")
+WHATSAPP_TEXT_URL = os.getenv("WHATSAPP_TEXT_URL", "")
+WHATSAPP_API_KEY = os.getenv("WHATSAPP_API_KEY", "")
+WHATSAPP_SENDER_NAME = os.getenv("WHATSAPP_SENDER_NAME", "")
+
+PATIENT_HASH_SECRET = os.getenv("PATIENT_HASH_SECRET", "")
+SPECIAL_INSTRUCTION_PM_API_TOKEN = os.getenv("SPECIAL_INSTRUCTION_PM_API_TOKEN", "")
+
+SAPA_ENDPOINT_URL = os.getenv("SAPA_ENDPOINT_URL", "")
+SAPA_BASIC_AUTH_USERNAME = os.getenv("SAPA_BASIC_AUTH_USERNAME", "")
+SAPA_BASIC_AUTH_PASSWORD = os.getenv("SAPA_BASIC_AUTH_PASSWORD", "")
+SAPA_AUTH_TOKEN = os.getenv("SAPA_AUTH_TOKEN", "")
+SAPA_API_KEY = os.getenv("SAPA_API_KEY", "")
+SAPA_DEFAULT_HEADERS_JSON = os.getenv("SAPA_DEFAULT_HEADERS_JSON", "{}")
+SAPA_TIMEOUT_SECONDS = float(os.getenv("SAPA_TIMEOUT_SECONDS", "20.0"))
+SAPA_VERIFY_SSL = os.getenv("SAPA_VERIFY_SSL", "1").lower() in {"1", "true", "yes", "on"}
 
 
 X_FRAME_OPTIONS = 'SAMEORIGIN'
