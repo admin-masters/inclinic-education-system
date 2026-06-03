@@ -97,6 +97,21 @@ def _smdbg(msg: str) -> None:
         # Never break runtime due to logging
         pass
 
+
+def _sync_sharelog_to_v2_best_effort(share_log_or_id) -> None:
+    try:
+        from reporting_etl.runtime_v2 import sync_sharelog_to_v2
+
+        if isinstance(share_log_or_id, ShareLog):
+            share_log = share_log_or_id
+        else:
+            share_log = ShareLog.objects.filter(id=share_log_or_id).first()
+        if share_log:
+            sync_sharelog_to_v2(share_log)
+    except Exception as exc:
+        print("[V2SYNC] sharelog refresh failed:", exc)
+
+
 def _fieldrep_dbg_enabled() -> bool:
     return bool(getattr(settings, "FIELDREP_DEBUG_LOGS", False) or os.environ.get("FIELDREP_DEBUG_LOGS") == "1")
 
@@ -1028,7 +1043,7 @@ def _doctor_rows_with_status(
                 share_row = (
                     share_qs
                     .values("id", "doctor_identifier", "share_timestamp", "field_rep_id", "collateral_id")
-                    .order_by("-id")
+                    .order_by("-share_timestamp", "-id")
                     .first()
                 )
 
@@ -1037,21 +1052,21 @@ def _doctor_rows_with_status(
                     share_log_id = share_row.get("id")
                     opened = False
                     if share_log_id:
-                        opened = CollateralTransaction.objects.filter(
-                            share_management_engagement_id=share_log_id,
-                            has_viewed=True,
-                        ).exists()
+                        latest_tx = (
+                            CollateralTransaction.objects.filter(
+                                share_management_engagement_id=share_log_id,
+                                has_viewed=True,
+                            )
+                            .values("viewed_at", "updated_at")
+                            .order_by("-updated_at", "-id")
+                            .first()
+                        )
+                        if latest_tx:
+                            viewed_at = latest_tx.get("viewed_at")
+                            opened = bool(not last_shared or (viewed_at and viewed_at >= last_shared))
 
                     if not opened:
-                        txn_qs = CollateralTransaction.objects.filter(
-                            doctor_number__in=possible_ids,
-                            collateral_id=int(share_row.get("collateral_id") or 0),
-                            has_viewed=True,
-                        )
-                        share_field_rep_id = share_row.get("field_rep_id")
-                        if share_field_rep_id not in (None, ""):
-                            txn_qs = txn_qs.filter(field_rep_id=str(share_field_rep_id))
-                        opened = txn_qs.exists()
+                        opened = False
 
                     if opened:
                         status = "opened"
@@ -2300,6 +2315,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
             )
             try:
                 ShareLog.objects.filter(id=sl.id).update(message_text=message)
+                _sync_sharelog_to_v2_best_effort(sl.id)
             except Exception as e:
                 print("[fieldrep_share_collateral] ShareLog message update failed:", e)
 
@@ -2969,6 +2985,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                             f"UPDATE {qn(table)} SET {qn('message_text')} = %s WHERE id = %s",
                             [message, matched_sharelog_id],
                         )
+                        _sync_sharelog_to_v2_best_effort(matched_sharelog_id)
                         print("[SMDBG] ShareLog message_text updated with personalized share_id link")
             except Exception as e:
                 print("[SMDBG] ShareLog message_text update ERROR:", e)

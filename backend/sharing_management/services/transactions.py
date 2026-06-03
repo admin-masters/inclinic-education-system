@@ -83,6 +83,19 @@ def _local_dt(value=None):
     return timezone.localtime(dt, tx_timezone)
 
 
+def _is_before(left, right) -> bool:
+    if not left or not right:
+        return False
+    try:
+        if timezone.is_naive(left):
+            left = timezone.make_aware(left, timezone.get_current_timezone())
+        if timezone.is_naive(right):
+            right = timezone.make_aware(right, timezone.get_current_timezone())
+        return left < right
+    except Exception:
+        return False
+
+
 def _transaction_part(value: Any, fallback: str = "unknown") -> str:
     text = _as_str(value).strip()
     if not text:
@@ -380,6 +393,7 @@ def _save_transaction(
     action_name: str,
     *,
     refresh_transaction_id: bool = False,
+    share_log: ShareLog | None = None,
 ) -> Optional[CollateralTransaction]:
     try:
         if refresh_transaction_id:
@@ -402,6 +416,14 @@ def _save_transaction(
             defaults=defaults,
             **lookup,
         )
+        try:
+            from reporting_etl.runtime_v2 import sync_sharelog_to_v2, sync_collateral_transaction_to_v2
+
+            if share_log is not None:
+                sync_sharelog_to_v2(share_log)
+            sync_collateral_transaction_to_v2(obj)
+        except Exception as sync_error:
+            print(f"[TXDBG] {action_name} v2 sync failed:", sync_error)
         return obj
     except Exception as e:
         print(f"[TXDBG] {action_name} failed:", e)
@@ -435,6 +457,7 @@ def upsert_from_sharelog(
         snapshot_values,
         "upsert_from_sharelog",
         refresh_transaction_id=True,
+        share_log=share_log,
     )
 
 
@@ -447,10 +470,11 @@ def mark_viewed(share_log: ShareLog, sm_engagement_id=None, when=None):
     now = when or timezone.now()
 
     snapshot_values["has_viewed"] = True
-    if not snapshot_values.get("viewed_at"):
+    share_timestamp = getattr(share_log, "share_timestamp", None)
+    if not snapshot_values.get("viewed_at") or _is_before(snapshot_values.get("viewed_at"), share_timestamp):
         snapshot_values["viewed_at"] = now
 
-    return _save_transaction(snapshot_values, "mark_viewed")
+    return _save_transaction(snapshot_values, "mark_viewed", share_log=share_log)
 
 
 def mark_pdf_progress(
@@ -484,7 +508,8 @@ def mark_pdf_progress(
         total_pages_i = 0
 
     snapshot_values["has_viewed"] = True
-    if not snapshot_values.get("viewed_at"):
+    share_timestamp = getattr(share_log, "share_timestamp", None)
+    if not snapshot_values.get("viewed_at") or _is_before(snapshot_values.get("viewed_at"), share_timestamp):
         snapshot_values["viewed_at"] = now
 
     snapshot_values["last_page_scrolled"] = max(
@@ -503,7 +528,7 @@ def mark_pdf_progress(
     if dv_id is not None:
         snapshot_values["doctor_viewer_engagement_id"] = dv_id
 
-    return _save_transaction(snapshot_values, "mark_pdf_progress")
+    return _save_transaction(snapshot_values, "mark_pdf_progress", share_log=share_log)
 
 
 def mark_downloaded_pdf(share_log: ShareLog, sm_engagement_id=None, when=None):
@@ -518,7 +543,7 @@ def mark_downloaded_pdf(share_log: ShareLog, sm_engagement_id=None, when=None):
     if not snapshot_values.get("downloaded_pdf_at"):
         snapshot_values["downloaded_pdf_at"] = now
 
-    return _save_transaction(snapshot_values, "mark_downloaded_pdf")
+    return _save_transaction(snapshot_values, "mark_downloaded_pdf", share_log=share_log)
 
 
 def mark_video_event(
@@ -568,4 +593,4 @@ def mark_video_event(
     if event_id_int is not None:
         snapshot_values["video_tracking_last_event_id"] = event_id_int
 
-    return _save_transaction(snapshot_values, "mark_video_event")
+    return _save_transaction(snapshot_values, "mark_video_event", share_log=share_log)
