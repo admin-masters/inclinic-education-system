@@ -518,7 +518,9 @@ def _complete_fieldrep_gmail_login(
     for key in google_session_keys:
         request.session.pop(key, None)
 
-    request.session["field_rep_id"] = str(getattr(master_rep, "user_id", "")) or str(portal_user.id)
+    # Keep field_rep_id aligned with ShareLog.field_rep_id: it should be the
+    # master campaign_fieldrep.id when master data is available.
+    request.session["field_rep_id"] = str(getattr(master_rep, "pk", "")) or str(portal_user.id)
     request.session["field_rep_email"] = gmail_id
     request.session["field_rep_field_id"] = field_id
     request.session["master_fieldrep_id"] = str(getattr(master_rep, "pk", "")) if master_rep else ""
@@ -965,9 +967,36 @@ def _normalize_phone_e164(raw_phone: str, default_country_code: str = "91") -> s
     return f"+{digits}"
 
 
-def _doctor_rows_with_status(assigned_doctors, selected_collateral_id, current_field_rep_id=None):
+def _field_rep_id_candidates(*values) -> list[int]:
+    candidates = []
+    seen = set()
+    for value in values:
+        if isinstance(value, (list, tuple, set)):
+            nested_values = value
+        else:
+            nested_values = [value]
+        for item in nested_values:
+            try:
+                if item is None or str(item).strip() == "":
+                    continue
+                parsed = int(item)
+            except Exception:
+                continue
+            if parsed not in seen:
+                seen.add(parsed)
+                candidates.append(parsed)
+    return candidates
+
+
+def _doctor_rows_with_status(
+    assigned_doctors,
+    selected_collateral_id,
+    current_field_rep_id=None,
+    current_field_rep_ids=None,
+):
     doctors_with_status = []
     six_days_ago = timezone.now() - timedelta(days=6)
+    field_rep_id_candidates = _field_rep_id_candidates(current_field_rep_id, current_field_rep_ids)
 
     selected_collateral_id_int = None
     try:
@@ -993,11 +1022,8 @@ def _doctor_rows_with_status(assigned_doctors, selected_collateral_id, current_f
                     doctor_identifier__in=possible_ids,
                     collateral_id=selected_collateral_id_int,
                 )
-                try:
-                    if current_field_rep_id is not None and str(current_field_rep_id).strip() != "":
-                        share_qs = share_qs.filter(field_rep_id=int(current_field_rep_id))
-                except Exception:
-                    pass
+                if field_rep_id_candidates:
+                    share_qs = share_qs.filter(field_rep_id__in=field_rep_id_candidates)
 
                 share_row = (
                     share_qs
@@ -2034,6 +2060,12 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
         return redirect("fieldrep_login")
 
     portal_user = _ensure_portal_user_for_master_fieldrep(rep)
+    status_field_rep_ids = _field_rep_id_candidates(
+        rep.id,
+        getattr(rep, "user_id", None),
+        getattr(portal_user, "id", None),
+        master_field_rep_id,
+    )
 
     # Determine allowed campaign ids for this rep
     allowed_campaign_ids = _master_get_campaign_ids_for_fieldrep(int(rep.id))
@@ -2116,7 +2148,7 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
     doctors_with_status = _doctor_rows_with_status(
         doctors,
         selected_collateral_id,
-        current_field_rep_id=int(rep.id),
+        current_field_rep_ids=status_field_rep_ids,
     )
 
     if request.method == "POST":
@@ -2217,6 +2249,16 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
         selected_collateral = next((c for c in collaterals_list if c["id"] == collateral_id_int), None)
         phone_e164 = _normalize_phone_e164(doctor_whatsapp)
         if selected_collateral and phone_e164:
+            rep_user = portal_user
+            if rep_user:
+                Doctor.objects.update_or_create(
+                    rep=rep_user,
+                    phone=re.sub(r"\D", "", phone_e164)[-10:],
+                    defaults={"name": doctor_name or "Doctor", "source": "manual"},
+                )
+
+            collateral_obj = Collateral.objects.get(id=collateral_id_int, is_active=True)
+            short_link = find_or_create_short_link(collateral_obj, rep_user or request.user)
             message = get_brand_specific_message(
                 collateral_id_int,
                 selected_collateral["name"],
@@ -2224,6 +2266,43 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 brand_campaign_id=brand_campaign_id,
                 message_kind=message_kind,
             )
+            stored_brand_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
+            sl = ShareLog.objects.create(
+                short_link=short_link,
+                collateral=collateral_obj,
+                field_rep_id=int(rep.id),
+                field_rep_email=(rep.user.email or ""),
+                doctor_identifier=phone_e164,
+                share_channel="WhatsApp",
+                share_timestamp=timezone.now(),
+                message_text=message,
+                brand_campaign_id=stored_brand_campaign_id,
+            )
+
+            try:
+                upsert_from_sharelog(
+                    sl,
+                    brand_campaign_id=stored_brand_campaign_id,
+                    doctor_name=doctor_name or None,
+                    field_rep_unique_id=(rep.brand_supplied_field_rep_id or "") or None,
+                    sent_at=sl.share_timestamp,
+                )
+            except Exception as e:
+                print("[fieldrep_share_collateral] transaction upsert failed:", e)
+
+            personalized_link = _link_with_share_id(selected_collateral["link"], sl.id)
+            message = get_brand_specific_message(
+                collateral_id_int,
+                selected_collateral["name"],
+                personalized_link,
+                brand_campaign_id=brand_campaign_id,
+                message_kind=message_kind,
+            )
+            try:
+                ShareLog.objects.filter(id=sl.id).update(message_text=message)
+            except Exception as e:
+                print("[fieldrep_share_collateral] ShareLog message update failed:", e)
+
             wa_number = re.sub(r"\D", "", phone_e164).lstrip("+")
             wa_url = f"https://wa.me/{wa_number}?text={urllib.parse.quote(message)}"
             return redirect(wa_url)
@@ -2458,6 +2537,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     field_rep_id = request.session.get("field_rep_id")
     field_rep_email = request.session.get("field_rep_email")
     field_rep_field_id = request.session.get("field_rep_field_id")
+    session_master_field_rep_id = request.session.get("master_fieldrep_id")
     session_campaign = request.session.get("brand_campaign_id")
 
     print(
@@ -2473,6 +2553,41 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         messages.error(request, "Please login first.")
         print("[SMDBG] STOP: no session field_rep_id -> redirect fieldrep_login")
         return redirect("fieldrep_login")
+
+    master_rep = None
+    try:
+        if session_master_field_rep_id:
+            master_rep = (
+                MasterFieldRep.objects.using(_master_db_alias())
+                .select_related("user", "brand")
+                .filter(id=int(session_master_field_rep_id), is_active=True)
+                .first()
+            )
+        if not master_rep and field_rep_field_id and field_rep_email:
+            master_rep = _master_get_fieldrep_by_field_id_and_email(field_rep_field_id, field_rep_email)
+        if not master_rep and field_rep_email:
+            master_rep = _master_get_fieldrep_by_email(field_rep_email)
+        if not master_rep and field_rep_id:
+            master_rep = (
+                MasterFieldRep.objects.using(_master_db_alias())
+                .select_related("user", "brand")
+                .filter(id=int(field_rep_id), is_active=True)
+                .first()
+            )
+    except Exception as e:
+        print("[SMDBG] WARN resolving master_rep failed:", e)
+        master_rep = None
+
+    sharelog_field_rep_id = str(getattr(master_rep, "id", "") or field_rep_id or "").strip()
+    if master_rep:
+        request.session["field_rep_id"] = str(master_rep.id)
+        request.session["master_fieldrep_id"] = str(master_rep.id)
+        if getattr(master_rep, "brand_supplied_field_rep_id", None):
+            request.session["field_rep_field_id"] = master_rep.brand_supplied_field_rep_id
+            field_rep_field_id = master_rep.brand_supplied_field_rep_id
+        if getattr(getattr(master_rep, "user", None), "email", None):
+            request.session["field_rep_email"] = master_rep.user.email
+            field_rep_email = master_rep.user.email
 
     # small helper for comparing phones
     def _last10(phone: str) -> str:
@@ -2504,6 +2619,13 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         print(f"[SMDBG] final actual_user.id={actual_user.id} username={getattr(actual_user,'username','')} email={getattr(actual_user,'email','')}")
     else:
         print("[SMDBG] WARNING: actual_user could not be resolved")
+
+    status_field_rep_ids = _field_rep_id_candidates(
+        sharelog_field_rep_id,
+        getattr(master_rep, "user_id", None),
+        getattr(actual_user, "id", None),
+        field_rep_id,
+    )
 
     # Build collateral list
     collaterals_list = []
@@ -2569,7 +2691,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
     doctors_with_status = _doctor_rows_with_status(
         assigned_doctors,
         selected_collateral_id,
-        current_field_rep_id=int(field_rep_id),
+        current_field_rep_ids=status_field_rep_ids,
     )
 
     # -----------------------------
@@ -2689,8 +2811,11 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
         input_last10 = _last10(phone_e164)
 
         try:
+            existing_share_qs = ShareLog.objects.filter(short_link_id=short_link.id)
+            if status_field_rep_ids:
+                existing_share_qs = existing_share_qs.filter(field_rep_id__in=status_field_rep_ids)
             existing_rows = list(
-                ShareLog.objects.filter(short_link_id=short_link.id)
+                existing_share_qs
                 .exclude(doctor_identifier__isnull=True)
                 .exclude(doctor_identifier__exact="")
                 .values("id", "doctor_identifier")
@@ -2728,7 +2853,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                         "updated_at": now,
                         "collateral_id": collateral_id,
 
-                        "field_rep_id": str(field_rep_id or getattr(rep_user, "id", "") or ""),
+                        "field_rep_id": sharelog_field_rep_id or str(getattr(rep_user, "id", "") or ""),
                         "field_rep_email": field_rep_email or "",
                         "brand_campaign_id": stored_brand_campaign_id,
                         "message_text": message,
@@ -2751,7 +2876,7 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
                         elif col in ("doctor_identifier", "doctor_number", "whatsapp_number"):
                             desired[col] = phone_e164
                         elif col in ("field_rep_id", "fieldrep_id"):
-                            desired[col] = str(getattr(rep_user, "id", "") or field_rep_id or "")
+                            desired[col] = sharelog_field_rep_id or str(getattr(rep_user, "id", "") or "")
                         elif col.endswith("_id"):
                             desired[col] = str(getattr(rep_user, "id", "") or "0")
                         else:
@@ -2773,6 +2898,22 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
 
             except Exception as e:
                 print("[SMDBG] ERROR inserting ShareLog row:", e)
+        else:
+            try:
+                stored_brand_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
+                ShareLog.objects.filter(id=matched_sharelog_id).update(
+                    collateral_id=collateral_id,
+                    field_rep_id=int(sharelog_field_rep_id) if str(sharelog_field_rep_id).isdigit() else None,
+                    field_rep_email=field_rep_email or "",
+                    doctor_identifier=phone_e164,
+                    share_channel="WhatsApp",
+                    share_timestamp=timezone.now(),
+                    brand_campaign_id=stored_brand_campaign_id,
+                    message_text=message,
+                )
+                print("[SMDBG] ShareLog refreshed for repeat send id=", matched_sharelog_id)
+            except Exception as e:
+                print("[SMDBG] ShareLog repeat-send refresh ERROR:", e)
 
         if matched_sharelog_id:
             try:
