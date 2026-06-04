@@ -229,6 +229,24 @@ class Command(BaseCommand):
     ) -> str:
         return ""
 
+    def viewed_after_current_send(self, row: dict[str, Any]) -> bool:
+        if not parse_bool(row.get("has_viewed")) and not row.get("viewed_at") and not row.get("first_viewed_at"):
+            return False
+        viewed_at = row.get("viewed_at") or row.get("first_viewed_at")
+        sent_at = row.get("sent_at")
+        if not viewed_at:
+            return not bool(sent_at)
+        if not sent_at:
+            return True
+        try:
+            if timezone.is_naive(viewed_at):
+                viewed_at = timezone.make_aware(viewed_at, timezone.get_current_timezone())
+            if timezone.is_naive(sent_at):
+                sent_at = timezone.make_aware(sent_at, timezone.get_current_timezone())
+            return viewed_at >= sent_at
+        except Exception:
+            return True
+
     def source_common(self, alias: str, table: str, row: dict[str, Any], basis: str, status: str = "verified"):
         return common_fields(
             alias=alias,
@@ -822,7 +840,7 @@ class Command(BaseCommand):
                 activity_status = "excluded"
             else:
                 doctor_uuid, inclinic_doctor_uuid, candidates = self.resolve_doctor_from_phone(row.get("doctor_number"))
-                activity_status = "viewed" if parse_bool(row.get("has_viewed")) or row.get("viewed_at") or row.get("first_viewed_at") else "sent"
+                activity_status = "viewed" if self.viewed_after_current_send(row) else "sent"
             pk = stable_uuid("collateral_transaction", row.get("id"))
             update_by_pk(
                 InclinicCollateralTransactionV2,
