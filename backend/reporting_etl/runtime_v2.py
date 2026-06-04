@@ -486,7 +486,8 @@ def latest_v2_share_status(*, collateral_id: Any, doctor_identifier: Any, field_
     )
     if field_rep_ids:
         qs = qs.filter(campaign_fieldrep_id__in=[clean_text(value) for value in field_rep_ids])
-    share = qs.order_by("-shared_at", "-migrated_at").first()
+    runtime_share = qs.filter(source_table=RUNTIME_SHARE_TABLE).order_by("-shared_at", "-migrated_at").first()
+    share = runtime_share or qs.order_by("-shared_at", "-migrated_at").first()
     if not share:
         return None
     tx = (
@@ -506,6 +507,8 @@ def latest_v2_share_status(*, collateral_id: Any, doctor_identifier: Any, field_
         "shared_at": share.shared_at,
         "opened": opened,
         "doctor_identifier": share.old_doctor_identifier,
+        "source_table": share.source_table,
+        "is_runtime": share.source_table == RUNTIME_SHARE_TABLE,
     }
 
 

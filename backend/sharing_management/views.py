@@ -1087,7 +1087,8 @@ def _doctor_rows_with_status(
                         field_rep_ids=field_rep_id_candidates,
                     )
                     if v2_status and (
-                        not last_shared
+                        v2_status.get("is_runtime")
+                        or not last_shared
                         or (
                             v2_status.get("shared_at")
                             and v2_status["shared_at"] >= last_shared
