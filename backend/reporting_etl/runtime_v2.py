@@ -27,6 +27,26 @@ RUNTIME_SHARE_TABLE = "runtime_share_event"
 RUNTIME_TRANSACTION_TABLE = "runtime_collateral_transaction"
 
 
+def _v2_tracking_debug_enabled() -> bool:
+    return bool(getattr(settings, "INCLINIC_V2_TRACKING_DEBUG", True))
+
+
+def _v2track(message: str, **kwargs) -> None:
+    if not _v2_tracking_debug_enabled():
+        return
+
+    parts = []
+    for key, value in kwargs.items():
+        try:
+            text = str(value)
+        except Exception:
+            text = "<unprintable>"
+        parts.append(f"{key}={text[:180]}")
+
+    suffix = f" {' '.join(parts)}" if parts else ""
+    print(f"[V2TRACK] {message}{suffix}", flush=True)
+
+
 def _active_batch_id() -> str:
     try:
         batch = get_active_v2_batch()
@@ -438,6 +458,15 @@ def create_direct_share_tracking_v2(
                 RUNTIME_TRANSACTION_TABLE,
             ),
         )
+        _v2track(
+            "direct_share_saved",
+            share_id=share_uuid,
+            transaction_id=transaction_uuid,
+            status="sent",
+            collateral_id=collateral_id,
+            field_rep_id=field_rep_id,
+            doctor_last10=normalize_phone(phone)[-10:] if normalize_phone(phone) else "",
+        )
         return share_uuid, transaction_uuid
     except Exception as exc:
         print("[V2SYNC] direct share tracking sync failed:", exc)
@@ -502,6 +531,17 @@ def latest_v2_share_status(*, collateral_id: Any, doctor_identifier: Any, field_
     viewed_at = getattr(tx, "old_viewed_at", None) if tx else None
     if tx and tx.activity_summary_status == "viewed":
         opened = bool(not share.shared_at or (viewed_at and viewed_at >= share.shared_at))
+    if share.source_table == RUNTIME_SHARE_TABLE:
+        _v2track(
+            "latest_status_runtime",
+            share_id=share.share_event_uuid,
+            status="opened" if opened else "sent",
+            collateral_id=collateral_id,
+            doctor_last10=phone_norm[-10:],
+            tx_status=getattr(tx, "activity_summary_status", "") if tx else "",
+            shared_at=share.shared_at,
+            viewed_at=viewed_at,
+        )
     return {
         "share_id": share.share_event_uuid,
         "shared_at": share.shared_at,
@@ -525,6 +565,7 @@ def mark_v2_tracking_event(
 ) -> bool:
     share = get_v2_share_event(share_id)
     if not share:
+        _v2track("mark_event_share_missing", share_id=share_id, event=event)
         return False
 
     now = when or timezone.now()
@@ -535,6 +576,15 @@ def mark_v2_tracking_event(
         )
         .order_by("-migrated_at")
         .first()
+    )
+    _v2track(
+        "mark_event_start",
+        share_id=share.share_event_uuid,
+        event=event,
+        tx_found=bool(tx),
+        previous_status=getattr(tx, "activity_summary_status", "") if tx else "",
+        previous_viewed_at=getattr(tx, "old_viewed_at", "") if tx else "",
+        shared_at=share.shared_at,
     )
     if not tx:
         _share_collateral_id = share.old_collateral_id or ""
@@ -602,6 +652,17 @@ def mark_v2_tracking_event(
 
     try:
         InclinicCollateralTransactionV2.objects.filter(transaction_uuid=tx.transaction_uuid).update(**updates)
+        _v2track(
+            "mark_event_done",
+            share_id=share.share_event_uuid,
+            event=event,
+            transaction_id=tx.transaction_uuid,
+            status="opened",
+            viewed_at=updates.get("old_viewed_at") or tx.old_viewed_at,
+            last_page=updates.get("old_pdf_last_page", tx.old_pdf_last_page),
+            pdf_completed=updates.get("old_pdf_completed", tx.old_pdf_completed),
+            video_pct=updates.get("old_video_watch_percentage", tx.old_video_watch_percentage),
+        )
         return True
     except Exception as exc:
         print("[V2SYNC] mark v2 tracking event failed:", exc)

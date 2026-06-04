@@ -292,6 +292,19 @@
       body: JSON.stringify(body),
     }).catch(() => {});
   }
+
+  let pageOpenSent = false;
+  function sendPageOpenEvent() {
+    if (pageOpenSent) return;
+    pageOpenSent = true;
+    sendEngagement({ event: "page_open", value: 1 });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", sendPageOpenEvent, { once: true });
+  } else {
+    sendPageOpenEvent();
+  }
 </script>
 
 <script>

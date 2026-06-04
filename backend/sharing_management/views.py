@@ -1103,6 +1103,17 @@ def _doctor_rows_with_status(
                                 if last_shared and last_shared < six_days_ago
                                 else "sent"
                             )
+                        if v2_status.get("is_runtime") and getattr(settings, "INCLINIC_V2_TRACKING_DEBUG", True):
+                            print(
+                                "[V2TRACK] status_display "
+                                f"doctor_id={getattr(doctor, 'id', '')} "
+                                f"collateral_id={selected_collateral_id_int} "
+                                f"share_id={v2_status.get('share_id')} "
+                                f"status={status} "
+                                f"opened={v2_status.get('opened')} "
+                                f"shared_at={v2_status.get('shared_at')}",
+                                flush=True,
+                            )
                 except Exception as e:
                     print("[V2SYNC] status lookup failed:", e)
         except Exception:
@@ -1578,7 +1589,13 @@ def doctor_view_log(request):
                     pdf_total_pages = int(data.get("pdf_total_pages") or 0)
                 except Exception:
                     pdf_total_pages = 0
-                mark_v2_tracking_event(
+                if getattr(settings, "INCLINIC_V2_TRACKING_DEBUG", True):
+                    print(
+                        "[V2TRACK] sharing_doctor_view_log_received "
+                        f"event={event} share_id={share_id} engagement_id={engagement.id}",
+                        flush=True,
+                    )
+                updated = mark_v2_tracking_event(
                     share_id,
                     event=event,
                     last_page=int(engagement.last_page_scrolled or 1),
@@ -1588,6 +1605,12 @@ def doctor_view_log(request):
                     percentage=int(engagement.video_watch_percentage or 0),
                     when=timezone.now(),
                 )
+                if getattr(settings, "INCLINIC_V2_TRACKING_DEBUG", True):
+                    print(
+                        "[V2TRACK] sharing_doctor_view_log_applied "
+                        f"event={event} share_id={share_id} updated={updated}",
+                        flush=True,
+                    )
                 return JsonResponse({"ok": True, "event": event})
 
             sl = ShareLog.objects.get(id=share_id)
