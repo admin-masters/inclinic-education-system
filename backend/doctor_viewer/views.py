@@ -3,6 +3,7 @@ import json
 import math
 import os
 import re
+from types import SimpleNamespace
 
 from django.conf import settings
 from django.http import HttpResponseBadRequest, JsonResponse
@@ -186,6 +187,50 @@ def _matching_sharelog_id_for_phone(short_link_id, whatsapp_number: str | None) 
     return None
 
 
+def _is_legacy_share_id(share_id) -> bool:
+    try:
+        int(share_id)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _v2_share_proxy(share_id):
+    try:
+        from reporting_etl.runtime_v2 import get_v2_share_event
+
+        share = get_v2_share_event(share_id)
+        if not share:
+            return None
+        proxy = SimpleNamespace(
+            id=share.share_event_uuid,
+            doctor_identifier=share.old_doctor_identifier,
+            collateral_id=share.old_collateral_id,
+            share_timestamp=share.shared_at,
+            short_link_id=share.old_short_link_id,
+            field_rep_id=share.campaign_fieldrep_id,
+        )
+        proxy.__dict__["field_rep_email"] = share.old_field_rep_email or ""
+        proxy.__dict__["brand_campaign_id"] = share.old_brand_campaign_id or ""
+        return proxy
+    except Exception as e:
+        print("[V2SYNC] v2 share proxy lookup failed:", e)
+        return None
+
+
+def _matching_share_id_for_phone(short_link_id, whatsapp_number: str | None):
+    legacy_id = _matching_sharelog_id_for_phone(short_link_id, whatsapp_number)
+    if legacy_id:
+        return legacy_id
+    try:
+        from reporting_etl.runtime_v2 import matching_v2_share_id_for_phone
+
+        return matching_v2_share_id_for_phone(short_link_id, whatsapp_number)
+    except Exception as e:
+        print("[V2SYNC] v2 phone match failed:", e)
+        return None
+
+
 def _mark_prepared_sharelog_viewed(share_log: ShareLog | None, debug_prefix: str) -> ShareLog | None:
     if not share_log:
         return None
@@ -206,6 +251,21 @@ def _mark_sharelog_viewed_by_id(share_log_id, debug_prefix: str) -> ShareLog | N
         _sharelog_for_tracking_by_id(share_log_id),
         debug_prefix,
     )
+
+
+def _mark_share_tracking_viewed_by_id(share_id, debug_prefix: str):
+    if not share_id:
+        return None
+    if not _is_legacy_share_id(share_id):
+        try:
+            from reporting_etl.runtime_v2 import mark_v2_tracking_event
+
+            mark_v2_tracking_event(share_id, event="viewed", when=timezone.now())
+            return _v2_share_proxy(share_id)
+        except Exception as e:
+            print(f"[{debug_prefix}] mark v2 viewed failed:", e)
+            return None
+    return _mark_sharelog_viewed_by_id(share_id, debug_prefix)
 
 
 def _archive_cutoff_for_collateral(collateral: Collateral, campaign_id: int | None, share_timestamp=None):
@@ -322,12 +382,14 @@ def _scheduled_archive_items(current_collateral: Collateral, campaign_id: int):
 
 def _sharelog_archive_items(current_collateral: Collateral, campaign_id: int, matched_sharelog_id: int | None, doctor_identifier: str | None, limit: int | None):
     current_share_log = None
-    if matched_sharelog_id:
+    if matched_sharelog_id and _is_legacy_share_id(matched_sharelog_id):
         current_share_log = (
             ShareLog.objects.select_related("short_link")
             .filter(id=matched_sharelog_id)
             .first()
         )
+    elif matched_sharelog_id:
+        current_share_log = _v2_share_proxy(matched_sharelog_id)
 
     doctor_last10 = _last10_digits(doctor_identifier)
     if not doctor_last10 and current_share_log:
@@ -488,6 +550,8 @@ def resolve_view(request, code: str):
                     )
                 )
                 sl = rows[0] if rows else None
+            elif share_id:
+                sl = _mark_share_tracking_viewed_by_id(share_id, "VIEW DEBUG")
 
         if sl is None:
             rows = list(
@@ -506,8 +570,9 @@ def resolve_view(request, code: str):
             sl = rows[0] if rows else None
 
         if sl:
-            sl = _prepare_sharelog_for_tracking(sl)
-            _mark_prepared_sharelog_viewed(sl, "VIEW DEBUG")
+            if _is_legacy_share_id(getattr(sl, "id", None)):
+                sl = _prepare_sharelog_for_tracking(sl)
+                _mark_prepared_sharelog_viewed(sl, "VIEW DEBUG")
             request.session["share_id"] = sl.id
 
     except Exception as e:
@@ -662,6 +727,21 @@ def log_engagement(request):
     # -----------------------------
     if share_id:
         try:
+            if not _is_legacy_share_id(share_id):
+                from reporting_etl.runtime_v2 import mark_v2_tracking_event
+
+                mark_v2_tracking_event(
+                    share_id,
+                    event=event,
+                    last_page=int(engagement.last_page_scrolled or 0),
+                    completed=bool(engagement.pdf_completed),
+                    dv_engagement_id=engagement.id,
+                    total_pages=pdf_total_pages,
+                    percentage=int(engagement.video_watch_percentage or 0),
+                    when=timezone.now(),
+                )
+                return JsonResponse({"ok": True, "event": event})
+
             try:
                 share_id_int = int(share_id)
             except Exception:
@@ -1006,6 +1086,13 @@ def doctor_collateral_verify(request):
         print("[VERIFYDBG] verification matched =", matched, " matched_sharelog_id =", matched_sharelog_id)
 
         if not matched:
+            matched_v2_share_id = _matching_share_id_for_phone(short_link_id, whatsapp_number)
+            if matched_v2_share_id:
+                matched = True
+                matched_sharelog_id = matched_v2_share_id
+                print("[VERIFYDBG] matched V2 share_id =", matched_sharelog_id)
+
+        if not matched:
             messages.error(
                 request,
                 "The number you have entered is incorrect. "
@@ -1024,7 +1111,7 @@ def doctor_collateral_verify(request):
         collateral = short_link.get_collateral()
 
         request.session["share_id"] = matched_sharelog_id
-        _mark_sharelog_viewed_by_id(matched_sharelog_id, "VERIFYDBG")
+        _mark_share_tracking_viewed_by_id(matched_sharelog_id, "VERIFYDBG")
 
         # (keep the rest of your existing “archives + engagement” logic unchanged)
         archives = _doctor_archive_items(
@@ -1090,17 +1177,26 @@ def doctor_collateral_view(request):
                     messages.error(request, "Collateral not found.")
                     return render(request, "doctor_viewer/doctor_collateral_verify.html")
 
-                matched_sharelog_id = _matching_sharelog_id_for_phone(short_link_id, whatsapp_number)
+                matched_sharelog_id = _matching_share_id_for_phone(short_link_id, whatsapp_number)
                 if matched_sharelog_id:
                     request.session["share_id"] = matched_sharelog_id
                 else:
                     request.session.pop("share_id", None)
 
-                # best-effort mark open/download in ShareLog (RAW, avoid ghost fields)
+                # best-effort mark open/download in ShareLog or V2.
                 try:
-                    sl = _mark_sharelog_viewed_by_id(matched_sharelog_id, "OTP VIEW DEBUG")
-                    if sl:
+                    sl = _mark_share_tracking_viewed_by_id(matched_sharelog_id, "OTP VIEW DEBUG")
+                    if sl and _is_legacy_share_id(getattr(sl, "id", None)):
                         mark_downloaded_pdf(sl)
+                    elif matched_sharelog_id:
+                        from reporting_etl.runtime_v2 import mark_v2_tracking_event
+
+                        mark_v2_tracking_event(
+                            matched_sharelog_id,
+                            event="pdf_download",
+                            completed=True,
+                            when=timezone.now(),
+                        )
                 except Exception as e:
                     print("[OTP VIEW DEBUG] mark_downloaded_pdf failed:", e)
 

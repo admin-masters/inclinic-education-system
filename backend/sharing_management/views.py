@@ -112,6 +112,10 @@ def _sync_sharelog_to_v2_best_effort(share_log_or_id) -> None:
         print("[V2SYNC] sharelog refresh failed:", exc)
 
 
+def _direct_v2_share_writes_enabled() -> bool:
+    return bool(getattr(settings, "INCLINIC_DIRECT_V2_SHARE_WRITES", True))
+
+
 def _fieldrep_dbg_enabled() -> bool:
     return bool(getattr(settings, "FIELDREP_DEBUG_LOGS", False) or os.environ.get("FIELDREP_DEBUG_LOGS") == "1")
 
@@ -1073,6 +1077,34 @@ def _doctor_rows_with_status(
                     else:
                         ts = share_row.get("share_timestamp")
                         status = "reminder" if ts and ts < six_days_ago else "sent"
+
+                try:
+                    from reporting_etl.runtime_v2 import latest_v2_share_status
+
+                    v2_status = latest_v2_share_status(
+                        collateral_id=selected_collateral_id_int,
+                        doctor_identifier=phone_val,
+                        field_rep_ids=field_rep_id_candidates,
+                    )
+                    if v2_status and (
+                        v2_status.get("is_runtime")
+                        or not last_shared
+                        or (
+                            v2_status.get("shared_at")
+                            and v2_status["shared_at"] >= last_shared
+                        )
+                    ):
+                        last_shared = v2_status.get("shared_at")
+                        if v2_status.get("opened"):
+                            status = "opened"
+                        else:
+                            status = (
+                                "reminder"
+                                if last_shared and last_shared < six_days_ago
+                                else "sent"
+                            )
+                except Exception as e:
+                    print("[V2SYNC] status lookup failed:", e)
         except Exception:
             status = "not_sent"
 
@@ -1532,6 +1564,32 @@ def doctor_view_log(request):
 
     if share_id:
         try:
+            try:
+                int(share_id)
+                is_legacy_share_id = True
+            except Exception:
+                is_legacy_share_id = False
+
+            if not is_legacy_share_id:
+                from reporting_etl.runtime_v2 import mark_v2_tracking_event
+
+                pdf_total_pages = 0
+                try:
+                    pdf_total_pages = int(data.get("pdf_total_pages") or 0)
+                except Exception:
+                    pdf_total_pages = 0
+                mark_v2_tracking_event(
+                    share_id,
+                    event=event,
+                    last_page=int(engagement.last_page_scrolled or 1),
+                    completed=bool(engagement.pdf_completed),
+                    dv_engagement_id=engagement.id,
+                    total_pages=pdf_total_pages,
+                    percentage=int(engagement.video_watch_percentage or 0),
+                    when=timezone.now(),
+                )
+                return JsonResponse({"ok": True, "event": event})
+
             sl = ShareLog.objects.get(id=share_id)
             mark_viewed(sl, sm_engagement_id=None)
 
@@ -2213,6 +2271,59 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
 
                 stored_brand_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
 
+                if _direct_v2_share_writes_enabled():
+                    from reporting_etl.runtime_v2 import create_direct_share_tracking_v2
+
+                    sent_at = timezone.now()
+                    share_uuid, _tx_uuid = create_direct_share_tracking_v2(
+                        short_link_id=short_link.id,
+                        collateral_id=collateral_id_int,
+                        field_rep_id=int(rep.id),
+                        field_rep_email=(rep.user.email or ""),
+                        doctor_identifier=phone_e164,
+                        share_channel="WhatsApp",
+                        share_timestamp=sent_at,
+                        message_text=message,
+                        brand_campaign_id=stored_brand_campaign_id,
+                        doctor_name=doctor_name or "",
+                        field_rep_unique_id=(rep.brand_supplied_field_rep_id or ""),
+                    )
+                    if not share_uuid:
+                        return JsonResponse({"success": False, "message": "V2 tracking is not active. Please try again after activation."})
+
+                    personalized_link = _link_with_share_id(selected_collateral["link"], share_uuid)
+                    message = get_brand_specific_message(
+                        collateral_id_int,
+                        selected_collateral["name"],
+                        personalized_link,
+                        brand_campaign_id=brand_campaign_id,
+                        message_kind=message_kind,
+                    )
+                    create_direct_share_tracking_v2(
+                        short_link_id=short_link.id,
+                        collateral_id=collateral_id_int,
+                        field_rep_id=int(rep.id),
+                        field_rep_email=(rep.user.email or ""),
+                        doctor_identifier=phone_e164,
+                        share_channel="WhatsApp",
+                        share_timestamp=sent_at,
+                        message_text=message,
+                        brand_campaign_id=stored_brand_campaign_id,
+                        doctor_name=doctor_name or "",
+                        field_rep_unique_id=(rep.brand_supplied_field_rep_id or ""),
+                        share_event_uuid=share_uuid,
+                    )
+
+                    wa_number = re.sub(r"\D", "", phone_e164).lstrip("+")
+                    wa_url = f"https://wa.me/{wa_number}?text={urllib.parse.quote(message)}"
+                    return JsonResponse(
+                        {
+                            "success": True,
+                            "message": f"Collateral shared successfully with {doctor_name or 'Doctor'}!",
+                            "whatsapp_url": wa_url,
+                        }
+                    )
+
                 sl = ShareLog.objects.create(
                     short_link=short_link,
                     collateral=collateral_obj,
@@ -2282,6 +2393,55 @@ def fieldrep_share_collateral(request, brand_campaign_id=None):
                 message_kind=message_kind,
             )
             stored_brand_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
+
+            if _direct_v2_share_writes_enabled():
+                from reporting_etl.runtime_v2 import create_direct_share_tracking_v2
+
+                sent_at = timezone.now()
+                share_uuid, _tx_uuid = create_direct_share_tracking_v2(
+                    short_link_id=short_link.id,
+                    collateral_id=collateral_id_int,
+                    field_rep_id=int(rep.id),
+                    field_rep_email=(rep.user.email or ""),
+                    doctor_identifier=phone_e164,
+                    share_channel="WhatsApp",
+                    share_timestamp=sent_at,
+                    message_text=message,
+                    brand_campaign_id=stored_brand_campaign_id,
+                    doctor_name=doctor_name or "",
+                    field_rep_unique_id=(rep.brand_supplied_field_rep_id or ""),
+                )
+                if not share_uuid:
+                    messages.error(request, "V2 tracking is not active. Please try again after activation.")
+                    return redirect("fieldrep_share_collateral")
+
+                personalized_link = _link_with_share_id(selected_collateral["link"], share_uuid)
+                message = get_brand_specific_message(
+                    collateral_id_int,
+                    selected_collateral["name"],
+                    personalized_link,
+                    brand_campaign_id=brand_campaign_id,
+                    message_kind=message_kind,
+                )
+                create_direct_share_tracking_v2(
+                    short_link_id=short_link.id,
+                    collateral_id=collateral_id_int,
+                    field_rep_id=int(rep.id),
+                    field_rep_email=(rep.user.email or ""),
+                    doctor_identifier=phone_e164,
+                    share_channel="WhatsApp",
+                    share_timestamp=sent_at,
+                    message_text=message,
+                    brand_campaign_id=stored_brand_campaign_id,
+                    doctor_name=doctor_name or "",
+                    field_rep_unique_id=(rep.brand_supplied_field_rep_id or ""),
+                    share_event_uuid=share_uuid,
+                )
+
+                wa_number = re.sub(r"\D", "", phone_e164).lstrip("+")
+                wa_url = f"https://wa.me/{wa_number}?text={urllib.parse.quote(message)}"
+                return redirect(wa_url)
+
             sl = ShareLog.objects.create(
                 short_link=short_link,
                 collateral=collateral_obj,
@@ -2817,6 +2977,62 @@ def fieldrep_gmail_share_collateral(request, brand_campaign_id=None):
             brand_campaign_id=brand_campaign_id,
             message_kind=message_kind,
         )
+
+        if _direct_v2_share_writes_enabled():
+            try:
+                from reporting_etl.runtime_v2 import create_direct_share_tracking_v2
+
+                stored_brand_campaign_id = canonical_brand_campaign_id(brand_campaign_id, sync_from_master=True)
+                sent_at = timezone.now()
+                share_uuid, _tx_uuid = create_direct_share_tracking_v2(
+                    short_link_id=short_link.id,
+                    collateral_id=collateral_id,
+                    field_rep_id=sharelog_field_rep_id or str(getattr(master_rep, "id", "") or ""),
+                    field_rep_email=field_rep_email or "",
+                    doctor_identifier=phone_e164,
+                    share_channel="WhatsApp",
+                    share_timestamp=sent_at,
+                    message_text=message,
+                    brand_campaign_id=stored_brand_campaign_id,
+                    doctor_name=doctor_name or "",
+                    field_rep_unique_id=field_rep_field_id or "",
+                )
+                if not share_uuid:
+                    messages.error(request, "V2 tracking is not active. Please try again after activation.")
+                    return redirect(request.path)
+
+                personalized_link = _link_with_share_id(selected_collateral["link"], share_uuid)
+                message = get_brand_specific_message(
+                    collateral_id,
+                    selected_collateral["name"],
+                    personalized_link,
+                    brand_campaign_id=brand_campaign_id,
+                    message_kind=message_kind,
+                )
+                create_direct_share_tracking_v2(
+                    short_link_id=short_link.id,
+                    collateral_id=collateral_id,
+                    field_rep_id=sharelog_field_rep_id or str(getattr(master_rep, "id", "") or ""),
+                    field_rep_email=field_rep_email or "",
+                    doctor_identifier=phone_e164,
+                    share_channel="WhatsApp",
+                    share_timestamp=sent_at,
+                    message_text=message,
+                    brand_campaign_id=stored_brand_campaign_id,
+                    doctor_name=doctor_name or "",
+                    field_rep_unique_id=field_rep_field_id or "",
+                    share_event_uuid=share_uuid,
+                )
+
+                wa_number = _re.sub(r"\D", "", phone_e164).lstrip("+")
+                wa_url = f"https://wa.me/{wa_number}?text={_up.quote(message)}"
+                print(f"[SMDBG] V2 direct share id={share_uuid}")
+                print(f"[SMDBG] FINAL wa_url={wa_url}")
+                return redirect(wa_url)
+            except Exception as e:
+                print("[SMDBG] V2 direct share ERROR:", e)
+                messages.error(request, "Unable to save V2 tracking for this send.")
+                return redirect(request.path)
 
         # ------------------------------------------------------------
         # IMPORTANT FIX: ensure ShareLog row exists with doctor_identifier
