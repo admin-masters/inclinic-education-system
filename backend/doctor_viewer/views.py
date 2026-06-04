@@ -90,6 +90,76 @@ def _last10_digits(value: str | None) -> str:
     return digits[-10:] if len(digits) >= 10 else digits
 
 
+def _tracking_debug_enabled() -> bool:
+    return bool(getattr(settings, "INCLINIC_V2_TRACKING_DEBUG", True))
+
+
+def _tracking_log(message: str, **kwargs) -> None:
+    if not _tracking_debug_enabled():
+        return
+
+    parts = []
+    for key, value in kwargs.items():
+        try:
+            text = str(value)
+        except Exception:
+            text = "<unprintable>"
+        parts.append(f"{key}={text[:180]}")
+
+    suffix = f" {' '.join(parts)}" if parts else ""
+    print(f"[V2TRACK] {message}{suffix}", flush=True)
+
+
+def _client_ip(request) -> str:
+    forwarded_for = request.META.get("HTTP_X_FORWARDED_FOR", "")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return request.META.get("REMOTE_ADDR", "")
+
+
+def _request_tracking_meta(request) -> dict:
+    return {
+        "method": request.method,
+        "ip": _client_ip(request),
+        "ua": (request.META.get("HTTP_USER_AGENT") or "")[:140],
+        "purpose": request.META.get("HTTP_PURPOSE") or request.META.get("HTTP_SEC_PURPOSE") or "",
+        "sec_fetch_mode": request.META.get("HTTP_SEC_FETCH_MODE") or "",
+        "sec_fetch_dest": request.META.get("HTTP_SEC_FETCH_DEST") or "",
+    }
+
+
+def _is_preview_or_prefetch_request(request) -> tuple[bool, str]:
+    if request.method == "HEAD":
+        return True, "head"
+
+    purpose = (request.META.get("HTTP_PURPOSE") or request.META.get("HTTP_SEC_PURPOSE") or "").lower()
+    if "prefetch" in purpose or "preview" in purpose:
+        return True, f"purpose:{purpose}"
+
+    ua = (request.META.get("HTTP_USER_AGENT") or "").lower()
+    preview_markers = (
+        "facebookexternalhit",
+        "facebot",
+        "twitterbot",
+        "linkedinbot",
+        "slackbot",
+        "telegrambot",
+        "discordbot",
+        "googlebot",
+        "bingbot",
+        "crawler",
+        "spider",
+        "bot",
+        "preview",
+        "embedly",
+    )
+    for marker in preview_markers:
+        if marker in ua:
+            return True, f"user-agent:{marker}"
+
+    return False, ""
+
+
 def _collateral_campaign_id(collateral: Collateral) -> int | None:
     campaign_id = getattr(collateral, "campaign_id", None)
     if campaign_id:
@@ -260,7 +330,8 @@ def _mark_share_tracking_viewed_by_id(share_id, debug_prefix: str):
         try:
             from reporting_etl.runtime_v2 import mark_v2_tracking_event
 
-            mark_v2_tracking_event(share_id, event="viewed", when=timezone.now())
+            updated = mark_v2_tracking_event(share_id, event="viewed", when=timezone.now())
+            _tracking_log("v2_share_mark_viewed", share_id=share_id, updated=updated, source=debug_prefix)
             return _v2_share_proxy(share_id)
         except Exception as e:
             print(f"[{debug_prefix}] mark v2 viewed failed:", e)
@@ -527,6 +598,15 @@ def resolve_view(request, code: str):
     # So DO NOT use ShareLog.objects.get()/filter().first() here.
     # ---------------------------------------------------------
     share_id = request.GET.get("share_id") or request.GET.get("s")
+    is_preview, preview_reason = _is_preview_or_prefetch_request(request)
+    _tracking_log(
+        "resolve_view",
+        short_code=code,
+        share_id=share_id or "",
+        preview=is_preview,
+        preview_reason=preview_reason,
+        **_request_tracking_meta(request),
+    )
 
     sl = None
     try:
@@ -551,7 +631,13 @@ def resolve_view(request, code: str):
                 )
                 sl = rows[0] if rows else None
             elif share_id:
-                sl = _mark_share_tracking_viewed_by_id(share_id, "VIEW DEBUG")
+                sl = _v2_share_proxy(share_id)
+                _tracking_log(
+                    "v2_share_context_loaded",
+                    share_id=share_id,
+                    found=bool(sl),
+                    note="resolve keeps status sent until browser tracking POST",
+                )
 
         if sl is None:
             rows = list(
@@ -572,7 +658,14 @@ def resolve_view(request, code: str):
         if sl:
             if _is_legacy_share_id(getattr(sl, "id", None)):
                 sl = _prepare_sharelog_for_tracking(sl)
-                _mark_prepared_sharelog_viewed(sl, "VIEW DEBUG")
+                if is_preview:
+                    _tracking_log(
+                        "legacy_share_preview_skip_viewed",
+                        share_id=getattr(sl, "id", ""),
+                        reason=preview_reason,
+                    )
+                else:
+                    _mark_prepared_sharelog_viewed(sl, "VIEW DEBUG")
             request.session["share_id"] = sl.id
 
     except Exception as e:
@@ -606,6 +699,14 @@ def log_engagement(request):
 
     engagement_id_raw = data.get("engagement_id")
     share_id = data.get("share_id") or request.session.get("share_id")
+
+    _tracking_log(
+        "log_engagement_received",
+        event=event,
+        engagement_id=engagement_id_raw or "",
+        share_id=share_id or "",
+        **_request_tracking_meta(request),
+    )
 
     if not engagement_id_raw or not event:
         return JsonResponse({"ok": False, "error": "engagement_id and event are required"}, status=400)
@@ -730,7 +831,7 @@ def log_engagement(request):
             if not _is_legacy_share_id(share_id):
                 from reporting_etl.runtime_v2 import mark_v2_tracking_event
 
-                mark_v2_tracking_event(
+                updated = mark_v2_tracking_event(
                     share_id,
                     event=event,
                     last_page=int(engagement.last_page_scrolled or 0),
@@ -739,6 +840,16 @@ def log_engagement(request):
                     total_pages=pdf_total_pages,
                     percentage=int(engagement.video_watch_percentage or 0),
                     when=timezone.now(),
+                )
+                _tracking_log(
+                    "v2_log_event_applied",
+                    share_id=share_id,
+                    event=event,
+                    updated=updated,
+                    engagement_id=engagement.id,
+                    last_page=int(engagement.last_page_scrolled or 0),
+                    pdf_completed=bool(engagement.pdf_completed),
+                    video_pct=int(engagement.video_watch_percentage or 0),
                 )
                 return JsonResponse({"ok": True, "event": event})
 
